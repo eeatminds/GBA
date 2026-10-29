@@ -8,6 +8,7 @@ pluginManagement {
 }
 
 include(
+    ":libretrodroid",
     ":retrograde-util",
     ":retrograde-app-shared",
     ":lemuroid-touchinput",
