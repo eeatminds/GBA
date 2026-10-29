@@ -77,8 +77,8 @@ fun HomeScreen(
             permissionsLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         },
         { permissionsLauncher.launch(Manifest.permission.RECORD_AUDIO) },
-        { viewModel.changeLocalStorageFolder(context) },
-    ) // TODO COMPOSE We need to understand what's going to happen here.
+        { viewModel.addGames(context) },
+    )
 }
 
 @Composable
@@ -90,7 +90,7 @@ private fun HomeScreen(
     onOpenCoreSelection: () -> Unit,
     onEnableNotificationsClicked: () -> Unit,
     onEnableMicrophoneClicked: () -> Unit,
-    onSetDirectoryClicked: () -> Unit,
+    onAddGamesClicked: () -> Unit,
 ) {
     Column(
         modifier =
@@ -112,7 +112,7 @@ private fun HomeScreen(
                 titleId = R.string.home_empty_title,
                 messageId = R.string.home_empty_message,
                 actionId = R.string.home_empty_action,
-                onAction = onSetDirectoryClicked,
+                onAction = onAddGamesClicked,
                 enabled = !state.indexInProgress,
             )
         }
@@ -132,21 +132,16 @@ private fun HomeScreen(
                 onAction = onOpenCoreSelection,
             )
         }
+        // Every added game shows up here, ready to play with one tap.
         HomeRow(
-            stringResource(id = R.string.recent),
-            state.recentGames,
+            stringResource(id = R.string.home_my_games),
+            state.myGames,
             onGameClicked,
             onGameLongClick,
         )
         HomeRow(
             stringResource(id = R.string.favorites),
             state.favoritesGames,
-            onGameClicked,
-            onGameLongClick,
-        )
-        HomeRow(
-            stringResource(id = R.string.discover),
-            state.discoveryGames,
             onGameClicked,
             onGameLongClick,
         )

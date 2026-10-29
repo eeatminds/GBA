@@ -57,7 +57,7 @@ class StorageFrameworkPickerLauncher : RetrogradeActivity() {
             val newValue = resultData?.data
 
             if (newValue != null && newValue.toString() != currentValue) {
-                updatePersistableUris(newValue)
+                updatePersistableUris(newValue, currentValue)
 
                 sharedPreferences.edit().apply {
                     this.putString(preferenceKey, newValue.toString())
@@ -70,10 +70,14 @@ class StorageFrameworkPickerLauncher : RetrogradeActivity() {
         finish()
     }
 
-    private fun updatePersistableUris(uri: Uri) {
+    private fun updatePersistableUris(
+        uri: Uri,
+        previousFolder: String?,
+    ) {
+        // Only release the previous folder: games added one by one keep their own access.
         contentResolver.persistedUriPermissions
             .filter { it.isReadPermission }
-            .filter { it.uri != uri }
+            .filter { it.uri != uri && it.uri.toString() == previousFolder }
             .forEach {
                 contentResolver.releasePersistableUriPermission(
                     it.uri,

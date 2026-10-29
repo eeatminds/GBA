@@ -17,7 +17,7 @@ import com.swordfish.lemuroid.lib.storage.RomFiles
 import com.swordfish.lemuroid.lib.storage.StorageFile
 import com.swordfish.lemuroid.lib.storage.StorageProvider
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
 import java.io.File
@@ -35,10 +35,34 @@ class StorageAccessFrameworkProvider(private val context: Context) : StorageProv
 
     override val enabledByDefault = true
 
-    override fun listBaseStorageFiles(): Flow<List<BaseStorageFile>> {
-        return getExternalFolder()?.let { folder ->
-            traverseDirectoryEntries(Uri.parse(folder))
-        } ?: emptyFlow()
+    override fun listBaseStorageFiles(): Flow<List<BaseStorageFile>> =
+        flow {
+            // Games from the chosen folder ("Add game folder")...
+            getExternalFolder()?.let { folder -> emitAll(traverseDirectoryEntries(Uri.parse(folder))) }
+            // ...and games added one by one ("Add a game").
+            emit(listPickedFiles())
+        }
+
+    private fun listPickedFiles(): List<BaseStorageFile> {
+        val projection =
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_SIZE,
+            )
+        return PickedGameFiles.getAll(context).mapNotNull { uri ->
+            // Files that were deleted, or whose access was revoked, simply drop out of the library.
+            runCatching {
+                context.contentResolver.query(uri, projection, null, null, null)?.use {
+                    if (!it.moveToFirst()) return@use null
+                    BaseStorageFile(
+                        name = it.getString(0),
+                        size = it.getLong(1),
+                        uri = uri,
+                        path = uri.path,
+                    )
+                }
+            }.onFailure { Timber.w(it, "Cannot read picked game file $uri") }.getOrNull()
+        }
     }
 
     override fun getStorageFile(baseStorageFile: BaseStorageFile): StorageFile? {

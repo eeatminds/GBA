@@ -30,6 +30,7 @@ import com.swordfish.lemuroid.app.mobile.feature.favorites.FavoritesScreen
 import com.swordfish.lemuroid.app.mobile.feature.favorites.FavoritesViewModel
 import com.swordfish.lemuroid.app.mobile.feature.games.GamesScreen
 import com.swordfish.lemuroid.app.mobile.feature.games.GamesViewModel
+import com.swordfish.lemuroid.app.mobile.feature.home.AddGamesButton
 import com.swordfish.lemuroid.app.mobile.feature.home.HomeScreen
 import com.swordfish.lemuroid.app.mobile.feature.home.HomeViewModel
 import com.swordfish.lemuroid.app.mobile.feature.online.OnlineScreen
@@ -60,7 +61,9 @@ import com.swordfish.lemuroid.app.shared.main.BusyActivity
 import com.swordfish.lemuroid.app.shared.main.GameLaunchTaskHandler
 import com.swordfish.lemuroid.app.shared.online.OnlineGameLauncher
 import com.swordfish.lemuroid.app.shared.online.OnlineSettings
+import com.swordfish.lemuroid.app.shared.settings.GameFilePickerLauncher
 import com.swordfish.lemuroid.app.shared.settings.SettingsInteractor
+import com.swordfish.lemuroid.app.shared.settings.StorageFrameworkPickerLauncher
 import com.swordfish.lemuroid.common.coroutines.safeLaunch
 import com.swordfish.lemuroid.ext.feature.review.ReviewManager
 import com.swordfish.lemuroid.lib.android.RetrogradeComponentActivity
@@ -202,6 +205,15 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                     )
                 },
                 bottomBar = { MainNavigationBar(currentRoute, navController) },
+                floatingActionButton = {
+                    if (currentRoute == MainRoute.HOME) {
+                        AddGamesButton(
+                            onAddGame = { GameFilePickerLauncher.pickFiles(this@MainActivity) },
+                            onAddFolder = { StorageFrameworkPickerLauncher.pickFolder(this@MainActivity) },
+                            onHelp = { infoDialogDisplayed.value = true },
+                        )
+                    }
+                },
             ) { padding ->
                 NavHost(
                     modifier = Modifier.fillMaxSize(),
