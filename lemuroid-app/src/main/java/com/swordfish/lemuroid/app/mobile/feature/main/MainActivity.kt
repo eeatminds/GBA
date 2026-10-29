@@ -4,6 +4,14 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import com.swordfish.lemuroid.lib.storage.local.PickedGameFiles
+import com.swordfish.lemuroid.common.displayToast
+import com.swordfish.lemuroid.app.shared.library.GameSaveFiles
+import androidx.lifecycle.lifecycleScope
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -112,6 +120,64 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
 
     @Inject
     lateinit var onlineGameLauncher: OnlineGameLauncher
+
+    @Inject
+    lateinit var directoriesManager: DirectoriesManager
+
+    private val gameSaveFiles by lazy { GameSaveFiles(directoriesManager) }
+
+    // Game whose save is being exported or imported while the system file picker is open.
+    private var pendingSaveGame: Game? = null
+
+    // Game waiting for "erase save" confirmation.
+    private val eraseSaveGame = mutableStateOf<Game?>(null)
+
+    private val exportSaveLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+            val game = pendingSaveGame ?: return@registerForActivityResult
+            pendingSaveGame = null
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch {
+                val ok = gameSaveFiles.export(applicationContext, game, uri)
+                displayToast(if (ok) R.string.save_exported else R.string.save_export_failed)
+            }
+        }
+
+    private val importSaveLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val game = pendingSaveGame ?: return@registerForActivityResult
+            pendingSaveGame = null
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch {
+                val ok = gameSaveFiles.import(applicationContext, game, uri)
+                displayToast(if (ok) R.string.save_imported else R.string.save_import_failed)
+            }
+        }
+
+    private fun exportSave(game: Game) {
+        if (!gameSaveFiles.hasSave(game)) {
+            displayToast(R.string.save_none)
+            return
+        }
+        pendingSaveGame = game
+        exportSaveLauncher.launch(gameSaveFiles.exportName(game))
+    }
+
+    private fun importSave(game: Game) {
+        pendingSaveGame = game
+        importSaveLauncher.launch(arrayOf("*/*"))
+    }
+
+    private fun isAddedFile(game: Game): Boolean = PickedGameFiles.contains(applicationContext, Uri.parse(game.fileUri))
+
+    private fun removeGame(game: Game) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val uri = Uri.parse(game.fileUri)
+            PickedGameFiles.remove(applicationContext, uri)
+            runCatching { contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            retrogradeDb.gameDao().delete(listOf(game))
+        }
+    }
 
     // Room code from an invite link, consumed by the Online screen.
     private val pendingInviteCode = mutableStateOf<String?>(null)
@@ -406,15 +472,41 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                 shortcutSupported = gameInteractor.supportShortcuts(),
                 onGamePlay = { gameInteractor.onGamePlay(it) },
                 onGameRestart = { gameInteractor.onGameRestart(it) },
-                onFavoriteToggle = { game: Game, isFavorite: Boolean ->
-                    gameInteractor.onFavoriteToggle(game, isFavorite)
-                },
+                onExportSave = ::exportSave,
+                onImportSave = ::importSave,
+                onEraseSave = { eraseSaveGame.value = it },
+                canRemoveGame = ::isAddedFile,
+                onRemoveGame = ::removeGame,
                 onCreateShortcut = { gameInteractor.onCreateShortcut(it) },
                 onSetCustomName = { game, name -> gameInteractor.onSetCustomName(game, name) },
                 onClearCustomName = { game -> gameInteractor.onClearCustomName(game) },
                 onSetCustomCoverUri = { game, uri -> gameInteractor.onSetCustomCoverUri(game, uri) },
                 onClearCustomCoverUri = { game -> gameInteractor.onClearCustomCoverUri(game) },
             )
+
+            eraseSaveGame.value?.let { game ->
+                AlertDialog(
+                    onDismissRequest = { eraseSaveGame.value = null },
+                    title = { androidx.compose.material3.Text(getString(R.string.save_erase_title)) },
+                    text = { androidx.compose.material3.Text(getString(R.string.save_erase_message, game.customName ?: game.title)) },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                eraseSaveGame.value = null
+                                lifecycleScope.launch {
+                                    gameSaveFiles.erase(game)
+                                    displayToast(R.string.save_erased)
+                                }
+                            },
+                        ) { androidx.compose.material3.Text(getString(R.string.save_erase_confirm)) }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = { eraseSaveGame.value = null }) {
+                            androidx.compose.material3.Text(getString(R.string.online_cancel))
+                        }
+                    },
+                )
+            }
 
             if (infoDialogDisplayed.value) {
                 val message =

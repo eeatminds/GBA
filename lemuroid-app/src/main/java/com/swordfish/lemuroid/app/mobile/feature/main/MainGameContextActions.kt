@@ -27,8 +27,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AppShortcut
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
@@ -70,7 +72,11 @@ fun MainGameContextActions(
     shortcutSupported: Boolean,
     onGamePlay: (Game) -> Unit,
     onGameRestart: (Game) -> Unit,
-    onFavoriteToggle: (Game, Boolean) -> Unit,
+    onExportSave: (Game) -> Unit,
+    onImportSave: (Game) -> Unit,
+    onEraseSave: (Game) -> Unit,
+    canRemoveGame: (Game) -> Boolean,
+    onRemoveGame: (Game) -> Unit,
     onCreateShortcut: (Game) -> Unit,
     onSetCustomName: (Game, String) -> Unit,
     onClearCustomName: (Game) -> Unit,
@@ -98,7 +104,11 @@ fun MainGameContextActions(
                 onGamePlay = onGamePlay,
                 selectedGameState = selectedGameState,
                 onGameRestart = onGameRestart,
-                onFavoriteToggle = onFavoriteToggle,
+                onExportSave = onExportSave,
+                onImportSave = onImportSave,
+                onEraseSave = onEraseSave,
+                canRemoveGame = canRemoveGame,
+                onRemoveGame = onRemoveGame,
                 shortcutSupported = shortcutSupported,
                 onCreateShortcut = onCreateShortcut,
                 onSetCustomName = onSetCustomName,
@@ -116,7 +126,11 @@ private fun ContextActionContent(
     onGamePlay: (Game) -> Unit,
     selectedGameState: MutableState<Game?>,
     onGameRestart: (Game) -> Unit,
-    onFavoriteToggle: (Game, Boolean) -> Unit,
+    onExportSave: (Game) -> Unit,
+    onImportSave: (Game) -> Unit,
+    onEraseSave: (Game) -> Unit,
+    canRemoveGame: (Game) -> Boolean,
+    onRemoveGame: (Game) -> Unit,
     shortcutSupported: Boolean,
     onCreateShortcut: (Game) -> Unit,
     onSetCustomName: (Game, String) -> Unit,
@@ -170,25 +184,30 @@ private fun ContextActionContent(
             },
         )
 
-        if (selectedGame.isFavorite) {
-            ContextActionEntry(
-                label = stringResource(id = R.string.game_context_menu_remove_from_favorites),
-                icon = Icons.Default.FavoriteBorder,
-                onClick = {
-                    onFavoriteToggle(selectedGame, false)
-                    selectedGameState.value = null
-                },
-            )
-        } else {
-            ContextActionEntry(
-                label = stringResource(id = R.string.game_context_menu_add_to_favorites),
-                icon = Icons.Default.Favorite,
-                onClick = {
-                    onFavoriteToggle(selectedGame, true)
-                    selectedGameState.value = null
-                },
-            )
-        }
+        ContextActionEntry(
+            label = stringResource(id = R.string.game_context_export_save),
+            icon = Icons.Default.Upload,
+            onClick = {
+                onExportSave(selectedGame)
+                selectedGameState.value = null
+            },
+        )
+        ContextActionEntry(
+            label = stringResource(id = R.string.game_context_import_save),
+            icon = Icons.Default.Download,
+            onClick = {
+                onImportSave(selectedGame)
+                selectedGameState.value = null
+            },
+        )
+        ContextActionEntry(
+            label = stringResource(id = R.string.game_context_erase_save),
+            icon = Icons.Default.DeleteSweep,
+            onClick = {
+                onEraseSave(selectedGame)
+                selectedGameState.value = null
+            },
+        )
 
         if (shortcutSupported) {
             ContextActionEntry(
@@ -235,6 +254,17 @@ private fun ContextActionContent(
                 icon = Icons.Default.Image,
                 onClick = {
                     imagePickerLauncher.launch("image/*")
+                },
+            )
+        }
+
+        if (canRemoveGame(selectedGame)) {
+            ContextActionEntry(
+                label = stringResource(id = R.string.game_context_remove_game),
+                icon = Icons.Default.Delete,
+                onClick = {
+                    onRemoveGame(selectedGame)
+                    selectedGameState.value = null
                 },
             )
         }

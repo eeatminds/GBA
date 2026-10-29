@@ -6,6 +6,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,29 +56,23 @@ fun GameMenuHomeScreen(
             )
         }
 
-        LemuroidSettingsMenuLink(
-            title = { Text(text = stringResource(id = R.string.game_menu_quit)) },
-            icon = {
-                Icon(
-                    painterResource(R.drawable.ic_menu_quit),
-                    contentDescription = stringResource(id = R.string.game_menu_quit),
-                )
-            },
-            onClick = {
-                onResult { putExtra(GameMenuContract.RESULT_QUIT, true) }
-            },
-        )
+        if (gameMenuRequest.cheatsSupported) {
+            LemuroidSettingsMenuLink(
+                title = { Text(text = stringResource(id = R.string.game_menu_cheats)) },
+                icon = {
+                    Icon(Icons.Outlined.AutoFixHigh, contentDescription = stringResource(id = R.string.game_menu_cheats))
+                },
+                onClick = { navController.navigateToRoute(GameMenuRoute.CHEATS) },
+            )
+        }
 
         LemuroidSettingsMenuLink(
-            title = { Text(text = stringResource(id = R.string.game_menu_restart)) },
+            title = { Text(text = stringResource(id = R.string.game_menu_screenshot)) },
             icon = {
-                Icon(
-                    painterResource(R.drawable.ic_menu_restart),
-                    contentDescription = stringResource(id = R.string.game_menu_restart),
-                )
+                Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(id = R.string.game_menu_screenshot))
             },
             onClick = {
-                onResult { putExtra(GameMenuContract.RESULT_RESET, true) }
+                onResult { putExtra(GameMenuContract.RESULT_SCREENSHOT, true) }
             },
         )
 
@@ -184,5 +180,32 @@ fun GameMenuHomeScreen(
                 },
             )
         }
+
+
+        LemuroidSettingsMenuLink(
+            title = { Text(text = stringResource(id = R.string.game_menu_restart)) },
+            icon = {
+                Icon(
+                    painterResource(R.drawable.ic_menu_restart),
+                    contentDescription = stringResource(id = R.string.game_menu_restart),
+                )
+            },
+            onClick = {
+                onResult { putExtra(GameMenuContract.RESULT_RESET, true) }
+            },
+        )
+
+        LemuroidSettingsMenuLink(
+            title = { Text(text = stringResource(id = R.string.game_menu_quit)) },
+            icon = {
+                Icon(
+                    painterResource(R.drawable.ic_menu_quit),
+                    contentDescription = stringResource(id = R.string.game_menu_quit),
+                )
+            },
+            onClick = {
+                onResult { putExtra(GameMenuContract.RESULT_QUIT, true) }
+            },
+        )
     }
 }

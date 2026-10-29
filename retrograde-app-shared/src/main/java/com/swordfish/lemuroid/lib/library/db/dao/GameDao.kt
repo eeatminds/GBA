@@ -58,6 +58,12 @@ interface GameDao {
     @Query("SELECT * FROM games WHERE isFavorite = 1 ORDER BY lastPlayedAt DESC LIMIT :limit")
     fun selectFirstFavorites(limit: Int): Flow<List<Game>>
 
+    @Query("SELECT * FROM games ORDER BY COALESCE(customName, title) COLLATE NOCASE ASC, id DESC")
+    fun selectAllGames(): Flow<List<Game>>
+
+    @Query("SELECT * FROM games WHERE lastPlayedAt IS NOT NULL ORDER BY lastPlayedAt DESC LIMIT :limit")
+    fun selectRecentlyPlayed(limit: Int): Flow<List<Game>>
+
     // Every game, most recently played first, then the rest by name.
     @Query(
         "SELECT * FROM games ORDER BY lastPlayedAt IS NULL, lastPlayedAt DESC, COALESCE(customName, title) ASC LIMIT :limit",

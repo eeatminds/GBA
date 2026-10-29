@@ -53,6 +53,6 @@ class StatesPreviewManager(private val directoriesManager: DirectoriesManager) {
     ) = "${game.fileName}.slot${index + 1}.jpg"
 
     companion object {
-        val PREVIEW_SIZE_DP = 96f
+        val PREVIEW_SIZE_DP = 160f
     }
 }

@@ -15,6 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import com.swordfish.lemuroid.app.shared.cheats.CheatsManager
+import com.swordfish.lemuroid.common.graphics.takeScreenshot
+import kotlinx.coroutines.Dispatchers
+import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.mobile.feature.game.GameActivity
 import com.swordfish.lemuroid.app.mobile.feature.game.GameService
 import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
@@ -96,7 +100,12 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     private val startGameTime = System.currentTimeMillis()
 
     // Set when the game was started from an online room.
+    private var onlineConfig: OnlineConfig? = null
     private var onlineSession: OnlineSession? = null
+
+    // Cheats would make players' games differ in "play together" rooms.
+    private val cheatsAllowed: Boolean
+        get() = onlineConfig?.kind != RoomKind.NETPLAY
     private var finishTriggered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,6 +139,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         lifecycle.addObserver(baseGameScreenViewModel)
 
         val onlineConfig = intent.getSerializableExtra(EXTRA_ONLINE_CONFIG) as? OnlineConfig
+        this.onlineConfig = onlineConfig
         val session = onlineConfig?.let { OnlineSession(it, lifecycleScope) }
         onlineSession = session
         if (onlineConfig != null && onlineConfig.kind == RoomKind.NETPLAY && !onlineConfig.isHost) {
@@ -149,12 +159,11 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             }
         }
 
-        if (session != null) {
-            lifecycleScope.launch {
-                // The core registers its link interface while the game loads.
-                baseGameScreenViewModel.retroGameView.waitRetroGameViewInitialized()
-                session.start()
-            }
+        lifecycleScope.launch {
+            baseGameScreenViewModel.retroGameView.waitRetroGameViewInitialized()
+            applyCheats()
+            // The core registers its link interface while the game loads.
+            session?.start()
         }
 
         lifecycleScope.launch {
@@ -234,6 +243,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                     baseGameScreenViewModel.retroGameView.retroGameView?.getAvailableDisks() ?: 0,
                 )
                 this.putExtra(GameMenuContract.EXTRA_GAME, game)
+                this.putExtra(GameMenuContract.EXTRA_CHEATS_SUPPORTED, cheatsAllowed)
                 this.putExtra(GameMenuContract.EXTRA_SYSTEM_CORE_CONFIG, systemCoreConfig)
                 this.putExtra(
                     GameMenuContract.EXTRA_AUDIO_ENABLED,
@@ -392,6 +402,36 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         super.onDestroy()
     }
 
+    private fun applyCheats() {
+        if (!cheatsAllowed) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val view = baseGameScreenViewModel.retroGameView.retroGameView ?: return@launch
+            val cheats = CheatsManager(applicationContext).getCheats(game).filter { it.enabled }
+            runCatching {
+                view.resetCheats()
+                cheats.forEachIndexed { index, cheat -> view.setCheat(index, true, cheat.coreCode) }
+            }.onFailure { Timber.e(it, "Could not apply cheats") }
+        }
+    }
+
+    private fun takeScreenshot() {
+        lifecycleScope.launch {
+            // Let the menu close so it is not in the picture.
+            delay(400)
+            val view = baseGameScreenViewModel.retroGameView.retroGameView ?: return@launch
+            val bitmap = view.takeScreenshot(SCREENSHOT_MAX_SIZE, 3)
+            val saved =
+                bitmap != null &&
+                    ScreenshotSaver.save(
+                        applicationContext,
+                        bitmap,
+                        game.customName ?: game.title,
+                        getString(R.string.lemuroid_name),
+                    )
+            displayToast(if (saved) R.string.screenshot_saved else R.string.screenshot_failed)
+        }
+    }
+
     override fun onActivityResult(
         requestCode: Int,
         resultCode: Int,
@@ -400,6 +440,11 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == DIALOG_REQUEST) {
             Timber.i("Game menu dialog response: ${data?.extras.dump()}")
+            // Cheats may have been changed in the menu.
+            applyCheats()
+            if (data?.getBooleanExtra(GameMenuContract.RESULT_SCREENSHOT, false) == true) {
+                takeScreenshot()
+            }
             if (data?.getBooleanExtra(GameMenuContract.RESULT_RESET, false) == true) {
                 GlobalScope.launch {
                     baseGameScreenViewModel.reset()
@@ -459,6 +504,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         private const val EXTRA_LEANBACK = "LEANBACK"
         private const val EXTRA_SYSTEM_CORE_CONFIG = "EXTRA_SYSTEM_CORE_CONFIG"
         private const val EXTRA_ONLINE_CONFIG = "EXTRA_ONLINE_CONFIG"
+        private const val SCREENSHOT_MAX_SIZE = 1280
 
         const val REQUEST_PLAY_GAME = 1001
         const val PLAY_GAME_RESULT_SESSION_DURATION = "PLAY_GAME_RESULT_SESSION_DURATION"
