@@ -262,8 +262,11 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                         OnlineScreen(
                             modifier = Modifier.padding(padding),
                             viewModel = onlineViewModel,
-                            onHost = { game, mode, isPublic, playerName, serverUrl ->
-                                onlineGameLauncher.host(this@MainActivity, game, mode, isPublic, playerName, serverUrl)
+                            onHostLink = { game, mode, isPublic, playerName, serverUrl ->
+                                onlineGameLauncher.hostLink(this@MainActivity, game, mode, isPublic, playerName, serverUrl)
+                            },
+                            onHostNetplay = { game, delay, isPublic, playerName, serverUrl ->
+                                onlineGameLauncher.hostNetplay(this@MainActivity, game, delay, isPublic, playerName, serverUrl)
                             },
                             onJoin = { game, room, playerName, serverUrl ->
                                 onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)

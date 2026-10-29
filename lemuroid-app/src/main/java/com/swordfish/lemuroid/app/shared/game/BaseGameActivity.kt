@@ -28,6 +28,7 @@ import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
 import com.swordfish.lemuroid.app.shared.online.OnlineConfig
 import com.swordfish.lemuroid.app.shared.online.OnlineSession
 import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
+import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
 import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
 import com.swordfish.lemuroid.app.tv.game.TVGameActivity
@@ -131,6 +132,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         val onlineConfig = intent.getSerializableExtra(EXTRA_ONLINE_CONFIG) as? OnlineConfig
         val session = onlineConfig?.let { OnlineSession(it, lifecycleScope) }
         onlineSession = session
+        if (onlineConfig != null && onlineConfig.kind == RoomKind.NETPLAY && !onlineConfig.isHost) {
+            baseGameScreenViewModel.disableSavePersistence()
+        }
 
         setContent {
             AppTheme {

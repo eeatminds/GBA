@@ -12,7 +12,26 @@ export const MODES = {
   aw2: { label: 'Link cable (Advance Wars 2)', maxPlayers: 4 },
 };
 
-export const SYSTEMS = new Set(['gba']);
+// "link" rooms connect separate GBAs (trading, battles). "netplay" rooms run one game
+// for everyone, with inputs synced between players.
+export const KINDS = new Set(['link', 'netplay']);
+
+// Systems that support "play together" rooms, with their player limit.
+export const NETPLAY_SYSTEMS = {
+  nes: 2,
+  snes: 2,
+  md: 2,
+  sms: 2,
+  gg: 2,
+  scd: 2,
+  pce: 2,
+  atari2600: 2,
+  atari7800: 2,
+  psx: 2,
+  n64: 4,
+  fbneo: 4,
+  mame2003plus: 4,
+};
 
 // No 0/O/1/I/L so codes are easy to read out loud.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -75,21 +94,34 @@ export class RoomRegistry {
     if (this.rooms.size >= this.maxRooms) {
       throw new RoomError('server_full', 'The server is full right now. Try again later.');
     }
+    const kind = KINDS.has(request.kind) ? request.kind : 'link';
     const system = typeof request.system === 'string' ? request.system : 'gba';
-    if (!SYSTEMS.has(system)) throw new RoomError('bad_request', 'This system does not support online rooms yet.');
+    const requestedMax = Number.isInteger(request.maxPlayers) ? request.maxPlayers : undefined;
 
-    const modeKey = typeof request.mode === 'string' && MODES[request.mode] ? request.mode : 'auto';
-    const mode = MODES[modeKey];
-    const requestedMax = Number.isInteger(request.maxPlayers) ? request.maxPlayers : mode.maxPlayers;
-    const maxPlayers = Math.max(2, Math.min(mode.maxPlayers, requestedMax));
+    let modeKey = 'auto';
+    let systemLimit;
+    if (kind === 'link') {
+      if (system !== 'gba') throw new RoomError('bad_request', 'This system does not support online rooms yet.');
+      modeKey = typeof request.mode === 'string' && MODES[request.mode] ? request.mode : 'auto';
+      systemLimit = MODES[modeKey].maxPlayers;
+    } else {
+      systemLimit = NETPLAY_SYSTEMS[system];
+      if (!systemLimit) throw new RoomError('bad_request', 'This system does not support online rooms yet.');
+    }
+    const maxPlayers = Math.max(2, Math.min(systemLimit, requestedMax ?? systemLimit));
+    const core = typeof request.core === 'string' ? request.core.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 40) : '';
+    const delay = Number.isInteger(request.delay) ? Math.max(1, Math.min(15, request.delay)) : 4;
 
     const code = this.newCode();
     const host = { id: 0, name: cleanName(request.name, 'Player 1'), connection };
     const room = {
       code,
+      kind,
       system,
+      core,
+      delay,
       mode: modeKey,
-      game: cleanText(request.game, MAX_GAME_LENGTH) || 'Game Boy Advance',
+      game: cleanText(request.game, MAX_GAME_LENGTH) || 'Game',
       isPublic: request.public === true,
       protocol: typeof request.protocol === 'string' ? request.protocol.slice(0, 64) : '',
       maxPlayers,
@@ -156,7 +188,10 @@ export class RoomRegistry {
 export function describeRoom(room) {
   return {
     code: room.code,
+    kind: room.kind,
     system: room.system,
+    core: room.core,
+    delay: room.delay,
     mode: room.mode,
     modeLabel: MODES[room.mode].label,
     game: room.game,

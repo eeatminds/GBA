@@ -1,21 +1,42 @@
-# Lemuroid
+# RetroLink
 
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-     alt="Get it on F-Droid"
-     height="80">](https://f-droid.org/packages/com.swordfish.lemuroid/)
-[<img src="https://play.google.com/intl/en_us/badges/images/generic/en-play-badge.png"
-     alt="Get it on Google Play"
-     height="80">](https://play.google.com/store/apps/details?id=com.swordfish.lemuroid)
+RetroLink is a free, open-source retro game emulator for Android with online play.
+It is based on [Lemuroid](https://github.com/Swordfish90/Lemuroid) by Filippo Scognamiglio
+and uses [libretro](https://www.libretro.com/) cores.
 
-## Description
+## What's new in RetroLink
 
-Lemuroid is an open-source emulation project for Android based on Libretro. Its main goal is ease of use, good Android integration and a great user experience.
+- **Online "Play together" rooms**: 2 to 4 players play one multiplayer game over the internet
+  (NES, SNES, Mega Drive/Genesis, Master System, Game Gear, Sega CD, PC Engine, Atari 2600/7800,
+  PlayStation, N64 and arcade). Every phone runs the game in lockstep, inputs are exchanged each
+  frame, and the host resends its game state if players drift apart.
+- **Online "Trade & battle" rooms**: link Game Boy Advance games over the internet, as with a link
+  cable or wireless adapter, using the [gpSP](https://github.com/libretro/gpsp) core's network link.
+- Public rooms, private rooms with a 6-letter code, invite links and room reports.
+- A small room server (`server/`) you can host for free.
 
-It originated from a rib of [Retrograde](https://github.com/retrograde/retrograde-android), but graduated to a standalone project integrating [LibretroDroid](https://github.com/Swordfish90/LibretroDroid).
+## Building
 
-|Screen 1|Screen 2|Screen 3|
-|---|---|---|
-|![Screen1](https://github.com/Swordfish90/Lemuroid/blob/master/fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg)|![Screen2](https://github.com/Swordfish90/Lemuroid/blob/master/fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg)|![Screen3](https://github.com/Swordfish90/Lemuroid/blob/master/fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg)|
+```bash
+git submodule update --init --depth 1
+```
+
+```bash
+./gradlew :lemuroid-app:assemblePlayBundleDebug
+```
+
+Add `-Papp.abiFilters=arm64-v8a` for a smaller APK that runs on most phones. See
+`docs/PUBLISHING.md` for release builds and the Play Store, and `server/README.md` for the room server.
+
+## Tests
+
+```bash
+libretrodroid/src/test/cpp/run_tests.sh
+```
+
+```bash
+cd server && npm test
+```
 
 ### Supported Systems:
 - Atari 2600 (A26) ([stella](https://docs.libretro.com/library/stella/))
@@ -42,20 +63,15 @@ It originated from a rib of [Retrograde](https://github.com/retrograde/retrograd
 - WonderSwan Color (WSC) ([beetle_cygne](https://docs.libretro.com/library/beetle_cygne/))
 - Nintendo 3DS (3DS) ([citra](https://docs.libretro.com/library/citra/))
 
-### Features:
-- Android TV support
-- Automatically save and restore game states.
-- ROMs scanning and indexing
-- Optimized touch controls
-- Quick save/load
-- Support for Zipped ROMs
-- Display simulation (LCD/CRT)
-- Gamepad support
-- Local multiplayer
-- Tilt input
-- Customizable touch controls (size and position)
-- Cloud save sync
-- HD mode
+## Credits and license
 
-### Languages:
-You can help translate Lemuroid in your native language by going here: https://crowdin.com/project/lemuroid
+RetroLink is licensed under the GNU General Public License v3.0 (see `COPYING`).
+
+- [Lemuroid](https://github.com/Swordfish90/Lemuroid), Copyright (C) Filippo Scognamiglio and contributors, GPL-3.0
+- [LibretroDroid](https://github.com/Swordfish90/LibretroDroid), Copyright (C) Filippo Scognamiglio, GPL-3.0
+  (vendored in `libretrodroid/` with added netpacket and netplay support)
+- [LemuroidCores](https://github.com/Swordfish90/LemuroidCores) and the libretro cores listed above, under their own licenses
+- [gpSP](https://github.com/libretro/gpsp), GPL-2.0-or-later (see `extra-cores/README.md`)
+- [Oboe](https://github.com/google/oboe), Apache-2.0, and [libretro-common](https://github.com/libretro/libretro-common), MIT
+
+RetroLink does not include any games or BIOS files.

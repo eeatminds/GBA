@@ -392,8 +392,9 @@ abstract class LemuroidApplicationModule {
         @JvmStatic
         fun onlineGameLauncher(
             coreUpdater: CoreUpdater,
+            coresSelection: CoresSelection,
             gameLaunchTaskHandler: GameLaunchTaskHandler,
-        ) = OnlineGameLauncher(coreUpdater, gameLaunchTaskHandler)
+        ) = OnlineGameLauncher(coreUpdater, coresSelection, gameLaunchTaskHandler)
 
         @Provides
         @PerApp

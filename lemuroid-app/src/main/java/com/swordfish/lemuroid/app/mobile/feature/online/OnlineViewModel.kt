@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.swordfish.lemuroid.app.shared.online.LinkMode
+import com.swordfish.lemuroid.app.shared.online.NetplaySystems
 import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.online.RoomInfo
 import com.swordfish.lemuroid.app.shared.online.RoomsApi
@@ -60,6 +61,8 @@ class OnlineViewModel(
         val publicRooms: List<RoomInfo> = emptyList(),
         val roomsStatus: RoomsStatus = RoomsStatus.IDLE,
         val gbaGames: List<Game> = emptyList(),
+        // Games on systems that support "play together" rooms.
+        val netplayGames: List<Game> = emptyList(),
         val dialog: Dialog? = null,
         val message: Message? = null,
     ) {
@@ -85,11 +88,16 @@ class OnlineViewModel(
 
     fun loadGames() {
         viewModelScope.launch {
-            val games =
-                runCatching { retrogradeDb.gameDao().asyncSelectBySystem(SystemID.GBA.dbname) }
+            val dao = retrogradeDb.gameDao()
+            val gba =
+                runCatching { dao.asyncSelectBySystem(SystemID.GBA.dbname) }
                     .onFailure { Timber.e(it, "Could not load GBA games") }
                     .getOrDefault(emptyList())
-            mutableState.update { it.copy(gbaGames = games) }
+            val netplay =
+                runCatching { dao.asyncSelectBySystems(NetplaySystems.systemIds) }
+                    .onFailure { Timber.e(it, "Could not load multiplayer games") }
+                    .getOrDefault(emptyList())
+            mutableState.update { it.copy(gbaGames = gba, netplayGames = netplay) }
         }
     }
 
@@ -184,5 +192,13 @@ class OnlineViewModel(
 
     companion object {
         val HOST_MODES = listOf(LinkMode.LINK_CABLE, LinkMode.WIRELESS, LinkMode.AUTO, LinkMode.ADVANCE_WARS, LinkMode.ADVANCE_WARS_2)
+    }
+}
+
+/** Games a player can use for a room: GBA games for trade & battle, same-system games otherwise. */
+fun OnlineViewModel.UiState.gamesFor(room: RoomInfo): List<Game> {
+    return when (room.kind) {
+        com.swordfish.lemuroid.app.shared.online.RoomKind.LINK -> gbaGames
+        com.swordfish.lemuroid.app.shared.online.RoomKind.NETPLAY -> netplayGames.filter { it.systemId == room.system }
     }
 }

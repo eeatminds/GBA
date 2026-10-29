@@ -102,10 +102,13 @@ fun OnlineStatusBar(
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             val subtitle =
-                                if (current.players.size <= 1) {
-                                    stringResource(R.string.online_status_waiting_players)
-                                } else {
-                                    current.players.joinToString(", ") { it.name }
+                                when {
+                                    current.sync == OnlineSession.Sync.WAITING_FOR_HOST ->
+                                        stringResource(R.string.online_status_waiting_host)
+                                    current.sync == OnlineSession.Sync.WAITING_FOR_PLAYERS ->
+                                        stringResource(R.string.online_status_waiting_sync)
+                                    current.players.size <= 1 -> stringResource(R.string.online_status_waiting_players)
+                                    else -> current.players.joinToString(", ") { it.name }
                                 }
                             Text(
                                 subtitle,

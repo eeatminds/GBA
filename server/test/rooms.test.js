@@ -80,3 +80,25 @@ test('names are cleaned and limited', () => {
   assert.equal(cleanName('a'.repeat(50), 'x').length, 20);
   assert.equal(cleanName('Пётр', 'x'), 'Пётр');
 });
+
+test('play together rooms use the system player limit and keep core and delay', () => {
+  const registry = new RoomRegistry();
+  const { room: snes } = registry.createRoom('host', { kind: 'netplay', system: 'snes', core: 'snes9x', delay: 6, maxPlayers: 4 });
+  assert.equal(snes.kind, 'netplay');
+  assert.equal(snes.maxPlayers, 2);
+  assert.equal(snes.core, 'snes9x');
+  assert.equal(snes.delay, 6);
+
+  const { room: n64 } = registry.createRoom('host', { kind: 'netplay', system: 'n64', core: 'mupen64plus_next_gles3' });
+  assert.equal(n64.maxPlayers, 4);
+
+  assert.throws(() => registry.createRoom('host', { kind: 'netplay', system: '3ds' }), { code: 'bad_request' });
+  assert.throws(() => registry.createRoom('host', { kind: 'link', system: 'snes' }), { code: 'bad_request' });
+});
+
+test('core names and delays are sanitized', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { kind: 'netplay', system: 'nes', core: '../FCEUmm;rm', delay: 99 });
+  assert.equal(room.core, 'fceummrm');
+  assert.equal(room.delay, 15);
+});

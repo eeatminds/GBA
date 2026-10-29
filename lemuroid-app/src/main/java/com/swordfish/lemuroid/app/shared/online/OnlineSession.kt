@@ -3,10 +3,12 @@ package com.swordfish.lemuroid.app.shared.online
 import com.swordfish.libretrodroid.LibretroDroid
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,11 +23,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Connects a running game to an online room.
+ * Connects a running game to an online room. Client id 0 is the host; joiners get 1, 2, 3...
  *
- * The emulator core (gpSP) sends and receives link cable packets through LibretroDroid's
- * netpacket bridge. This class moves those packets over a WebSocket to the relay server.
- * Client id 0 is the host; joiners get 1, 2, 3...
+ * - Trade & battle rooms: gpSP sends link cable packets through LibretroDroid's netpacket bridge.
+ * - Play together rooms: LibretroDroid's netplay engine sends inputs and game states.
+ *
+ * Either way, this class moves the packets over a WebSocket to the relay server.
  */
 class OnlineSession(
     private val config: OnlineConfig,
@@ -43,7 +46,8 @@ class OnlineSession(
             val clientId: Int,
             val players: List<Player>,
             val maxPlayers: Int,
-            val mode: LinkMode,
+            val kind: RoomKind,
+            val sync: Sync = Sync.OK,
         ) : State {
             val isHost: Boolean get() = clientId == 0
         }
@@ -52,6 +56,9 @@ class OnlineSession(
 
         data object Left : State
     }
+
+    /** Play together rooms only: whether the game is waiting on the network. */
+    enum class Sync { OK, WAITING_FOR_HOST, WAITING_FOR_PLAYERS }
 
     enum class Reason {
         NOT_SUPPORTED,
@@ -70,23 +77,32 @@ class OnlineSession(
 
     val serverUrl: String get() = config.serverUrl
 
+    private val transport: Transport =
+        if (config.kind == RoomKind.NETPLAY) NetplayTransport() else NetpacketTransport()
+
     private val active = AtomicBoolean(false)
-    private val netpacketStarted = AtomicBoolean(false)
+    private val transportStarted = AtomicBoolean(false)
+
     @Volatile private var webSocket: WebSocket? = null
 
-    @Volatile private var pumpThread: Thread? = null
+    private var syncJob: Job? = null
 
-    /** Call once the game is running. Waits for the core to register its netpacket interface. */
+    /** Call once the game is running. */
     fun start() {
         if (!active.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
-            val supported = waitForCoreSupport()
-            if (!active.get()) return@launch
-            if (!supported) {
-                fail(Reason.NOT_SUPPORTED)
-                return@launch
-            }
-            connect(LibretroDroid.netpacketProtocolVersion().orEmpty())
+            val protocol =
+                if (config.kind == RoomKind.LINK) {
+                    // gpSP registers its link interface while the game loads.
+                    if (!waitForCoreSupport()) {
+                        if (active.get()) fail(Reason.NOT_SUPPORTED)
+                        return@launch
+                    }
+                    LibretroDroid.netpacketProtocolVersion().orEmpty()
+                } else {
+                    config.protocol
+                }
+            if (active.get()) connect(protocol)
         }
     }
 
@@ -95,7 +111,7 @@ class OnlineSession(
         runCatching { webSocket?.send(JSONObject().put("t", "leave").toString()) }
         webSocket?.close(NORMAL_CLOSURE, "left")
         webSocket = null
-        stopNetpacket()
+        stopTransport()
         if (mutableState.value !is State.Failed) mutableState.value = State.Left
     }
 
@@ -114,30 +130,35 @@ class OnlineSession(
         webSocket = client.newWebSocket(request, Listener(protocol))
     }
 
+    private fun helloMessage(protocol: String): JSONObject {
+        return if (config.isHost) {
+            JSONObject()
+                .put("t", "host")
+                .put("kind", config.kind.serverKey)
+                .put("name", config.playerName)
+                .put("game", config.gameTitle)
+                .put("system", config.systemId)
+                .put("core", config.coreName)
+                .put("mode", config.mode.serverKey)
+                .put("delay", config.inputDelayFrames)
+                .put("public", config.isPublic)
+                .put("maxPlayers", config.maxPlayers)
+                .put("protocol", protocol)
+        } else {
+            JSONObject()
+                .put("t", "join")
+                .put("code", config.roomCode)
+                .put("name", config.playerName)
+                .put("protocol", protocol)
+        }
+    }
+
     private inner class Listener(private val protocol: String) : WebSocketListener() {
         override fun onOpen(
             webSocket: WebSocket,
             response: Response,
         ) {
-            val hello =
-                if (config.isHost) {
-                    JSONObject()
-                        .put("t", "host")
-                        .put("name", config.playerName)
-                        .put("game", config.gameTitle)
-                        .put("system", "gba")
-                        .put("mode", config.mode.serverKey)
-                        .put("public", config.isPublic)
-                        .put("maxPlayers", config.mode.maxPlayers)
-                        .put("protocol", protocol)
-                } else {
-                    JSONObject()
-                        .put("t", "join")
-                        .put("code", config.roomCode)
-                        .put("name", config.playerName)
-                        .put("protocol", protocol)
-                }
-            webSocket.send(hello.toString())
+            webSocket.send(helloMessage(protocol).toString())
         }
 
         override fun onMessage(
@@ -152,10 +173,10 @@ class OnlineSession(
             webSocket: WebSocket,
             bytes: ByteString,
         ) {
-            if (!netpacketStarted.get() || bytes.size < 3) return
+            if (!transportStarted.get() || bytes.size < 3) return
             val data = bytes.toByteArray()
             val from = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
-            LibretroDroid.netpacketPushIncoming(from, data.copyOfRange(2, data.size))
+            transport.push(from, data.copyOfRange(2, data.size))
         }
 
         override fun onClosed(
@@ -188,23 +209,24 @@ class OnlineSession(
                         code = room.getString("code"),
                         clientId = clientId,
                         players = parsePlayers(message),
-                        maxPlayers = room.optInt("maxPlayers", config.mode.maxPlayers),
-                        mode = LinkMode.fromServerKey(room.optString("mode")),
+                        maxPlayers = room.optInt("maxPlayers", config.maxPlayers),
+                        kind = RoomKind.fromServerKey(room.optString("kind")),
                     )
-                startNetpacket(clientId)
+                val inputDelay = room.optInt("delay", config.inputDelayFrames)
+                startTransport(clientId, inputDelay)
             }
 
             "peer_joined" -> {
                 val id = message.getInt("id")
                 val name = message.optString("name")
                 updateRoom { it.copy(players = (it.players.filter { p -> p.id != id } + Player(id, name)).sortedBy { p -> p.id }) }
-                if (isHost()) LibretroDroid.netpacketPeerConnected(id)
+                if (isHost()) transport.peerJoined(id)
             }
 
             "peer_left" -> {
                 val id = message.getInt("id")
                 updateRoom { it.copy(players = it.players.filter { p -> p.id != id }) }
-                if (isHost()) LibretroDroid.netpacketPeerDisconnected(id)
+                if (isHost()) transport.peerLeft(id)
             }
 
             "closed" -> fail(Reason.HOST_LEFT)
@@ -258,37 +280,53 @@ class OnlineSession(
         active.set(false)
         webSocket?.close(NORMAL_CLOSURE, null)
         webSocket = null
-        stopNetpacket()
+        stopTransport()
     }
 
-    private fun startNetpacket(clientId: Int) {
-        if (!netpacketStarted.compareAndSet(false, true)) return
-        LibretroDroid.netpacketStart(clientId)
-        pumpThread =
-            Thread({ pumpOutgoing() }, "online-link-pump").apply {
-                isDaemon = true
-                start()
-            }
-    }
-
-    private fun stopNetpacket() {
-        if (!netpacketStarted.getAndSet(false)) return
-        runCatching {
-            LibretroDroid.netpacketStop()
-            LibretroDroid.netpacketWakeTakers()
+    private fun startTransport(
+        clientId: Int,
+        inputDelay: Int,
+    ) {
+        if (!transportStarted.compareAndSet(false, true)) return
+        transport.start(clientId, inputDelay)
+        Thread({ pumpOutgoing() }, "online-pump").apply {
+            isDaemon = true
+            start()
         }
-        pumpThread = null
+        if (transport is NetplayTransport) {
+            syncJob =
+                scope.launch(Dispatchers.Default) {
+                    while (isActive && transportStarted.get()) {
+                        val sync =
+                            when (LibretroDroid.netplayStatus()) {
+                                LibretroDroid.NETPLAY_STATUS_WAITING_FOR_HOST -> Sync.WAITING_FOR_HOST
+                                LibretroDroid.NETPLAY_STATUS_WAITING_FOR_PLAYERS -> Sync.WAITING_FOR_PLAYERS
+                                else -> Sync.OK
+                            }
+                        updateRoom { if (it.sync == sync) it else it.copy(sync = sync) }
+                        delay(SYNC_POLL_MS)
+                    }
+                }
+        }
     }
 
-    // Takes packets the core wants to send and forwards them to the server.
+    private fun stopTransport() {
+        if (!transportStarted.getAndSet(false)) return
+        syncJob?.cancel()
+        syncJob = null
+        runCatching { transport.stop() }
+    }
+
+    // Takes packets the emulator wants to send and forwards them to the server.
     private fun pumpOutgoing() {
-        while (netpacketStarted.get()) {
-            val message = LibretroDroid.netpacketTakeOutgoing(PUMP_TIMEOUT_MS) ?: continue
+        while (transportStarted.get()) {
+            val message = transport.take(PUMP_TIMEOUT_MS) ?: continue
             if (message.size < 3) continue
             val target = ((message[1].toInt() and 0xFF) shl 8) or (message[2].toInt() and 0xFF)
             val socket = webSocket ?: continue
             when (message[0].toInt()) {
                 LibretroDroid.NETPACKET_OUTGOING_DATA -> {
+                    // [target][payload] is exactly what the server expects.
                     if (message.size > 3) socket.send(message.toByteString(1, message.size - 1))
                 }
 
@@ -299,6 +337,73 @@ class OnlineSession(
         }
     }
 
+    /** The emulator side of a room: either gpSP's link cable or the netplay engine. */
+    private interface Transport {
+        fun start(
+            clientId: Int,
+            inputDelay: Int,
+        )
+
+        fun stop()
+
+        fun push(
+            from: Int,
+            data: ByteArray,
+        )
+
+        fun peerJoined(id: Int)
+
+        fun peerLeft(id: Int)
+
+        fun take(timeoutMs: Int): ByteArray?
+    }
+
+    private class NetpacketTransport : Transport {
+        override fun start(
+            clientId: Int,
+            inputDelay: Int,
+        ) = LibretroDroid.netpacketStart(clientId)
+
+        override fun stop() {
+            LibretroDroid.netpacketStop()
+            LibretroDroid.netpacketWakeTakers()
+        }
+
+        override fun push(
+            from: Int,
+            data: ByteArray,
+        ) = LibretroDroid.netpacketPushIncoming(from, data)
+
+        override fun peerJoined(id: Int) = LibretroDroid.netpacketPeerConnected(id)
+
+        override fun peerLeft(id: Int) = LibretroDroid.netpacketPeerDisconnected(id)
+
+        override fun take(timeoutMs: Int): ByteArray? = LibretroDroid.netpacketTakeOutgoing(timeoutMs)
+    }
+
+    private class NetplayTransport : Transport {
+        override fun start(
+            clientId: Int,
+            inputDelay: Int,
+        ) = LibretroDroid.netplayStart(clientId, inputDelay)
+
+        override fun stop() {
+            LibretroDroid.netplayStop()
+            LibretroDroid.netplayWakeTakers()
+        }
+
+        override fun push(
+            from: Int,
+            data: ByteArray,
+        ) = LibretroDroid.netplayPushIncoming(from, data)
+
+        override fun peerJoined(id: Int) = LibretroDroid.netplayPeerJoined(id)
+
+        override fun peerLeft(id: Int) = LibretroDroid.netplayPeerLeft(id)
+
+        override fun take(timeoutMs: Int): ByteArray? = LibretroDroid.netplayTakeOutgoing(timeoutMs)
+    }
+
     companion object {
         private const val NORMAL_CLOSURE = 1000
         private const val CLOSE_HOST_LEFT = 4000
@@ -306,6 +411,7 @@ class OnlineSession(
         private const val PUMP_TIMEOUT_MS = 250
         private const val CORE_SUPPORT_POLL_MS = 250L
         private const val CORE_SUPPORT_ATTEMPTS = 60
+        private const val SYNC_POLL_MS = 300L
 
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder()

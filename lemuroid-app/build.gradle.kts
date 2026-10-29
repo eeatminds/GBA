@@ -31,6 +31,11 @@ android {
         buildConfigField("String", "ONLINE_LINK_SCHEME", "\"$linkScheme\"")
         manifestPlaceholders["onlineLinkScheme"] = linkScheme
         manifestPlaceholders["onlineLinkHost"] = onlineServerHost
+
+        // Optional, e.g. -Papp.abiFilters=arm64-v8a for a smaller test APK.
+        appProperty("app.abiFilters").split(",").map { it.trim() }.filter { it.isNotEmpty() }.let { abis ->
+            if (abis.isNotEmpty()) ndk { abiFilters += abis }
+        }
     }
     flavorDimensions += listOf("opensource", "cores")
 

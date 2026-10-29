@@ -61,8 +61,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.shared.online.InputDelay
 import com.swordfish.lemuroid.app.shared.online.LinkMode
 import com.swordfish.lemuroid.app.shared.online.RoomInfo
+import com.swordfish.lemuroid.app.shared.online.RoomKind
+import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.db.entity.Game
 
 private val Game.displayName: String get() = customName ?: title
@@ -71,7 +74,8 @@ private val Game.displayName: String get() = customName ?: title
 fun OnlineScreen(
     modifier: Modifier = Modifier,
     viewModel: OnlineViewModel,
-    onHost: (game: Game, mode: LinkMode, isPublic: Boolean, playerName: String, serverUrl: String) -> Unit,
+    onHostLink: (game: Game, mode: LinkMode, isPublic: Boolean, playerName: String, serverUrl: String) -> Unit,
+    onHostNetplay: (game: Game, delay: InputDelay, isPublic: Boolean, playerName: String, serverUrl: String) -> Unit,
     onJoin: (game: Game, room: RoomInfo, playerName: String, serverUrl: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
@@ -181,11 +185,16 @@ fun OnlineScreen(
         null -> Unit
         is OnlineViewModel.Dialog.Host ->
             HostDialog(
-                games = state.gbaGames,
+                gbaGames = state.gbaGames,
+                netplayGames = state.netplayGames,
                 onDismiss = { viewModel.showDialog(null) },
-                onStart = { game, mode, isPublic ->
+                onStartLink = { game, mode, isPublic ->
                     viewModel.showDialog(null)
-                    onHost(game, mode, isPublic, state.playerName, state.serverUrl)
+                    onHostLink(game, mode, isPublic, state.playerName, state.serverUrl)
+                },
+                onStartNetplay = { game, delay, isPublic ->
+                    viewModel.showDialog(null)
+                    onHostNetplay(game, delay, isPublic, state.playerName, state.serverUrl)
                 },
             )
 
@@ -200,7 +209,7 @@ fun OnlineScreen(
         is OnlineViewModel.Dialog.PickGame ->
             PickGameDialog(
                 room = dialog.room,
-                games = state.gbaGames,
+                games = state.gamesFor(dialog.room),
                 onDismiss = { viewModel.showDialog(null) },
                 onJoin = { game ->
                     viewModel.showDialog(null)
@@ -278,7 +287,7 @@ private fun RoomItem(
             headlineContent = { Text(room.game, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             supportingContent = {
                 Text(
-                    text = stringResource(R.string.online_room_host, room.host) + " · " + stringResource(room.mode.titleId),
+                    text = stringResource(R.string.online_room_host, room.host) + " · " + roomTypeLabel(room),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -311,19 +320,45 @@ private fun RoomItem(
 }
 
 @Composable
+private fun roomTypeLabel(room: RoomInfo): String {
+    return when (room.kind) {
+        RoomKind.LINK -> stringResource(room.mode.titleId)
+        RoomKind.NETPLAY ->
+            stringResource(R.string.online_kind_netplay) + " · " + systemShortName(room.system)
+    }
+}
+
+@Composable
+private fun systemShortName(systemId: String): String {
+    val system = runCatching { GameSystem.findById(systemId) }.getOrNull() ?: return systemId.uppercase()
+    return stringResource(system.shortTitleResId)
+}
+
+@Composable
 private fun GamePicker(
     games: List<Game>,
     selected: Game?,
+    emptyMessage: String,
+    showSystem: Boolean = false,
     onSelect: (Game) -> Unit,
 ) {
     if (games.isEmpty()) {
-        HintText(stringResource(R.string.online_no_gba_games))
+        HintText(emptyMessage)
         return
     }
     Column(modifier = Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
         games.forEach { game ->
             OptionRow(selected = selected?.id == game.id, onClick = { onSelect(game) }) {
-                Text(game.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column {
+                    Text(game.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (showSystem) {
+                        Text(
+                            systemShortName(game.systemId),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
@@ -351,13 +386,18 @@ private fun OptionRow(
 
 @Composable
 private fun HostDialog(
-    games: List<Game>,
+    gbaGames: List<Game>,
+    netplayGames: List<Game>,
     onDismiss: () -> Unit,
-    onStart: (Game, LinkMode, Boolean) -> Unit,
+    onStartLink: (Game, LinkMode, Boolean) -> Unit,
+    onStartNetplay: (Game, InputDelay, Boolean) -> Unit,
 ) {
+    var kind by rememberSaveable { mutableStateOf(RoomKind.NETPLAY) }
     var selectedGameId by rememberSaveable { mutableStateOf<Int?>(null) }
     var mode by rememberSaveable { mutableStateOf(LinkMode.LINK_CABLE) }
+    var delay by rememberSaveable { mutableStateOf(InputDelay.NORMAL) }
     var isPublic by rememberSaveable { mutableStateOf(true) }
+    val games = if (kind == RoomKind.LINK) gbaGames else netplayGames
     val selectedGame = games.firstOrNull { it.id == selectedGameId } ?: games.singleOrNull()
 
     AlertDialog(
@@ -368,19 +408,59 @@ private fun HostDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(stringResource(R.string.online_pick_game), style = MaterialTheme.typography.titleSmall)
-                GamePicker(games, selectedGame) { selectedGameId = it.id }
-                HorizontalDivider()
-                Text(stringResource(R.string.online_link_type), style = MaterialTheme.typography.titleSmall)
-                OnlineViewModel.HOST_MODES.forEach { option ->
-                    OptionRow(selected = mode == option, onClick = { mode = option }) {
+                Text(stringResource(R.string.online_room_type), style = MaterialTheme.typography.titleSmall)
+                listOf(
+                    Triple(RoomKind.NETPLAY, R.string.online_kind_netplay, R.string.online_kind_netplay_description),
+                    Triple(RoomKind.LINK, R.string.online_kind_link, R.string.online_kind_link_description),
+                ).forEach { (option, title, description) ->
+                    OptionRow(
+                        selected = kind == option,
+                        onClick = {
+                            kind = option
+                            selectedGameId = null
+                        },
+                    ) {
                         Column {
-                            Text(stringResource(option.titleId))
+                            Text(stringResource(title))
                             Text(
-                                stringResource(option.descriptionId),
+                                stringResource(description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                    }
+                }
+                HorizontalDivider()
+                Text(stringResource(R.string.online_pick_game), style = MaterialTheme.typography.titleSmall)
+                GamePicker(
+                    games = games,
+                    selected = selectedGame,
+                    emptyMessage =
+                        stringResource(
+                            if (kind == RoomKind.LINK) R.string.online_no_gba_games else R.string.online_no_netplay_games,
+                        ),
+                    showSystem = kind == RoomKind.NETPLAY,
+                ) { selectedGameId = it.id }
+                HorizontalDivider()
+                if (kind == RoomKind.LINK) {
+                    Text(stringResource(R.string.online_link_type), style = MaterialTheme.typography.titleSmall)
+                    OnlineViewModel.HOST_MODES.forEach { option ->
+                        OptionRow(selected = mode == option, onClick = { mode = option }) {
+                            Column {
+                                Text(stringResource(option.titleId))
+                                Text(
+                                    stringResource(option.descriptionId),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Text(stringResource(R.string.online_input_delay), style = MaterialTheme.typography.titleSmall)
+                    InputDelay.values().forEach { option ->
+                        OptionRow(selected = delay == option, onClick = { delay = option }) {
+                            Text(stringResource(option.titleId))
                         }
                     }
                 }
@@ -404,7 +484,10 @@ private fun HostDialog(
         confirmButton = {
             TextButton(
                 enabled = selectedGame != null,
-                onClick = { selectedGame?.let { onStart(it, mode, isPublic) } },
+                onClick = {
+                    val game = selectedGame ?: return@TextButton
+                    if (kind == RoomKind.LINK) onStartLink(game, mode, isPublic) else onStartNetplay(game, delay, isPublic)
+                },
             ) { Text(stringResource(R.string.online_start)) }
         },
         dismissButton = {
@@ -485,18 +568,29 @@ private fun PickGameDialog(
                     stringResource(
                         R.string.online_join_room_details,
                         room.game,
-                        stringResource(room.mode.titleId),
+                        roomTypeLabel(room),
                         room.players,
                         room.maxPlayers,
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    stringResource(R.string.online_join_pick_game),
+                    stringResource(
+                        if (room.kind == RoomKind.LINK) R.string.online_join_pick_game else R.string.online_join_pick_game_netplay,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                GamePicker(games, selectedGame) { selectedGameId = it.id }
+                GamePicker(
+                    games = games,
+                    selected = selectedGame,
+                    emptyMessage =
+                        if (room.kind == RoomKind.LINK) {
+                            stringResource(R.string.online_no_gba_games)
+                        } else {
+                            stringResource(R.string.online_no_matching_games, systemShortName(room.system))
+                        },
+                ) { selectedGameId = it.id }
             }
         },
         confirmButton = {

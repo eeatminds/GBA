@@ -144,6 +144,10 @@ class BaseGameScreenViewModel(
 
     val loadingState = MutableStateFlow(false)
 
+    fun disableSavePersistence() {
+        saves.persistSaves = false
+    }
+
     private inline fun withLoading(block: () -> Unit) {
         loadingState.value = true
         block()

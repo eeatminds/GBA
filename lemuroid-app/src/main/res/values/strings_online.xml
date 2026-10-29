@@ -3,7 +3,7 @@
     <string name="title_online">Online</string>
 
     <string name="online_intro_title">Play together online</string>
-    <string name="online_intro_message">Trade and battle over the internet, as if your consoles were linked with a cable. Works with Game Boy Advance games that use the link cable or the wireless adapter, and with Advance Wars 1 and 2. Everyone plays their own copy of the game.</string>
+    <string name="online_intro_message">Play multiplayer games with friends over the internet, or link Game Boy Advance games to trade and battle. Each player needs their own copy of the game.</string>
 
     <string name="online_server_missing_title">Online server not set up</string>
     <string name="online_server_missing_message">Add the address of your room server to start playing online.</string>
@@ -85,4 +85,19 @@
     <string name="online_error_removed">You were removed from the room.</string>
     <string name="online_error_server">The room server had a problem.</string>
     <string name="online_status_left">You left the room.</string>
+    <string name="online_room_type">Room type</string>
+    <string name="online_kind_netplay">Play together</string>
+    <string name="online_kind_netplay_description">Multiplayer on one game, like sharing a console: NES, SNES, Sega, PC Engine, Atari, N64, PlayStation and arcade.</string>
+    <string name="online_kind_link">Trade &amp; battle</string>
+    <string name="online_kind_link_description">Link separate Game Boy Advance games, as with a link cable.</string>
+    <string name="online_no_netplay_games">Add NES, SNES, Sega, N64, PlayStation or arcade games to your library first.</string>
+    <string name="online_no_matching_games">You need a %1$s game for this room.</string>
+    <string name="online_join_pick_game_netplay">Pick your copy of the same game. Everyone needs the same version and region of the game.</string>
+    <string name="online_input_delay">Input delay</string>
+    <string name="online_delay_low">Low: players close to each other</string>
+    <string name="online_delay_normal">Normal</string>
+    <string name="online_delay_high">High: slow or far connections</string>
+    <string name="online_error_core_missing">This room needs an emulator core that is not available in this app.</string>
+    <string name="online_status_waiting_host">Loading the host\'s game…</string>
+    <string name="online_status_waiting_sync">Waiting for other players…</string>
 </resources>

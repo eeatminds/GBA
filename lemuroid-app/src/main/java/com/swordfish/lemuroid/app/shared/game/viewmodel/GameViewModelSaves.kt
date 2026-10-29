@@ -34,6 +34,10 @@ class GameViewModelSaves(
 ) {
     private var currentQuickSave: SaveState? = null
 
+    // Off for players who joined someone else's "play together" room: their console runs
+    // the host's game, which must not replace their own save files.
+    var persistSaves: Boolean = true
+
     data class SaveSnapshot(
         val sram: ByteArray,
         val autoSave: SaveState?,
@@ -78,7 +82,7 @@ class GameViewModelSaves(
     }
 
     suspend fun writeSaveSnapshot(snapshot: SaveSnapshot?) {
-        if (snapshot == null) return
+        if (snapshot == null || !persistSaves) return
         Timber.i(
             "GameViewModelSaves.write game=%s core=%s writingSram=%s writingAutoSave=%s",
             game.id,

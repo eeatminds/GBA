@@ -1,0 +1,23 @@
+# One-click deploy of the room server on Render (https://render.com).
+# In Render: New > Blueprint > pick this repository.
+services:
+  - type: web
+    name: retrolink-rooms
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: APP_NAME
+        value: RetroLink
+      - key: APP_SCHEME
+        value: retrolink
+      # Fill these in after your first Play Store upload to enable verified invite links:
+      - key: ANDROID_PACKAGE
+        sync: false
+      - key: ANDROID_CERT_SHA256
+        sync: false
+      - key: PLAY_STORE_URL
+        sync: false

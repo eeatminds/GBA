@@ -11,6 +11,8 @@ import com.swordfish.lemuroid.lib.core.CoresSelection
 import com.swordfish.lemuroid.lib.injection.AndroidWorkerInjection
 import com.swordfish.lemuroid.lib.injection.WorkerKey
 import com.swordfish.lemuroid.lib.library.GameSystem
+import com.swordfish.lemuroid.lib.library.SystemID
+import com.swordfish.lemuroid.lib.library.CoreID
 import com.swordfish.lemuroid.lib.library.db.RetrogradeDatabase
 import dagger.Binds
 import dagger.android.AndroidInjector
@@ -56,7 +58,10 @@ class CoreUpdateWork(context: Context, workerParams: WorkerParameters) :
                     .map { it.coreID }
                     .toList()
 
-            coreUpdater.downloadCores(applicationContext, cores)
+            // GBA online rooms always run on gpSP, whatever core is picked for offline play.
+            val extraCores = if (SystemID.GBA.dbname in retrogradeDatabase.gameDao().selectSystems()) listOf(CoreID.GPSP) else emptyList()
+
+            coreUpdater.downloadCores(applicationContext, (cores + extraCores).distinct())
         } catch (e: Throwable) {
             Timber.e(e, "Core update work failed with exception: ${e.message}")
         }

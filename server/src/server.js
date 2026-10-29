@@ -6,7 +6,7 @@
 //
 // Protocol (one WebSocket per player, at /ws):
 //   1. The client sends one JSON text message:
-//        {"t":"host","name","game","system","mode","public","maxPlayers","protocol"}
+//        {"t":"host","kind":"link"|"netplay","name","game","system","core","mode","delay","public","maxPlayers","protocol"}
 //        {"t":"join","code","name","protocol"}
 //   2. The server answers {"t":"hosted"|"joined","clientId","room","players"} or {"t":"error","code","message"}.
 //   3. Packets are binary frames. Client to server: [target id u16 BE][payload].
@@ -28,7 +28,8 @@ import {
 const MAX_PAYLOAD = 64 * 1024;
 const JOIN_TIMEOUT_MS = 15_000;
 const HEARTBEAT_MS = 20_000;
-const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+// Game states for 'play together' rooms can be a few MB, sent in 60 KB chunks.
+const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 const MESSAGES_PER_SECOND = 3000;
 
 export function createRelayServer(options = {}) {

@@ -12,6 +12,10 @@ import java.util.concurrent.TimeUnit
 
 data class RoomInfo(
     val code: String,
+    val kind: RoomKind,
+    val system: String,
+    val core: String,
+    val delay: Int,
     val game: String,
     val host: String,
     val mode: LinkMode,
@@ -23,6 +27,10 @@ data class RoomInfo(
         fun fromJson(json: JSONObject): RoomInfo {
             return RoomInfo(
                 code = json.optString("code"),
+                kind = RoomKind.fromServerKey(json.optString("kind")),
+                system = json.optString("system", "gba"),
+                core = json.optString("core"),
+                delay = json.optInt("delay", InputDelay.NORMAL.frames),
                 game = json.optString("game"),
                 host = json.optString("host"),
                 mode = LinkMode.fromServerKey(json.optString("mode")),
@@ -38,7 +46,7 @@ data class RoomInfo(
 class RoomsApi(private val client: OkHttpClient = defaultClient) {
     suspend fun listPublicRooms(serverUrl: String): List<RoomInfo> =
         withContext(Dispatchers.IO) {
-            val body = get("${OnlineSettings.normalizeServerUrl(serverUrl)}/api/rooms?system=gba")
+            val body = get("${OnlineSettings.normalizeServerUrl(serverUrl)}/api/rooms")
             val rooms = JSONObject(body).optJSONArray("rooms") ?: return@withContext emptyList()
             (0 until rooms.length()).map { RoomInfo.fromJson(rooms.getJSONObject(it)) }
         }
