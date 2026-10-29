@@ -30,6 +30,7 @@
 #include "environment.h"
 #include "vfs/vfs.h"
 #include "microphone/microphoneinterface.h"
+#include "netpacket.h"
 
 void Environment::initialize(
     const std::string &requiredSystemDirectory,
@@ -330,6 +331,13 @@ bool Environment::handle_callback_environment(unsigned cmd, void *data) {
         case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
             LOGD("Called RETRO_ENVIRONMENT_GET_VFS_INTERFACE");
             return environment_handle_get_vfs_interface(static_cast<struct retro_vfs_interface_info*>(data));
+
+        case LRD_ENVIRONMENT_SET_NETPACKET_INTERFACE:
+            LOGD("Called SET_NETPACKET_INTERFACE");
+            libretrodroid::NetPacket::getInstance().setCallback(
+                static_cast<const struct lrd_netpacket_callback*>(data)
+            );
+            return true;
 
         case RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE:
             LOGD("Called RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE");

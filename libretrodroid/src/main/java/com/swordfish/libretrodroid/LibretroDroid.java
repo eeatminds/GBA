@@ -141,4 +141,20 @@ public class LibretroDroid {
 
     public static native Controller[][] getControllers();
     public static native void setControllerType(int port, int type);
+
+    // Netpacket interface (online link play). Client 0 is the host.
+    public static final int NETPACKET_BROADCAST = 0xFFFF;
+    public static final int NETPACKET_OUTGOING_DATA = 0;
+    public static final int NETPACKET_OUTGOING_REJECT_PEER = 1;
+
+    public static native boolean netpacketIsSupported();
+    public static native String netpacketProtocolVersion();
+    public static native void netpacketStart(int localClientId);
+    public static native void netpacketStop();
+    public static native void netpacketPushIncoming(int fromClientId, byte[] data);
+    public static native void netpacketPeerConnected(int clientId);
+    public static native void netpacketPeerDisconnected(int clientId);
+    /** Returns [type: u8][target client id: u16 big endian][payload...], or null on timeout. */
+    public static native byte[] netpacketTakeOutgoing(int timeoutMs);
+    public static native void netpacketWakeTakers();
 }

@@ -15,6 +15,7 @@
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "netpacket.h"
 #include <jni.h>
 
 #include <EGL/egl.h>
@@ -413,6 +414,8 @@ void LibretroDroid::destroy() {
         Environment::getInstance().getHwContextDestroy()();
     }
 
+    NetPacket::getInstance().reset();
+
     core->retro_unload_game();
     core->retro_deinit();
 
@@ -456,8 +459,10 @@ void LibretroDroid::step() {
         frames = std::min(requestedFrames, 2u);
     }
 
-    for (size_t i = 0; i < frames * frameSpeed; i++)
+    for (size_t i = 0; i < frames * frameSpeed; i++) {
+        NetPacket::getInstance().onFrame();
         core->retro_run();
+    }
 
     if (video && !video->rendersInVideoCallback()) {
         video->renderFrame();
