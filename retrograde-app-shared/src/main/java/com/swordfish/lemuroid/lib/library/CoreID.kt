@@ -41,6 +41,11 @@ enum class CoreID(
         "mGBA",
         "libmgba_libretro_android.so",
     ),
+    GPSP(
+        "gpsp",
+        "gpSP (online link)",
+        "libgpsp_libretro_android.so",
+    ),
     MUPEN64_PLUS_NEXT(
         "mupen64plus_next_gles3",
         "Mupen64Plus",

@@ -40,6 +40,7 @@ android {
                 ":lemuroid_core_snes9x",
                 ":lemuroid_core_stella",
                 ":lemuroid_core_citra",
+                ":lemuroid_core_gpsp",
             ),
         )
     }
@@ -134,6 +135,7 @@ dependencies {
     implementation(deps.libs.androidx.profileInstaller)
 
     "bundleImplementation"(project(":bundled-cores"))
+    "bundleImplementation"(project(":bundled-extra-cores"))
 
     "freeImplementation"(project(":lemuroid-app-ext-free"))
     "playImplementation"(project(":lemuroid-app-ext-play"))

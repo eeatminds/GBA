@@ -17,10 +17,12 @@ include(
     ":lemuroid-app-ext-free",
     ":lemuroid-app-ext-play",
     ":bundled-cores",
+    ":bundled-extra-cores",
     ":baselineprofile"
 )
 
 project(":bundled-cores").projectDir = File("lemuroid-cores/bundled-cores")
+project(":bundled-extra-cores").projectDir = File("extra-cores/bundled-extra-cores")
 
 fun usePlayDynamicFeatures(): Boolean {
     val task = gradle.startParameter.taskRequests.toString()
@@ -48,8 +50,11 @@ if (usePlayDynamicFeatures()) {
         ":lemuroid_core_prosystem",
         ":lemuroid_core_snes9x",
         ":lemuroid_core_stella",
-        ":lemuroid_core_citra"
+        ":lemuroid_core_citra",
+        ":lemuroid_core_gpsp"
     )
+
+    project(":lemuroid_core_gpsp").projectDir = File("extra-cores/lemuroid_core_gpsp")
 
     project(":lemuroid_core_gambatte").projectDir = File("lemuroid-cores/lemuroid_core_gambatte")
     project(":lemuroid_core_desmume").projectDir = File("lemuroid-cores/lemuroid_core_desmume")

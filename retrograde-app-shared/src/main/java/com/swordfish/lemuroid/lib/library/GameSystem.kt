@@ -633,6 +633,16 @@ data class GameSystem(
                                     0 to arrayListOf(ControllerConfigs.GBA),
                                 ),
                         ),
+                        // gpSP supports link cable and wireless adapter play over the internet.
+                        // Online rooms always use it, whatever core is picked for offline play.
+                        SystemCoreConfig(
+                            CoreID.GPSP,
+                            rumbleSupported = true,
+                            controllerConfigs =
+                                hashMapOf(
+                                    0 to arrayListOf(ControllerConfigs.GBA),
+                                ),
+                        ),
                     ),
                     uniqueExtensions = listOf("gba"),
                 ),
