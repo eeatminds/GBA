@@ -6,11 +6,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.VerticalAlignCenter
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -18,6 +22,9 @@ import androidx.navigation.NavController
 import com.alorma.compose.settings.storage.memory.rememberMemoryBooleanSettingState
 import com.alorma.compose.settings.storage.memory.rememberMemoryIntSettingState
 import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.mobile.feature.game.ClassicScreenPosition
+import com.swordfish.lemuroid.app.mobile.feature.game.ClassicScreenSettings
+import com.swordfish.lemuroid.app.mobile.feature.game.ClassicScreenSize
 import com.swordfish.lemuroid.app.mobile.feature.gamemenu.tilt.TiltConfigurationMenuEntry
 import com.swordfish.lemuroid.app.shared.GameMenuContract
 import com.swordfish.lemuroid.app.utils.android.settings.LemuroidSettingsList
@@ -124,6 +131,33 @@ fun GameMenuHomeScreen(
             )
         }
 
+        if (gameMenuRequest.game.systemId in HANDHELD_SYSTEMS) {
+            val context = LocalContext.current
+            val screen = remember { ClassicScreenSettings.read(context) }
+            LemuroidSettingsList(
+                title = { Text(text = stringResource(id = R.string.game_menu_screen_size)) },
+                items =
+                    listOf(
+                        stringResource(R.string.screen_size_fit),
+                        stringResource(R.string.screen_size_sharp),
+                    ),
+                icon = { Icon(Icons.Outlined.AspectRatio, contentDescription = null) },
+                state = rememberMemoryIntSettingState(ClassicScreenSize.values().indexOf(screen.size)),
+                onItemSelected = { index, _ -> ClassicScreenSettings.setSize(context, ClassicScreenSize.values()[index]) },
+            )
+            LemuroidSettingsList(
+                title = { Text(text = stringResource(id = R.string.game_menu_screen_position)) },
+                items =
+                    listOf(
+                        stringResource(R.string.screen_position_top),
+                        stringResource(R.string.screen_position_middle),
+                    ),
+                icon = { Icon(Icons.Outlined.VerticalAlignCenter, contentDescription = null) },
+                state = rememberMemoryIntSettingState(ClassicScreenPosition.values().indexOf(screen.position)),
+                onItemSelected = { index, _ -> ClassicScreenSettings.setPosition(context, ClassicScreenPosition.values()[index]) },
+            )
+        }
+
         LemuroidSettingsMenuLink(
             title = { Text(text = stringResource(id = R.string.game_menu_edit_touch_controls)) },
             icon = {
@@ -209,3 +243,6 @@ fun GameMenuHomeScreen(
         )
     }
 }
+
+// Systems that use the handheld layout with screen size and position options.
+private val HANDHELD_SYSTEMS = setOf("gb", "gbc", "gba")

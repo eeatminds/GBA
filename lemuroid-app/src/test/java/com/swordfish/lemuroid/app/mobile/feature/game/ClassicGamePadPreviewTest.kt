@@ -51,11 +51,25 @@ class ClassicGamePadPreviewTest {
     @Config(qualifiers = "w393dp-h852dp-port-xhdpi")
     fun gbPortrait() = render("gb-portrait.png", isLandscape = false, aspect = 10f / 9f, shoulders = false)
 
+    @Test
+    @Config(qualifiers = "w393dp-h852dp-port-xhdpi")
+    fun gbaPortraitSharpMiddle() =
+        render(
+            "gba-portrait-sharp-middle.png",
+            isLandscape = false,
+            aspect = 3f / 2f,
+            shoulders = true,
+            size = ClassicScreenSize.SHARP_PIXELS,
+            position = ClassicScreenPosition.MIDDLE,
+        )
+
     private fun render(
         name: String,
         isLandscape: Boolean,
         aspect: Float,
         shoulders: Boolean,
+        size: ClassicScreenSize = ClassicScreenSize.FIT,
+        position: ClassicScreenPosition = ClassicScreenPosition.TOP,
     ) {
         // The pad library keeps a loop running, so step the clock by hand instead of waiting for idle.
         compose.mainClock.autoAdvance = false
@@ -81,6 +95,10 @@ class ClassicGamePadPreviewTest {
                     ClassicGameLayout(
                         isLandscape = isLandscape,
                         gameAspectRatio = aspect,
+                        nativeWidth = if (shoulders) 240 else 160,
+                        nativeHeight = if (shoulders) 160 else 144,
+                        screenSize = size,
+                        screenPosition = position,
                         hasShoulderButtons = shoulders,
                         showControls = true,
                         settings = null,

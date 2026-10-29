@@ -158,9 +158,15 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
                 }
 
             if (classicAspectRatio != null) {
+                val screenValues = ClassicScreenSettings.rememberValues().value
+                val isGBA = currentControllerConfig?.touchControllerID == TouchControllerID.GBA
                 ClassicGameLayout(
                     isLandscape = isLandscape,
                     gameAspectRatio = classicAspectRatio,
+                    nativeWidth = if (isGBA) 240 else 160,
+                    nativeHeight = if (isGBA) 160 else 144,
+                    screenSize = screenValues.size,
+                    screenPosition = screenValues.position,
                     hasShoulderButtons = currentControllerConfig?.touchControllerID == TouchControllerID.GBA,
                     showControls = touchControllerSettings != null && touchControlsVisibleState.value,
                     settings = touchControllerSettings,

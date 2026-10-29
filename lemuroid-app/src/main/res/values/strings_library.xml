@@ -15,6 +15,12 @@
     <!-- In-game menu -->
     <string name="game_menu_cheats">Cheats</string>
     <string name="game_menu_screenshot">Screenshot</string>
+    <string name="game_menu_screen_size">Screen size</string>
+    <string name="screen_size_fit">Fit (biggest)</string>
+    <string name="screen_size_sharp">Sharp pixels</string>
+    <string name="game_menu_screen_position">Screen position (portrait)</string>
+    <string name="screen_position_top">Top</string>
+    <string name="screen_position_middle">Middle</string>
     <string name="game_menu_state_empty">Empty</string>
     <string name="screenshot_saved">Screenshot saved to your Gallery</string>
     <string name="screenshot_failed">Could not save the screenshot</string>

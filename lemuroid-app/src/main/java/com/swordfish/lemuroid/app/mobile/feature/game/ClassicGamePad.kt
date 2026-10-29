@@ -45,6 +45,8 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
@@ -71,14 +73,30 @@ object ClassicGamePad {
     const val STROKE_DP = 2
 }
 
+/** How big the game picture is drawn. */
+enum class ClassicScreenSize {
+    // As large as the space allows, keeping the game's shape.
+    FIT,
+
+    // The largest whole-number zoom of the console's resolution, so every pixel is the same size.
+    SHARP_PIXELS,
+}
+
+/** Where the game sits in portrait, in the space above the controls. */
+enum class ClassicScreenPosition { TOP, MIDDLE }
+
 /** Places the game picture and, if [showControls], the controls. Reports where the game should draw. */
 @Composable
 fun PadKitScope.ClassicGameLayout(
     isLandscape: Boolean,
     gameAspectRatio: Float,
+    nativeWidth: Int,
+    nativeHeight: Int,
     hasShoulderButtons: Boolean,
     showControls: Boolean,
     settings: TouchControllerSettingsManager.Settings?,
+    screenSize: ClassicScreenSize = ClassicScreenSize.FIT,
+    screenPosition: ClassicScreenPosition = ClassicScreenPosition.TOP,
     onGameAreaPositioned: (Rect) -> Unit,
 ) {
     val scale =
@@ -88,39 +106,55 @@ fun PadKitScope.ClassicGameLayout(
         } ?: 1f
     val marginX = (settings?.marginX ?: 0f) * TouchControllerSettingsManager.MAX_MARGINS
     val marginY = (settings?.marginY ?: 0f) * TouchControllerSettingsManager.MAX_MARGINS
+    val density = LocalDensity.current
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        if (!isLandscape) {
-            // Leave at least this much room for the controls below the game.
-            val minControlsHeight = if (showControls) 300.dp * scale.coerceAtMost(1f) else 0.dp
-            val gameHeight = min(maxWidth / gameAspectRatio, maxHeight - minControlsHeight).coerceAtLeast(0.dp)
-            Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
+    // Size of the game picture inside the given space.
+    fun gameSize(
+        availableWidth: Dp,
+        availableHeight: Dp,
+    ): DpSize {
+        if (availableWidth <= 0.dp || availableHeight <= 0.dp) return DpSize(0.dp, 0.dp)
+        val fitWidth = min(availableWidth, availableHeight * gameAspectRatio)
+        if (screenSize == ClassicScreenSize.FIT) return DpSize(fitWidth, fitWidth / gameAspectRatio)
+        with(density) {
+            val zoom = minOf(availableWidth.toPx() / nativeWidth, availableHeight.toPx() / nativeHeight).toInt()
+            if (zoom < 1) return DpSize(fitWidth, fitWidth / gameAspectRatio)
+            return DpSize((nativeWidth * zoom).toDp(), (nativeHeight * zoom).toDp())
+        }
+    }
+
+    if (!isLandscape) {
+        Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
+            // The game takes the space the controls leave free.
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val size = gameSize(maxWidth, maxHeight)
                 Box(
                     modifier =
                         Modifier
-                            .fillMaxWidth()
-                            .height(gameHeight)
+                            .size(size)
+                            .align(if (screenPosition == ClassicScreenPosition.MIDDLE) Alignment.Center else Alignment.TopCenter)
                             .onGloballyPositioned { onGameAreaPositioned(it.boundsInRoot()) },
                 )
-                if (showControls) {
-                    PortraitControls(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                                .padding(start = 16.dp + marginX.dp, end = 16.dp + marginX.dp, top = 12.dp, bottom = 16.dp + marginY.dp),
-                        scale = scale,
-                        hasShoulderButtons = hasShoulderButtons,
-                    )
-                }
             }
-        } else {
+            if (showControls) {
+                PortraitControls(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(start = 16.dp + marginX.dp, end = 16.dp + marginX.dp, top = 12.dp, bottom = 16.dp + marginY.dp),
+                    scale = scale,
+                    hasShoulderButtons = hasShoulderButtons,
+                )
+            }
+        }
+    } else {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val size = gameSize(maxWidth, maxHeight)
             Box(
                 modifier =
                     Modifier
-                        .fillMaxHeight()
-                        .width(min(maxHeight * gameAspectRatio, maxWidth))
+                        .size(size)
                         .align(Alignment.Center)
                         .onGloballyPositioned { onGameAreaPositioned(it.boundsInRoot()) },
             )
@@ -145,28 +179,22 @@ private fun PadKitScope.PortraitControls(
     scale: Float,
     hasShoulderButtons: Boolean,
 ) {
-    // Everything sits low, where thumbs reach; the space under the game stays empty.
-    Box(modifier = modifier) {
-        Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                if (hasShoulderButtons) {
-                    ShoulderButton(Modifier.align(Alignment.CenterStart), KeyEvent.KEYCODE_BUTTON_L1, "L", isLeft = true, scale = scale)
-                    ShoulderButton(Modifier.align(Alignment.CenterEnd), KeyEvent.KEYCODE_BUTTON_R1, "R", isLeft = false, scale = scale)
-                }
-                MenuButton(Modifier.align(Alignment.Center), scale)
+    // Three rows, low on the screen where thumbs reach:
+    // shoulder keys and menu, then Select and Start centered, then the D-pad and A/B.
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            if (hasShoulderButtons) {
+                ShoulderButton(Modifier.align(Alignment.CenterStart), KeyEvent.KEYCODE_BUTTON_L1, "L", isLeft = true, scale = scale)
+                ShoulderButton(Modifier.align(Alignment.CenterEnd), KeyEvent.KEYCODE_BUTTON_R1, "R", isLeft = false, scale = scale)
             }
-            Spacer(Modifier.height(28.dp * scale))
-            Box(modifier = Modifier.fillMaxWidth()) {
-                DPad(Modifier.align(Alignment.BottomStart), scale)
-                Column(
-                    modifier = Modifier.align(Alignment.BottomEnd),
-                    horizontalAlignment = Alignment.End,
-                ) {
-                    StartSelect(scale)
-                    Spacer(Modifier.height(18.dp * scale))
-                    FaceButtons(scale)
-                }
-            }
+            MenuButton(Modifier.align(Alignment.Center), scale)
+        }
+        Spacer(Modifier.height(16.dp * scale))
+        StartSelect(scale)
+        Spacer(Modifier.height(8.dp * scale))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            DPad(Modifier.align(Alignment.CenterStart), scale)
+            FaceButtons(Modifier.align(Alignment.CenterEnd), scale)
         }
     }
 }
