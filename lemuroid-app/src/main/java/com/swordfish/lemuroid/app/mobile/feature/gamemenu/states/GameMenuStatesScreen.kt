@@ -48,23 +48,25 @@ fun GameMenuStatesScreen(
                 Box(
                     modifier =
                         Modifier
-                            .size(width = 120.dp, height = 80.dp)
+                            .size(width = 132.dp, height = 88.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .background(androidx.compose.ui.graphics.Color.Black),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (entry.preview != null) {
+                        // The whole picture, never cropped.
                         Image(
-                            modifier = Modifier.size(width = 120.dp, height = 80.dp),
+                            modifier = Modifier.size(width = 132.dp, height = 88.dp),
                             bitmap = entry.preview.asImageBitmap(),
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
+                            filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
                             contentDescription = null,
                         )
                     } else {
                         Text(
                             text = stringResource(R.string.game_menu_state_empty),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f),
                         )
                     }
                 }

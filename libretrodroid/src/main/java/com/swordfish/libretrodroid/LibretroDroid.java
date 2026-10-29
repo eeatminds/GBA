@@ -122,6 +122,9 @@ public class LibretroDroid {
     public static native void setCheat(int index, boolean enable, String code);
     public static native void resetCheat();
 
+    /** [width, height, ARGB_8888 pixels...] of the last frame drawn in software, or null. */
+    public static native int[] captureFrame();
+
     public static native byte[] serializeSRAM();
     public static native boolean unserializeSRAM(byte[] sram);
 

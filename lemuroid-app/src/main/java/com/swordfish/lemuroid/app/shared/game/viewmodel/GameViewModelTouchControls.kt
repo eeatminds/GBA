@@ -140,20 +140,11 @@ class GameViewModelTouchControls(
         }
     }
 
+    // A single tap on the menu button opens the menu (no press-and-hold).
     private fun onMenuPressed(pressed: Boolean) {
-        menuPressed.value = pressed
-
-        if (pressed) {
-            loadingMenuJob?.cancel()
-            loadingMenuJob =
-                scope.launch {
-                    delay(MENU_LOADING_ANIMATION_MILLIS.toLong())
-                    sideEffects.showMenu(tilt, inputs)
-                }
-        } else {
-            loadingMenuJob?.cancel()
-            loadingMenuJob = null
-        }
+        if (!pressed) return
+        loadingMenuJob?.cancel()
+        loadingMenuJob = scope.launch { sideEffects.showMenu(tilt, inputs) }
     }
 
     fun isMenuPressed(): Flow<Boolean> {

@@ -139,6 +139,20 @@ android {
         disable += setOf("MissingTranslation", "ExtraTranslation", "EnsureInitializerMetadata")
     }
 
+    // Screen previews rendered on the computer with Robolectric (see src/test).
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.systemProperty(
+                    "robolectric.dependency.repo.url",
+                    "https://maven-central.storage-download.googleapis.com/maven2/",
+                )
+                it.systemProperty("previews.output", "${rootDir}/docs/previews")
+            }
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -150,6 +164,7 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        freeCompilerArgs += listOf("-Xcontext-receivers")
     }
     namespace = "com.swordfish.lemuroid"
 }
@@ -165,6 +180,13 @@ dependencies {
 
     "bundleImplementation"(project(":bundled-cores"))
     "bundleImplementation"(project(":bundled-extra-cores"))
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation(platform(deps.libs.androidx.compose.composeBom))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     "freeImplementation"(project(":lemuroid-app-ext-free"))
     "playImplementation"(project(":lemuroid-app-ext-play"))

@@ -50,6 +50,7 @@ import com.swordfish.lemuroid.lib.library.db.entity.Game
 import com.swordfish.lemuroid.lib.saves.SavesManager
 import com.swordfish.lemuroid.lib.saves.StatesManager
 import com.swordfish.lemuroid.lib.saves.StatesPreviewManager
+import com.swordfish.libretrodroid.GLRetroView
 import com.swordfish.touchinput.radial.sensors.TiltConfiguration
 import dagger.Lazy
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -161,6 +162,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         lifecycleScope.launch {
             baseGameScreenViewModel.retroGameView.waitRetroGameViewInitialized()
+            // The emulator only exists once the game has drawn its first frame.
+            baseGameScreenViewModel.retroGameView.waitGLEvent<GLRetroView.GLRetroEvents.FrameRendered>()
             applyCheats()
             // The core registers its link interface while the game loads.
             session?.start()
@@ -419,7 +422,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             // Let the menu close so it is not in the picture.
             delay(400)
             val view = baseGameScreenViewModel.retroGameView.retroGameView ?: return@launch
-            val bitmap = view.takeScreenshot(SCREENSHOT_MAX_SIZE, 3)
+            val bitmap =
+                view.captureGameFrame()?.let { GameFrames.scaleToFit(it, SCREENSHOT_MAX_SIZE) }
+                    ?: view.takeScreenshot(SCREENSHOT_MAX_SIZE, 3)
             val saved =
                 bitmap != null &&
                     ScreenshotSaver.save(

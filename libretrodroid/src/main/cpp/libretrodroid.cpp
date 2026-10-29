@@ -418,6 +418,12 @@ void LibretroDroid::destroy() {
 
     NetPacket::getInstance().reset();
     Netplay::getInstance().reset();
+    {
+        std::lock_guard<std::mutex> frameLock(frameCaptureLock);
+        lastFrame.clear();
+        lastFrameWidth = 0;
+        lastFrameHeight = 0;
+    }
 
     core->retro_unload_game();
     core->retro_deinit();
@@ -548,6 +554,57 @@ void LibretroDroid::handleVideoRefresh(
             video->renderFrame();
         }
     }
+
+    // A null frame repeats the previous one; hardware frames live on the GPU.
+    if (data != nullptr && data != RETRO_HW_FRAME_BUFFER_VALID && width > 0 && height > 0) {
+        std::lock_guard<std::mutex> lock(frameCaptureLock);
+        auto bytes = static_cast<const uint8_t*>(data);
+        lastFrame.assign(bytes, bytes + pitch * height);
+        lastFrameWidth = width;
+        lastFrameHeight = height;
+        lastFramePitch = pitch;
+        lastFramePixelFormat = Environment::getInstance().getPixelFormat();
+    }
+}
+
+std::vector<uint32_t> LibretroDroid::captureFrame(unsigned& width, unsigned& height) {
+    std::lock_guard<std::mutex> lock(frameCaptureLock);
+    width = lastFrameWidth;
+    height = lastFrameHeight;
+    std::vector<uint32_t> result;
+    if (lastFrame.empty() || width == 0 || height == 0) return result;
+
+    result.resize(static_cast<size_t>(width) * height);
+    for (unsigned y = 0; y < height; y++) {
+        const uint8_t* row = lastFrame.data() + y * lastFramePitch;
+        uint32_t* out = result.data() + static_cast<size_t>(y) * width;
+        for (unsigned x = 0; x < width; x++) {
+            uint32_t r, g, b;
+            if (lastFramePixelFormat == RETRO_PIXEL_FORMAT_XRGB8888) {
+                uint32_t p = reinterpret_cast<const uint32_t*>(row)[x];
+                r = (p >> 16) & 0xFF;
+                g = (p >> 8) & 0xFF;
+                b = p & 0xFF;
+            } else {
+                uint16_t p = reinterpret_cast<const uint16_t*>(row)[x];
+                if (lastFramePixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
+                    r = (p >> 11) & 0x1F;
+                    g = (p >> 5) & 0x3F;
+                    b = p & 0x1F;
+                    g = (g << 2) | (g >> 4);
+                } else {  // 0RGB1555
+                    r = (p >> 10) & 0x1F;
+                    g = (p >> 5) & 0x1F;
+                    b = p & 0x1F;
+                    g = (g << 3) | (g >> 2);
+                }
+                r = (r << 3) | (r >> 2);
+                b = (b << 3) | (b >> 2);
+            }
+            out[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+        }
+    }
+    return result;
 }
 
 size_t LibretroDroid::handleAudioCallback(const int16_t *data, size_t frames) {
@@ -624,11 +681,15 @@ std::pair<int8_t*, size_t> LibretroDroid::serializeState() {
 void LibretroDroid::resetCheat() {
     std::lock_guard<std::mutex> lock(coreLock);
 
+    // Can be called before the game has loaded, or after it closed.
+    if (!core) return;
     core->retro_cheat_reset();
 }
 
 void LibretroDroid::setCheat(unsigned index, bool enabled, const std::string& code) {
     std::lock_guard<std::mutex> lock(coreLock);
+
+    if (!core) return;
 
     core->retro_cheat_set(index, enabled, Utils::cloneToCString(code));
 }

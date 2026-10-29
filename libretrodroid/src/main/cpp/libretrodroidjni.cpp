@@ -804,6 +804,24 @@ JNIEXPORT jint JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplaySta
     return Netplay::getInstance().status();
 }
 
+// Returns [width, height, pixels in ARGB_8888...] of the last software frame, or null.
+JNIEXPORT jintArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_captureFrame(
+    JNIEnv* env,
+    jclass obj
+) {
+    unsigned width = 0;
+    unsigned height = 0;
+    std::vector<uint32_t> pixels = LibretroDroid::getInstance().captureFrame(width, height);
+    if (pixels.empty()) return nullptr;
+
+    jintArray result = env->NewIntArray(static_cast<jsize>(pixels.size() + 2));
+    if (result == nullptr) return nullptr;
+    jint size[2] = { static_cast<jint>(width), static_cast<jint>(height) };
+    env->SetIntArrayRegion(result, 0, 2, size);
+    env->SetIntArrayRegion(result, 2, static_cast<jsize>(pixels.size()), reinterpret_cast<const jint*>(pixels.data()));
+    return result;
+}
+
 }
 
 }

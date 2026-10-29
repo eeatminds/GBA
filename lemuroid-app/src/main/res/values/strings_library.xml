@@ -6,6 +6,8 @@
     <string name="add_game_help">Help</string>
     <string name="add_game_picker_missing">This device has no file picker. Use Add game folder instead.</string>
     <string name="home_my_games">My games</string>
+    <string name="game_options">Game options</string>
+    <string name="add_game_not_supported">Not a game file this app can open: %1$s. Unzip .7z or .rar files first.</string>
     <plurals name="add_game_adding">
         <item quantity="one">Adding your game…</item>
         <item quantity="other">Adding %d games…</item>

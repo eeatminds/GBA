@@ -137,6 +137,10 @@ public:
 
     void resetGlobalVariables();
 
+    // Last frame the core drew in software, converted to ARGB_8888. Empty for hardware-rendered
+    // cores. Used for save previews and screenshots so they show exactly the game picture.
+    std::vector<uint32_t> captureFrame(unsigned& width, unsigned& height);
+
     // Handle callbacks
     void handleVideoRefresh(const void *data, unsigned width, unsigned height, size_t pitch);
     size_t handleAudioCallback(const int16_t* data, size_t frames);
@@ -179,6 +183,13 @@ private:
     bool dirtyVideo = false;
 
     std::mutex coreLock;
+
+    std::mutex frameCaptureLock;
+    std::vector<uint8_t> lastFrame;
+    unsigned lastFrameWidth = 0;
+    unsigned lastFrameHeight = 0;
+    size_t lastFramePitch = 0;
+    int lastFramePixelFormat = 0;
 
     std::unique_ptr<Core> core;
     std::unique_ptr<Audio> audio;

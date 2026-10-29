@@ -174,6 +174,18 @@ class GLRetroView(
         }
     }
 
+    /**
+     * The game's own last picture, at its native size, or null for cores that draw on the GPU.
+     * Unlike a screen capture it has no black borders, overlays or cropping.
+     */
+    fun captureGameFrame(): android.graphics.Bitmap? {
+        val data = LibretroDroid.captureFrame() ?: return null
+        val width = data[0]
+        val height = data[1]
+        if (width <= 0 || height <= 0 || data.size < 2 + width * height) return null
+        return android.graphics.Bitmap.createBitmap(data, 2, width, width, height, android.graphics.Bitmap.Config.ARGB_8888)
+    }
+
     fun resetCheats(useEmulationThread: Boolean = true) {
         runOnEmulationThread(useEmulationThread) {
             LibretroDroid.resetCheat()

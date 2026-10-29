@@ -148,7 +148,7 @@ class StatesManager(private val directoriesManager: DirectoriesManager) {
     ) = "${game.fileName}.slot${index + 1}"
 
     companion object {
-        const val MAX_STATES = 4
+        const val MAX_STATES = 10
         private const val FILE_ACCESS_RETRIES = 3
     }
 }

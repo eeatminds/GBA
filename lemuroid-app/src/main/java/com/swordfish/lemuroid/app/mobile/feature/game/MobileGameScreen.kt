@@ -57,6 +57,7 @@ import com.swordfish.touchinput.controller.R
 import com.swordfish.touchinput.radial.LemuroidPadTheme
 import com.swordfish.touchinput.radial.LocalLemuroidPadTheme
 import com.swordfish.touchinput.radial.sensors.TiltConfiguration
+import com.swordfish.touchinput.radial.settings.TouchControllerID
 import com.swordfish.touchinput.radial.settings.TouchControllerSettingsManager
 import com.swordfish.touchinput.radial.ui.GlassSurface
 import com.swordfish.touchinput.radial.ui.LemuroidButtonPressFeedback
@@ -148,7 +149,27 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
                 gameView.viewport = viewport
             }
 
-            ConstraintLayout(
+            // Handheld consoles get the classic outlined controls; other systems keep the radial pads.
+            val classicAspectRatio =
+                when (currentControllerConfig?.touchControllerID) {
+                    TouchControllerID.GBA -> 3f / 2f
+                    TouchControllerID.GB -> 10f / 9f
+                    else -> null
+                }
+
+            if (classicAspectRatio != null) {
+                ClassicGameLayout(
+                    isLandscape = isLandscape,
+                    gameAspectRatio = classicAspectRatio,
+                    hasShoulderButtons = currentControllerConfig?.touchControllerID == TouchControllerID.GBA,
+                    showControls = touchControllerSettings != null && touchControlsVisibleState.value,
+                    settings = touchControllerSettings,
+                    onGameAreaPositioned = { viewportPosition.value = it },
+                )
+                if (currentControllerConfig != null && touchControllerSettings != null) {
+                    MenuEditTouchControls(viewModel, currentControllerConfig, touchControllerSettings)
+                }
+            } else ConstraintLayout(
                 modifier = Modifier.fillMaxSize(),
                 constraintSet =
                     GameScreenLayout.buildConstraintSet(
