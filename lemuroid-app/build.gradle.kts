@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -8,11 +10,27 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// App identity and online settings live in gradle.properties.
+fun appProperty(name: String, default: String = ""): String =
+    (project.findProperty(name) as String?)?.trim() ?: default
+
+val appName = appProperty("app.name", "RetroLink")
+val onlineServerUrl = appProperty("app.onlineServerUrl").trimEnd('/')
+val linkScheme = appProperty("app.linkScheme", "retrolink")
+val onlineServerHost =
+    onlineServerUrl.removePrefix("https://").removePrefix("http://").substringBefore('/').ifBlank { "invalid.invalid" }
+
 android {
     defaultConfig {
-        versionCode = 252
-        versionName = "1.17.0" // Always remember to update Cores Tag!
-        applicationId = "com.swordfish.lemuroid"
+        // Based on Lemuroid 1.17.0 (versionCode 252). Cores Tag still follows Lemuroid's.
+        versionCode = appProperty("app.versionCode", "1").toInt()
+        versionName = appProperty("app.versionName", "1.0.0")
+        applicationId = appProperty("app.applicationId", "com.retrolink.emulator")
+
+        buildConfigField("String", "ONLINE_SERVER_URL", "\"$onlineServerUrl\"")
+        buildConfigField("String", "ONLINE_LINK_SCHEME", "\"$linkScheme\"")
+        manifestPlaceholders["onlineLinkScheme"] = linkScheme
+        manifestPlaceholders["onlineLinkHost"] = onlineServerHost
     }
     flavorDimensions += listOf("opensource", "cores")
 
@@ -84,25 +102,31 @@ android {
             storeFile = file("$rootDir/debug.keystore")
         }
 
-        maybeCreate("release").apply {
-            storeFile = file("$rootDir/release.jks")
-            keyAlias = "lemuroid"
-            storePassword = "lemuroid"
-            keyPassword = "lemuroid"
+        // Your upload key. Put its details in keystore.properties (never commit that file).
+        // See docs/PUBLISHING.md.
+        val keystoreFile = rootProject.file("keystore.properties")
+        if (keystoreFile.exists()) {
+            val keystore = Properties().apply { keystoreFile.inputStream().use { load(it) } }
+            maybeCreate("release").apply {
+                storeFile = rootProject.file(keystore.getProperty("storeFile"))
+                storePassword = keystore.getProperty("storePassword")
+                keyAlias = keystore.getProperty("keyAlias")
+                keyPassword = keystore.getProperty("keyPassword")
+            }
         }
     }
 
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
-            signingConfig = signingConfigs["release"]
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
-            resValue("string", "lemuroid_name", "Lemuroid")
+            resValue("string", "lemuroid_name", appName)
         }
         getByName("debug") {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
-            resValue("string", "lemuroid_name", "LemuroiDebug")
+            resValue("string", "lemuroid_name", "$appName Debug")
         }
     }
 

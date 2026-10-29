@@ -20,3 +20,9 @@ release.jks
 
 # Kotlin compiler session files
 .kotlin/
+
+# Release signing (keep private)
+keystore.properties
+*.jks
+*.keystore
+!debug.keystore

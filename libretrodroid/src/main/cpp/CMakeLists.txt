@@ -58,6 +58,8 @@ add_library(libretrodroid SHARED
         environment.cpp
         netpacket.h
         netpacket.cpp
+        netplay.h
+        netplay.cpp
         input.h
         input.cpp
         shadermanager.h
@@ -101,4 +103,5 @@ target_link_libraries(libretrodroid
                       EGL
                       oboe
                       GLESv3
+                      z
 )

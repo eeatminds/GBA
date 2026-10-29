@@ -45,6 +45,7 @@
 #include "renderers/es2/imagerendereres2.h"
 #include "renderers/es3/imagerendereres3.h"
 #include "utils/rect.h"
+#include "netplay.h"
 
 namespace libretrodroid {
 
@@ -143,6 +144,7 @@ public:
     uintptr_t handleGetCurrentFrameBuffer();
 
 private:
+    Netplay::Hooks buildNetplayHooks();
     void updateAudioSampleRateMultiplier();
     float findDefaultAspectRatio(const retro_system_av_info &system_av_info);
     void afterGameLoad();

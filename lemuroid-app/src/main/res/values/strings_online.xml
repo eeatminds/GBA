@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_online">Online</string>
+
+    <string name="online_intro_title">Play together online</string>
+    <string name="online_intro_message">Trade and battle over the internet, as if your consoles were linked with a cable. Works with Game Boy Advance games that use the link cable or the wireless adapter, and with Advance Wars 1 and 2. Everyone plays their own copy of the game.</string>
+
+    <string name="online_server_missing_title">Online server not set up</string>
+    <string name="online_server_missing_message">Add the address of your room server to start playing online.</string>
+    <string name="online_server_set">Set server address</string>
+    <string name="online_server_label">Server: %1$s</string>
+    <string name="online_server_change">Change</string>
+    <string name="online_server_dialog_title">Room server</string>
+    <string name="online_server_dialog_hint">https://rooms.example.com</string>
+    <string name="online_server_reset">Use default</string>
+
+    <string name="online_name_label">Your name</string>
+    <string name="online_name_placeholder">Shown to other players</string>
+
+    <string name="online_host">Host a room</string>
+    <string name="online_join_code">Join with code</string>
+
+    <string name="online_public_rooms">Public rooms</string>
+    <string name="online_refresh">Refresh</string>
+    <string name="online_no_rooms">No public rooms right now. Host one and share the code with friends.</string>
+    <string name="online_rooms_error">Could not reach the server. Check your connection and try again.</string>
+    <string name="online_room_players">%1$d/%2$d</string>
+    <string name="online_room_host">Host: %1$s</string>
+    <string name="online_join">Join</string>
+    <string name="online_report">Report</string>
+    <string name="online_more">More</string>
+
+    <string name="online_host_dialog_title">Host a room</string>
+    <string name="online_pick_game">Your game</string>
+    <string name="online_no_gba_games">Add Game Boy Advance games to your library first.</string>
+    <string name="online_link_type">Link type</string>
+    <string name="online_public_room">Public room</string>
+    <string name="online_public_room_description">Anyone can see and join it. Turn off to share the code only with friends.</string>
+    <string name="online_start">Start</string>
+    <string name="online_cancel">Cancel</string>
+
+    <string name="online_join_dialog_title">Join a room</string>
+    <string name="online_join_code_label">Room code</string>
+    <string name="online_join_code_invalid">Room codes have 6 letters and numbers.</string>
+    <string name="online_room_not_found">Room not found. Check the code and try again.</string>
+    <string name="online_room_full">This room is full.</string>
+    <string name="online_join_room_title">Room %1$s</string>
+    <string name="online_join_room_details">%1$s · %2$s · %3$d/%4$d players</string>
+    <string name="online_join_pick_game">Pick your copy of the game. For trades between different games, everyone needs a game that supports this link type.</string>
+
+    <string name="online_report_title">Report this room</string>
+    <string name="online_report_hint">What is wrong with it?</string>
+    <string name="online_report_send">Send report</string>
+    <string name="online_report_sent">Thanks. The report was sent.</string>
+    <string name="online_report_failed">Could not send the report. Try again later.</string>
+
+    <string name="online_another_game_running">Close the game that is running first.</string>
+    <string name="online_preparing">Getting the online core ready…</string>
+
+    <string name="online_mode_link_cable">Link cable</string>
+    <string name="online_mode_link_cable_description">Trade and battle at the Cable Club. Works across Ruby, Sapphire, Emerald, FireRed, LeafGreen and ROM hacks.</string>
+    <string name="online_mode_wireless">Wireless adapter</string>
+    <string name="online_mode_wireless_description">Union Room in FireRed, LeafGreen and Emerald. Up to 5 players.</string>
+    <string name="online_mode_auto">Automatic</string>
+    <string name="online_mode_auto_description">Let the emulator pick. Use only when everyone plays the same game.</string>
+    <string name="online_mode_advance_wars">Advance Wars</string>
+    <string name="online_mode_advance_wars_2">Advance Wars 2</string>
+    <string name="online_mode_advance_wars_description">Multiplayer battles for up to 4 players.</string>
+
+    <!-- In-game room status -->
+    <string name="online_status_waiting_game">Starting game…</string>
+    <string name="online_status_connecting">Connecting to room…</string>
+    <string name="online_status_room">Room %1$s · %2$d/%3$d</string>
+    <string name="online_status_waiting_players">Waiting for players. Tap to share the code.</string>
+    <string name="online_status_share">Share</string>
+    <string name="online_share_text">Join my %1$s room. Code: %2$s\n%3$s</string>
+    <string name="online_share_title">Share room</string>
+    <string name="online_error_not_supported">This core does not support online play.</string>
+    <string name="online_error_connection_failed">Could not connect to the room server.</string>
+    <string name="online_error_connection_lost">Lost connection to the room.</string>
+    <string name="online_error_room_not_found">Room not found.</string>
+    <string name="online_error_room_full">This room is full.</string>
+    <string name="online_error_version">The host uses a different app version. Everyone needs the latest update.</string>
+    <string name="online_error_host_left">The host closed the room.</string>
+    <string name="online_error_removed">You were removed from the room.</string>
+    <string name="online_error_server">The room server had a problem.</string>
+    <string name="online_status_left">You left the room.</string>
+</resources>

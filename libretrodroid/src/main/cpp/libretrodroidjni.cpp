@@ -44,6 +44,7 @@
 #include "renderers/es3/imagerendereres3.h"
 #include "utils/jnistring.h"
 #include "netpacket.h"
+#include "netplay.h"
 
 namespace libretrodroid {
 
@@ -707,6 +708,100 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netpacketW
     jclass obj
 ) {
     NetPacket::getInstance().wakeTakers();
+}
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayStart(
+    JNIEnv* env,
+    jclass obj,
+    jint localClientId,
+    jint inputDelayFrames
+) {
+    Netplay::getInstance().requestStart(static_cast<uint16_t>(localClientId), inputDelayFrames);
+}
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayStop(
+    JNIEnv* env,
+    jclass obj
+) {
+    Netplay::getInstance().requestStop();
+}
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayPushIncoming(
+    JNIEnv* env,
+    jclass obj,
+    jint fromClientId,
+    jbyteArray data
+) {
+    if (data == nullptr) return;
+    jsize size = env->GetArrayLength(data);
+    if (size <= 0) return;
+    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+    if (bytes == nullptr) return;
+    Netplay::getInstance().pushIncoming(
+        static_cast<uint16_t>(fromClientId),
+        reinterpret_cast<const uint8_t*>(bytes),
+        static_cast<size_t>(size)
+    );
+    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayPeerJoined(
+    JNIEnv* env,
+    jclass obj,
+    jint clientId
+) {
+    Netplay::getInstance().pushPeerJoined(static_cast<uint16_t>(clientId));
+}
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayPeerLeft(
+    JNIEnv* env,
+    jclass obj,
+    jint clientId
+) {
+    Netplay::getInstance().pushPeerLeft(static_cast<uint16_t>(clientId));
+}
+
+// Returns [0][target client id: u16 big endian][payload...], the same layout as netpacketTakeOutgoing.
+JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayTakeOutgoing(
+    JNIEnv* env,
+    jclass obj,
+    jint timeoutMs
+) {
+    Netplay::Outgoing message;
+    if (!Netplay::getInstance().takeOutgoing(message, timeoutMs)) return nullptr;
+
+    const size_t headerSize = 3;
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(headerSize + message.data.size()));
+    if (result == nullptr) return nullptr;
+    jbyte header[headerSize] = {
+        0,
+        static_cast<jbyte>((message.target >> 8) & 0xFF),
+        static_cast<jbyte>(message.target & 0xFF),
+    };
+    env->SetByteArrayRegion(result, 0, headerSize, header);
+    if (!message.data.empty()) {
+        env->SetByteArrayRegion(
+            result,
+            headerSize,
+            static_cast<jsize>(message.data.size()),
+            reinterpret_cast<const jbyte*>(message.data.data())
+        );
+    }
+    return result;
+}
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayWakeTakers(
+    JNIEnv* env,
+    jclass obj
+) {
+    Netplay::getInstance().wakeTakers();
+}
+
+JNIEXPORT jint JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayStatus(
+    JNIEnv* env,
+    jclass obj
+) {
+    return Netplay::getInstance().status();
 }
 
 }

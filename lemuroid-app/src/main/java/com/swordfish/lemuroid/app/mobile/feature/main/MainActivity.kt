@@ -32,6 +32,8 @@ import com.swordfish.lemuroid.app.mobile.feature.games.GamesScreen
 import com.swordfish.lemuroid.app.mobile.feature.games.GamesViewModel
 import com.swordfish.lemuroid.app.mobile.feature.home.HomeScreen
 import com.swordfish.lemuroid.app.mobile.feature.home.HomeViewModel
+import com.swordfish.lemuroid.app.mobile.feature.online.OnlineScreen
+import com.swordfish.lemuroid.app.mobile.feature.online.OnlineViewModel
 import com.swordfish.lemuroid.app.mobile.feature.search.SearchScreen
 import com.swordfish.lemuroid.app.mobile.feature.search.SearchViewModel
 import com.swordfish.lemuroid.app.mobile.feature.settings.advanced.AdvancedSettingsScreen
@@ -56,6 +58,8 @@ import com.swordfish.lemuroid.app.shared.game.GameLauncher
 import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
 import com.swordfish.lemuroid.app.shared.main.BusyActivity
 import com.swordfish.lemuroid.app.shared.main.GameLaunchTaskHandler
+import com.swordfish.lemuroid.app.shared.online.OnlineGameLauncher
+import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.settings.SettingsInteractor
 import com.swordfish.lemuroid.common.coroutines.safeLaunch
 import com.swordfish.lemuroid.ext.feature.review.ReviewManager
@@ -103,6 +107,12 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
     @Inject
     lateinit var inputDeviceManager: InputDeviceManager
 
+    @Inject
+    lateinit var onlineGameLauncher: OnlineGameLauncher
+
+    // Room code from an invite link, consumed by the Online screen.
+    private val pendingInviteCode = mutableStateOf<String?>(null)
+
     private val reviewManager = ReviewManager()
 
     private val mainViewModel: MainViewModel by viewModels {
@@ -119,6 +129,8 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
         GlobalScope.safeLaunch {
             reviewManager.initialize(applicationContext)
         }
+
+        handleInviteIntent(intent)
 
         setContent {
             val navController = rememberNavController()
@@ -144,6 +156,13 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
 
             LaunchedEffect(currentRoute) {
                 mainViewModel.changeRoute(currentRoute)
+            }
+
+            val inviteCode = pendingInviteCode.value
+            LaunchedEffect(inviteCode) {
+                if (inviteCode != null && currentRoute != MainRoute.ONLINE) {
+                    navController.navigateToRoute(MainRoute.ONLINE)
+                }
             }
 
             val selectedGameState =
@@ -229,6 +248,26 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                             onGameLongClick = onGameLongClick,
                             onGameFavoriteToggle = onGameFavoriteToggle,
                             onResetSearchQuery = { mainViewModel.changeQueryString("") },
+                        )
+                    }
+                    composable(MainRoute.ONLINE) {
+                        val onlineViewModel: OnlineViewModel =
+                            viewModel(factory = OnlineViewModel.Factory(applicationContext, retrogradeDb))
+                        LaunchedEffect(inviteCode) {
+                            if (inviteCode != null) {
+                                onlineViewModel.openInvite(inviteCode)
+                                pendingInviteCode.value = null
+                            }
+                        }
+                        OnlineScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel = onlineViewModel,
+                            onHost = { game, mode, isPublic, playerName, serverUrl ->
+                                onlineGameLauncher.host(this@MainActivity, game, mode, isPublic, playerName, serverUrl)
+                            },
+                            onJoin = { game, room, playerName, serverUrl ->
+                                onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
+                            },
                         )
                     }
                     composable(MainRoute.SYSTEMS) {
@@ -380,6 +419,16 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleInviteIntent(intent)
+    }
+
+    private fun handleInviteIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        OnlineSettings.parseRoomCode(intent.dataString)?.let { pendingInviteCode.value = it }
     }
 
     override fun activity(): Activity = this

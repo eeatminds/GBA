@@ -32,6 +32,7 @@ import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
 import com.swordfish.lemuroid.app.mobile.feature.shortcuts.ShortcutsGenerator
 import com.swordfish.lemuroid.app.shared.game.ExternalGameLauncherActivity
 import com.swordfish.lemuroid.app.shared.game.GameLauncher
+import com.swordfish.lemuroid.app.shared.online.OnlineGameLauncher
 import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
 import com.swordfish.lemuroid.app.shared.main.GameLaunchTaskHandler
 import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
@@ -385,6 +386,14 @@ abstract class LemuroidApplicationModule {
             coresSelection: CoresSelection,
             gameLaunchTaskHandler: GameLaunchTaskHandler,
         ) = GameLauncher(coresSelection, gameLaunchTaskHandler)
+
+        @Provides
+        @PerApp
+        @JvmStatic
+        fun onlineGameLauncher(
+            coreUpdater: CoreUpdater,
+            gameLaunchTaskHandler: GameLaunchTaskHandler,
+        ) = OnlineGameLauncher(coreUpdater, gameLaunchTaskHandler)
 
         @Provides
         @PerApp

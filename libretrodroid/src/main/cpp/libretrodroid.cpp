@@ -16,6 +16,8 @@
  */
 
 #include "netpacket.h"
+#include "netplay.h"
+#include <zlib.h>
 #include <jni.h>
 
 #include <EGL/egl.h>
@@ -415,6 +417,7 @@ void LibretroDroid::destroy() {
     }
 
     NetPacket::getInstance().reset();
+    Netplay::getInstance().reset();
 
     core->retro_unload_game();
     core->retro_deinit();
@@ -459,9 +462,13 @@ void LibretroDroid::step() {
         frames = std::min(requestedFrames, 2u);
     }
 
+    Netplay::Hooks netplayHooks = buildNetplayHooks();
     for (size_t i = 0; i < frames * frameSpeed; i++) {
         NetPacket::getInstance().onFrame();
+        // In an online "play together" room, a frame waits until every player's input is in.
+        if (!Netplay::getInstance().beginFrame(netplayHooks)) break;
         core->retro_run();
+        Netplay::getInstance().endFrame(netplayHooks);
     }
 
     if (video && !video->rendersInVideoCallback()) {
@@ -556,10 +563,38 @@ int16_t LibretroDroid::handleSetInputState(
     unsigned int index,
     unsigned int id
 ) {
+    Netplay& netplay = Netplay::getInstance();
+    if (netplay.overridesInput()) {
+        return netplay.inputState(port, device, index, id);
+    }
     if (input) {
         return input->getInputState(port, device, index, id);
     }
     return 0;
+}
+
+// Called with coreLock held, from step().
+Netplay::Hooks LibretroDroid::buildNetplayHooks() {
+    Netplay::Hooks hooks;
+    hooks.serialize = [this]() {
+        std::vector<uint8_t> data(core->retro_serialize_size());
+        if (data.empty() || !core->retro_serialize(data.data(), data.size())) data.clear();
+        return data;
+    };
+    hooks.unserialize = [this](const uint8_t* data, size_t size) {
+        return core->retro_unserialize(data, size);
+    };
+    hooks.memoryChecksum = [this]() -> uint32_t {
+        auto* memory = static_cast<const Bytef*>(core->retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));
+        size_t size = core->retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
+        if (memory == nullptr || size == 0) return 0;
+        return static_cast<uint32_t>(crc32(0L, memory, static_cast<uInt>(size)));
+    };
+    hooks.localInput = [this](unsigned device, unsigned index, unsigned id) -> int16_t {
+        // This device's own controller is always port 0.
+        return input ? input->getInputState(0, device, index, id) : 0;
+    };
+    return hooks;
 }
 
 uintptr_t LibretroDroid::handleGetCurrentFrameBuffer() {

@@ -157,4 +157,20 @@ public class LibretroDroid {
     /** Returns [type: u8][target client id: u16 big endian][payload...], or null on timeout. */
     public static native byte[] netpacketTakeOutgoing(int timeoutMs);
     public static native void netpacketWakeTakers();
+
+    // Netplay (online "play together"): every player runs the game, inputs are synced.
+    public static final int NETPLAY_STATUS_INACTIVE = 0;
+    public static final int NETPLAY_STATUS_WAITING_FOR_HOST = 1;
+    public static final int NETPLAY_STATUS_RUNNING = 2;
+    public static final int NETPLAY_STATUS_WAITING_FOR_PLAYERS = 3;
+
+    public static native void netplayStart(int localClientId, int inputDelayFrames);
+    public static native void netplayStop();
+    public static native void netplayPushIncoming(int fromClientId, byte[] data);
+    public static native void netplayPeerJoined(int clientId);
+    public static native void netplayPeerLeft(int clientId);
+    /** Returns [0][target client id: u16 big endian][payload...], or null on timeout. */
+    public static native byte[] netplayTakeOutgoing(int timeoutMs);
+    public static native void netplayWakeTakers();
+    public static native int netplayStatus();
 }

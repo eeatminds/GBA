@@ -9,7 +9,10 @@ import android.view.MotionEvent
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.swordfish.lemuroid.app.mobile.feature.game.GameActivity
@@ -22,6 +25,9 @@ import com.swordfish.lemuroid.app.shared.coreoptions.CoreOption
 import com.swordfish.lemuroid.app.shared.coreoptions.LemuroidCoreOption
 import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelSideEffects
 import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
+import com.swordfish.lemuroid.app.shared.online.OnlineConfig
+import com.swordfish.lemuroid.app.shared.online.OnlineSession
+import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
 import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
 import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
 import com.swordfish.lemuroid.app.tv.game.TVGameActivity
@@ -87,6 +93,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     private lateinit var baseGameScreenViewModel: BaseGameScreenViewModel
 
     private val startGameTime = System.currentTimeMillis()
+
+    // Set when the game was started from an online room.
+    private var onlineSession: OnlineSession? = null
     private var finishTriggered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,11 +128,28 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         lifecycle.addObserver(baseGameScreenViewModel)
 
+        val onlineConfig = intent.getSerializableExtra(EXTRA_ONLINE_CONFIG) as? OnlineConfig
+        val session = onlineConfig?.let { OnlineSession(it, lifecycleScope) }
+        onlineSession = session
+
         setContent {
             AppTheme {
-                BaseGameScreen(viewModel = baseGameScreenViewModel) {
-                    GameScreen(viewModel)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    BaseGameScreen(viewModel = baseGameScreenViewModel) {
+                        GameScreen(viewModel)
+                    }
+                    if (session != null) {
+                        OnlineStatusBar(session = session, gameTitle = game.customName ?: game.title)
+                    }
                 }
+            }
+        }
+
+        if (session != null) {
+            lifecycleScope.launch {
+                // The core registers its link interface while the game loads.
+                baseGameScreenViewModel.retroGameView.waitRetroGameViewInitialized()
+                session.start()
             }
         }
 
@@ -209,7 +235,11 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                     GameMenuContract.EXTRA_AUDIO_ENABLED,
                     baseGameScreenViewModel.retroGameView.retroGameView?.audioEnabled,
                 )
-                this.putExtra(GameMenuContract.EXTRA_FAST_FORWARD_SUPPORTED, system.fastForwardSupport)
+                // Fast forward would make this player run ahead of the others in an online room.
+                this.putExtra(
+                    GameMenuContract.EXTRA_FAST_FORWARD_SUPPORTED,
+                    system.fastForwardSupport && onlineSession == null,
+                )
                 this.putExtra(
                     GameMenuContract.EXTRA_FAST_FORWARD,
                     (baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1) > 1,
@@ -352,6 +382,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     override fun onDestroy() {
         if (!isChangingConfigurations) {
+            onlineSession?.close()
             GameService.requestTermination()
         }
         super.onDestroy()
@@ -423,6 +454,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         private const val EXTRA_LOAD_SAVE = "LOAD_SAVE"
         private const val EXTRA_LEANBACK = "LEANBACK"
         private const val EXTRA_SYSTEM_CORE_CONFIG = "EXTRA_SYSTEM_CORE_CONFIG"
+        private const val EXTRA_ONLINE_CONFIG = "EXTRA_ONLINE_CONFIG"
 
         const val REQUEST_PLAY_GAME = 1001
         const val PLAY_GAME_RESULT_SESSION_DURATION = "PLAY_GAME_RESULT_SESSION_DURATION"
@@ -439,6 +471,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             game: Game,
             loadSave: Boolean,
             useLeanback: Boolean,
+            onlineConfig: OnlineConfig? = null,
         ) {
             val gameActivity =
                 if (useLeanback) {
@@ -452,6 +485,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                     putExtra(EXTRA_LOAD_SAVE, loadSave)
                     putExtra(EXTRA_LEANBACK, useLeanback)
                     putExtra(EXTRA_SYSTEM_CORE_CONFIG, systemCoreConfig)
+                    onlineConfig?.let { putExtra(EXTRA_ONLINE_CONFIG, it) }
                 },
                 REQUEST_PLAY_GAME,
             )
