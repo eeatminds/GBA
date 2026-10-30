@@ -8,33 +8,39 @@ import android.os.Bundle
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -137,127 +143,98 @@ class GameMenuActivity : RetrogradeComponentActivity() {
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun GameMenuScreen(gameMenuRequest: GameMenuRequest) {
         AppTheme {
-            val navController = rememberNavController()
-            val navBackStackEntry = navController.currentBackStackEntryAsState()
-            val currentDestination = navBackStackEntry.value?.destination
-
-            val currentRoute =
-                currentDestination?.route
-                    ?.let { GameMenuRoute.findByRoute(it) }
-                    ?: GameMenuRoute.HOME
-
-            SideMenu {
-                TopAppBar(
-                    title = { Text(stringResource(currentRoute.titleId)) },
-                    windowInsets = WindowInsets(0.dp),
-                    navigationIcon = {
-                        AnimatedContent(targetState = currentRoute.canGoBack(), label = "Back") { canGoBack ->
-                            if (canGoBack) {
-                                IconButton(onClick = { navController.popBackStack() }) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        stringResource(R.string.back),
-                                    )
-                                }
-                            } else {
-                                IconButton(onClick = { onResult { } }) {
-                                    Icon(
-                                        Icons.Filled.Close,
-                                        stringResource(R.string.close),
-                                    )
-                                }
-                            }
-                        }
-                    },
-                )
-                Divider(modifier = Modifier.fillMaxWidth())
-                NavHost(
-                    modifier =
-                        Modifier
-                            .fillMaxSize(),
-                    navController = navController,
-                    startDestination = GameMenuRoute.HOME.route,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                ) {
-                    composable(GameMenuRoute.HOME) {
-                        GameMenuHomeScreen(navController, gameMenuRequest, ::onResult)
-                    }
-                    composable(GameMenuRoute.SAVE) {
-                        GameMenuStatesScreen(
-                            viewModel(
-                                factory =
-                                    GameMenuStatesViewModel.Factory(
-                                        application,
-                                        gameMenuRequest,
-                                        statesManager,
-                                        false,
-                                        statesPreviewManager,
-                                    ),
-                            ),
-                            onStateClicked = {
-                                onResult { putExtra(GameMenuContract.RESULT_SAVE, it) }
-                            },
-                        )
-                    }
-                    composable(GameMenuRoute.LOAD) {
-                        GameMenuStatesScreen(
-                            viewModel(
-                                factory =
-                                    GameMenuStatesViewModel.Factory(
-                                        application,
-                                        gameMenuRequest,
-                                        statesManager,
-                                        true,
-                                        statesPreviewManager,
-                                    ),
-                            ),
-                            onStateClicked = {
-                                onResult { putExtra(GameMenuContract.RESULT_LOAD, it) }
-                            },
-                        )
-                    }
-                    composable(GameMenuRoute.CHEATS) {
-                        GameMenuCheatsScreen(gameMenuRequest.game)
-                    }
-                    composable(GameMenuRoute.OPTIONS) {
-                        GameMenuCoreOptionsScreen(
-                            viewModel(
-                                factory = GameMenuCoreOptionsViewModel.Factory(inputDeviceManager),
-                            ),
-                            gameMenuRequest,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun SideMenu(content: @Composable () -> Unit) {
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.CenterEnd,
-        ) {
-            val panelWidth =
-                remember(maxWidth) {
-                    minOf(maxWidth * 0.8f, 400f.dp)
-                }
-
-            Surface(
-                modifier =
-                    Modifier
-                        .padding()
-                        .fillMaxHeight()
-                        .width(panelWidth)
-                        .clip(MaterialTheme.shapes.large),
+            // The menu card is always dark grey with white text, whatever the phone's colours.
+            MaterialTheme(
+                colorScheme =
+                    MaterialTheme.colorScheme.copy(
+                        surface = MENU_CARD,
+                        background = MENU_CARD,
+                        onSurface = ComposeColor.White,
+                        onBackground = ComposeColor.White,
+                        onSurfaceVariant = ComposeColor.White.copy(alpha = 0.6f),
+                    ),
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    content()
+                val navController = rememberNavController()
+                val navBackStackEntry = navController.currentBackStackEntryAsState()
+                val currentRoute =
+                    navBackStackEntry.value?.destination?.route
+                        ?.let { GameMenuRoute.findByRoute(it) }
+                        ?: GameMenuRoute.HOME
+
+                FloatingMenu(onDismiss = { finish() }) {
+                    if (currentRoute.canGoBack()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(52.dp).padding(start = 8.dp, end = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+                            }
+                            Text(
+                                text = stringResource(currentRoute.titleId),
+                                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+                            )
+                        }
+                    }
+                    NavHost(
+                        modifier = Modifier.fillMaxWidth(),
+                        navController = navController,
+                        startDestination = GameMenuRoute.HOME.route,
+                        enterTransition = { fadeIn() },
+                        exitTransition = { fadeOut() },
+                    ) {
+                        composable(GameMenuRoute.HOME) {
+                            GameMenuHomeScreen(navController, gameMenuRequest, ::onResult, onClose = { finish() })
+                        }
+                        composable(GameMenuRoute.SAVE) {
+                            GameMenuStatesScreen(
+                                viewModel(
+                                    factory =
+                                        GameMenuStatesViewModel.Factory(
+                                            application,
+                                            gameMenuRequest,
+                                            statesManager,
+                                            false,
+                                            statesPreviewManager,
+                                        ),
+                                ),
+                                onStateClicked = {
+                                    onResult { putExtra(GameMenuContract.RESULT_SAVE, it) }
+                                },
+                            )
+                        }
+                        composable(GameMenuRoute.LOAD) {
+                            GameMenuStatesScreen(
+                                viewModel(
+                                    factory =
+                                        GameMenuStatesViewModel.Factory(
+                                            application,
+                                            gameMenuRequest,
+                                            statesManager,
+                                            true,
+                                            statesPreviewManager,
+                                        ),
+                                ),
+                                onStateClicked = {
+                                    onResult { putExtra(GameMenuContract.RESULT_LOAD, it) }
+                                },
+                            )
+                        }
+                        composable(GameMenuRoute.CHEATS) {
+                            GameMenuCheatsScreen(gameMenuRequest.game)
+                        }
+                        composable(GameMenuRoute.OPTIONS) {
+                            GameMenuCoreOptionsScreen(
+                                viewModel(
+                                    factory = GameMenuCoreOptionsViewModel.Factory(inputDeviceManager),
+                                ),
+                                gameMenuRequest,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -272,4 +249,49 @@ class GameMenuActivity : RetrogradeComponentActivity() {
 
     @dagger.Module
     abstract class Module
+}
+
+private val MENU_CARD = ComposeColor(0xFF202127)
+
+/**
+ * A rounded card in the middle of the screen over the dimmed game. Its content scrolls when it
+ * doesn't fit, and a tap anywhere outside the card closes the menu.
+ */
+@Composable
+fun FloatingMenu(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
+                    ),
+        )
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val isLandscape = maxWidth > maxHeight
+            Surface(
+                modifier =
+                    Modifier
+                        .widthIn(max = 560.dp)
+                        .fillMaxWidth(if (isLandscape) 0.62f else 0.9f)
+                        .heightIn(max = maxHeight),
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp,
+            ) {
+                Column(modifier = Modifier.animateContentSize().padding(vertical = 6.dp)) {
+                    content()
+                }
+            }
+        }
+    }
 }

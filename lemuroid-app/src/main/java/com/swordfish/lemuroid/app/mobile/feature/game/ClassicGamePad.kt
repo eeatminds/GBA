@@ -1,17 +1,14 @@
 package com.swordfish.lemuroid.app.mobile.feature.game
 
 import android.view.KeyEvent
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,32 +18,35 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
@@ -56,21 +56,21 @@ import gg.padkit.PadKitScope
 import gg.padkit.controls.ControlButton
 import gg.padkit.controls.ControlCross
 import gg.padkit.ids.Id
-import gg.padkit.ui.DefaultCrossForeground
 
 /**
- * Handheld-style touch controls (Game Boy, Game Boy Color, Game Boy Advance): outlined keys
- * that light up when pressed.
+ * Handheld-style touch controls (Game Boy, Game Boy Color, Game Boy Advance): thin outlined keys
+ * that light up when pressed. Every key reacts a little outside its outline, so near misses count.
  *
- * Portrait: the game fills the top of the screen and the controls sit below it.
- * Landscape: the game is centered and the controls sit at the sides and corners.
+ * Portrait: the game sits above the controls, which stay low where thumbs rest.
+ * Landscape: the game is centered, the D-pad bottom left, A and B bottom right.
  * The layout follows the phone as it rotates.
  */
 object ClassicGamePad {
-    val outline = Color.White.copy(alpha = 0.72f)
-    val pressedFill = Color.White.copy(alpha = 0.30f)
-    val idleFill = Color.Black.copy(alpha = 0.12f)
-    const val STROKE_DP = 2
+    val outline = Color.White.copy(alpha = 0.58f)
+    val pressedFill = Color.White.copy(alpha = 0.28f)
+    val menuFill = Color.Black.copy(alpha = 0.25f)
+    val menuBars = Color.White.copy(alpha = 0.72f)
+    val stroke = 1.6.dp
 }
 
 /** How big the game picture is drawn. */
@@ -83,7 +83,13 @@ enum class ClassicScreenSize {
 }
 
 /** Where the game sits in portrait, in the space above the controls. */
-enum class ClassicScreenPosition { TOP, MIDDLE }
+enum class ClassicScreenPosition {
+    // Right under the status bar.
+    TOP,
+
+    // Centered for the eye: a little above the middle of the free space, away from the camera.
+    MIDDLE,
+}
 
 /** Places the game picture and, if [showControls], the controls. Reports where the game should draw. */
 @Composable
@@ -96,7 +102,7 @@ fun PadKitScope.ClassicGameLayout(
     showControls: Boolean,
     settings: TouchControllerSettingsManager.Settings?,
     screenSize: ClassicScreenSize = ClassicScreenSize.FIT,
-    screenPosition: ClassicScreenPosition = ClassicScreenPosition.TOP,
+    screenPosition: ClassicScreenPosition = ClassicScreenPosition.MIDDLE,
     onGameAreaPositioned: (Rect) -> Unit,
 ) {
     val scale =
@@ -128,11 +134,14 @@ fun PadKitScope.ClassicGameLayout(
             // The game takes the space the controls leave free.
             BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 val size = gameSize(maxWidth, maxHeight)
+                val freeSpace = (maxHeight - size.height).coerceAtLeast(0.dp)
+                val top = if (screenPosition == ClassicScreenPosition.MIDDLE) freeSpace * EYE_LINE else 0.dp
                 Box(
                     modifier =
                         Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = top)
                             .size(size)
-                            .align(if (screenPosition == ClassicScreenPosition.MIDDLE) Alignment.Center else Alignment.TopCenter)
                             .onGloballyPositioned { onGameAreaPositioned(it.boundsInRoot()) },
                 )
             }
@@ -142,29 +151,31 @@ fun PadKitScope.ClassicGameLayout(
                         Modifier
                             .fillMaxWidth()
                             .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(start = 16.dp + marginX.dp, end = 16.dp + marginX.dp, top = 12.dp, bottom = 16.dp + marginY.dp),
+                            .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 8.dp, bottom = 8.dp + marginY.dp),
                     scale = scale,
                     hasShoulderButtons = hasShoulderButtons,
                 )
             }
         }
     } else {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val size = gameSize(maxWidth, maxHeight)
-            Box(
-                modifier =
-                    Modifier
-                        .size(size)
-                        .align(Alignment.Center)
-                        .onGloballyPositioned { onGameAreaPositioned(it.boundsInRoot()) },
-            )
+        // Game and controls stay clear of the camera cutout.
+        Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val size = gameSize(maxWidth, maxHeight)
+                Box(
+                    modifier =
+                        Modifier
+                            .size(size)
+                            .align(Alignment.Center)
+                            .onGloballyPositioned { onGameAreaPositioned(it.boundsInRoot()) },
+                )
+            }
             if (showControls) {
                 LandscapeControls(
                     modifier =
                         Modifier
                             .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing)
-                            .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 8.dp, bottom = 12.dp + marginY.dp),
+                            .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 7.dp, bottom = 13.dp + marginY.dp),
                     scale = scale,
                     hasShoulderButtons = hasShoulderButtons,
                 )
@@ -173,29 +184,34 @@ fun PadKitScope.ClassicGameLayout(
     }
 }
 
+// Share of the free space left above the game in portrait (the rest goes below it).
+private const val EYE_LINE = 0.4f
+
+// Touch areas. The drawn keys sit inside them, a little smaller.
+private val ROUND_KEY = 58.dp
+private val PILL_KEY = DpSize(56.dp, 34.dp)
+private val SHOULDER_KEY = DpSize(84.dp, 46.dp)
+private val MENU_KEY = 44.dp
+private val CROSS = 150.dp
+
 @Composable
 private fun PadKitScope.PortraitControls(
     modifier: Modifier,
     scale: Float,
     hasShoulderButtons: Boolean,
 ) {
-    // Three rows, low on the screen where thumbs reach:
-    // shoulder keys and menu, then Select and Start centered, then the D-pad and A/B.
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            if (hasShoulderButtons) {
-                ShoulderButton(Modifier.align(Alignment.CenterStart), KeyEvent.KEYCODE_BUTTON_L1, "L", isLeft = true, scale = scale)
-                ShoulderButton(Modifier.align(Alignment.CenterEnd), KeyEvent.KEYCODE_BUTTON_R1, "R", isLeft = false, scale = scale)
-            }
-            MenuButton(Modifier.align(Alignment.Center), scale)
+    // L, menu and R on top. Below: the D-pad on the left; Select and Start right above B and A.
+    Box(modifier = modifier.height(253.dp * scale)) {
+        MenuButton(Modifier.align(Alignment.TopCenter), scale)
+        if (hasShoulderButtons) {
+            ShoulderButton(Modifier.align(Alignment.TopStart).offset((-3).dp * scale, 4.5.dp * scale), KeyEvent.KEYCODE_BUTTON_L1, "L", true, scale)
+            ShoulderButton(Modifier.align(Alignment.TopEnd).offset(3.dp * scale, 4.5.dp * scale), KeyEvent.KEYCODE_BUTTON_R1, "R", false, scale)
         }
-        Spacer(Modifier.height(16.dp * scale))
-        StartSelect(scale)
-        Spacer(Modifier.height(8.dp * scale))
-        Box(modifier = Modifier.fillMaxWidth()) {
-            DPad(Modifier.align(Alignment.CenterStart), scale)
-            FaceButtons(Modifier.align(Alignment.CenterEnd), scale)
-        }
+        PillKey(Modifier.align(Alignment.TopEnd).offset((-84).dp * scale, 111.dp * scale), KeyEvent.KEYCODE_BUTTON_SELECT, scale)
+        PillKey(Modifier.align(Alignment.TopEnd).offset((-2).dp * scale, 111.dp * scale), KeyEvent.KEYCODE_BUTTON_START, scale)
+        DPad(Modifier.align(Alignment.BottomStart).offset(x = (-3).dp * scale), scale)
+        RoundKey(Modifier.align(Alignment.BottomEnd).offset((-83).dp * scale, (-2).dp * scale), KeyEvent.KEYCODE_BUTTON_B, "B", scale)
+        RoundKey(Modifier.align(Alignment.BottomEnd).offset((-1).dp * scale, (-2).dp * scale), KeyEvent.KEYCODE_BUTTON_A, "A", scale)
     }
 }
 
@@ -205,15 +221,18 @@ private fun PadKitScope.LandscapeControls(
     scale: Float,
     hasShoulderButtons: Boolean,
 ) {
+    // L and R in the top corners, the menu at the top middle, Select and Start low beside B.
     Box(modifier = modifier) {
         if (hasShoulderButtons) {
-            ShoulderButton(Modifier.align(Alignment.TopStart), KeyEvent.KEYCODE_BUTTON_L1, "L", isLeft = true, scale = scale)
-            ShoulderButton(Modifier.align(Alignment.TopEnd), KeyEvent.KEYCODE_BUTTON_R1, "R", isLeft = false, scale = scale)
+            ShoulderButton(Modifier.align(Alignment.TopStart).offset((-3).dp * scale, (-3.5).dp * scale), KeyEvent.KEYCODE_BUTTON_L1, "L", true, scale)
+            ShoulderButton(Modifier.align(Alignment.TopEnd).offset(3.dp * scale, (-3.5).dp * scale), KeyEvent.KEYCODE_BUTTON_R1, "R", false, scale)
         }
-        MenuButton(Modifier.align(Alignment.TopCenter), scale)
-        DPad(Modifier.align(Alignment.BottomStart), scale)
-        FaceButtons(Modifier.align(Alignment.BottomEnd), scale)
-        StartSelect(scale, Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp * scale, y = 0.dp))
+        MenuButton(Modifier.align(Alignment.TopCenter).offset(y = (-9).dp * scale), scale)
+        DPad(Modifier.align(Alignment.BottomStart).offset((-3).dp * scale, 2.dp * scale), scale)
+        PillKey(Modifier.align(Alignment.BottomEnd).offset((-281).dp * scale, 2.dp * scale), KeyEvent.KEYCODE_BUTTON_SELECT, scale)
+        PillKey(Modifier.align(Alignment.BottomEnd).offset((-225).dp * scale, 2.dp * scale), KeyEvent.KEYCODE_BUTTON_START, scale)
+        RoundKey(Modifier.align(Alignment.BottomEnd).offset((-83).dp * scale, 1.dp * scale), KeyEvent.KEYCODE_BUTTON_B, "B", scale)
+        RoundKey(Modifier.align(Alignment.BottomEnd).offset((-1).dp * scale, 1.dp * scale), KeyEvent.KEYCODE_BUTTON_A, "A", scale)
     }
 }
 
@@ -225,56 +244,63 @@ private fun PadKitScope.DPad(
     modifier: Modifier,
     scale: Float,
 ) {
-    val size = 150.dp * scale
+    // Four separate keys drawn, one touch area: touching between two arrows presses both (diagonal).
     ControlCross(
-        modifier = modifier.size(size),
+        modifier = modifier.size(CROSS * scale),
         id = Id.DiscreteDirection(ComposeTouchLayouts.MOTION_SOURCE_DPAD),
         allowDiagonals = true,
         background = { },
-        foreground = { direction ->
-            DefaultCrossForeground(
-                modifier = Modifier.fillMaxSize(),
-                directionState = direction,
-                allowDiagonals = true,
-                leftDial = { ArrowKey(it, Icons.Default.KeyboardArrowLeft) },
-                rightDial = { ArrowKey(it, Icons.Default.KeyboardArrowRight) },
-                topDial = { ArrowKey(it, Icons.Default.KeyboardArrowUp) },
-                bottomDial = { ArrowKey(it, Icons.Default.KeyboardArrowDown) },
-                foregroundComposite = { },
-            )
-        },
+        foreground = { direction -> CrossKeys(direction) },
     )
 }
 
 @Composable
-private fun ArrowKey(
-    pressed: State<Boolean>,
-    icon: ImageVector,
-) {
-    OutlinedKey(
-        pressed = pressed.value,
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxSize().padding(5.dp),
-    ) {
-        Icon(icon, contentDescription = null, tint = ClassicGamePad.outline, modifier = Modifier.fillMaxSize(0.75f))
+private fun CrossKeys(direction: State<Offset>) {
+    // The pad library reports up as a positive y.
+    val up = remember(direction) { derivedStateOf { direction.value.y > 0.5f } }
+    val down = remember(direction) { derivedStateOf { direction.value.y < -0.5f } }
+    val left = remember(direction) { derivedStateOf { direction.value.x < -0.5f } }
+    val right = remember(direction) { derivedStateOf { direction.value.x > 0.5f } }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Three keys across with small gaps: 46 + 6 + 46 + 6 + 46 at full size.
+        val key = maxWidth * (46f / 150f)
+        val step = maxWidth * (52f / 150f)
+        ArrowKey(Modifier.offset(step, 0.dp).size(key), up, 0f)
+        ArrowKey(Modifier.offset(0.dp, step).size(key), left, 270f)
+        ArrowKey(Modifier.offset(step * 2, step).size(key), right, 90f)
+        ArrowKey(Modifier.offset(step, step * 2).size(key), down, 180f)
     }
 }
 
 @Composable
-private fun PadKitScope.FaceButtons(
-    scale: Float,
-) = FaceButtons(Modifier, scale)
-
-@Composable
-private fun PadKitScope.FaceButtons(
+private fun ArrowKey(
     modifier: Modifier,
-    scale: Float,
+    pressed: State<Boolean>,
+    rotation: Float,
 ) {
-    // B sits lower-left of A, like on the console.
-    val button = 66.dp * scale
-    Box(modifier = modifier.size(width = button * 2.25f, height = button * 1.65f)) {
-        RoundKey(Modifier.align(Alignment.BottomStart), KeyEvent.KEYCODE_BUTTON_B, "B", button)
-        RoundKey(Modifier.align(Alignment.TopEnd), KeyEvent.KEYCODE_BUTTON_A, "A", button)
+    val shape = RoundedCornerShape(7.dp)
+    Box(
+        modifier =
+            modifier
+                .background(if (pressed.value) ClassicGamePad.pressedFill else Color.Transparent, shape)
+                .border(ClassicGamePad.stroke, ClassicGamePad.outline, shape),
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // An outlined triangle pointing up, turned to face its direction.
+            val t = size.minDimension * 0.29f
+            val c = center
+            val triangle =
+                Path().apply {
+                    moveTo(c.x, c.y - t * 0.95f)
+                    lineTo(c.x + t * 1.05f, c.y + t * 0.8f)
+                    lineTo(c.x - t * 1.05f, c.y + t * 0.8f)
+                    close()
+                }
+            rotate(rotation, c) {
+                drawPath(triangle, ClassicGamePad.outline, style = Stroke(width = ClassicGamePad.stroke.toPx(), join = StrokeJoin.Round))
+            }
+        }
     }
 }
 
@@ -283,18 +309,55 @@ private fun PadKitScope.RoundKey(
     modifier: Modifier,
     keyCode: Int,
     label: String,
-    size: Dp,
+    scale: Float,
 ) {
     ControlButton(
-        modifier = modifier.size(size),
+        modifier = modifier.size(ROUND_KEY * scale),
         id = Id.Key(keyCode),
         foreground = { pressed ->
-            OutlinedKey(pressed = pressed.value, shape = CircleShape, modifier = Modifier.fillMaxSize()) {
-                KeyLabel(label, (size.value * 0.36f).sp)
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(4.dp * scale)
+                        .background(if (pressed.value) ClassicGamePad.pressedFill else Color.Transparent, CircleShape)
+                        .border(ClassicGamePad.stroke, ClassicGamePad.outline, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = label, color = ClassicGamePad.outline, fontSize = (24 * scale).sp, fontWeight = FontWeight.Normal)
             }
         },
         background = { },
     )
+}
+
+/** A shoulder tab: flat top, and a bottom edge that curves up toward the middle of the phone. */
+private class ShoulderShape(private val isLeft: Boolean) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val w = size.width
+        val h = size.height
+        val r = with(density) { 9.dp.toPx() }
+
+        // Drawn for the left key; the right key is its mirror image.
+        fun x(value: Float) = if (isLeft) value else w - value
+        val path =
+            Path().apply {
+                moveTo(x(r), 0f)
+                lineTo(x(w - r), 0f)
+                quadraticBezierTo(x(w), 0f, x(w), r)
+                lineTo(x(w), h * 0.42f)
+                cubicTo(x(w), h * 0.66f, x(w * 0.5f), h * 0.74f, x(r * 1.65f), h)
+                quadraticBezierTo(x(0f), h, x(0f), h - r * 1.3f)
+                lineTo(x(0f), r)
+                quadraticBezierTo(x(0f), 0f, x(r), 0f)
+                close()
+            }
+        return Outline.Generic(path)
+    }
 }
 
 @Composable
@@ -305,19 +368,33 @@ private fun PadKitScope.ShoulderButton(
     isLeft: Boolean,
     scale: Float,
 ) {
-    // A tab with a rounder outer top corner, like the shoulder keys on a handheld.
-    val shape =
-        if (isLeft) {
-            RoundedCornerShape(topStart = 22.dp, topEnd = 8.dp, bottomEnd = 22.dp, bottomStart = 8.dp)
-        } else {
-            RoundedCornerShape(topStart = 8.dp, topEnd = 22.dp, bottomEnd = 8.dp, bottomStart = 22.dp)
-        }
+    val shape = remember(isLeft) { ShoulderShape(isLeft) }
     ControlButton(
-        modifier = modifier.size(width = 104.dp * scale, height = 48.dp * scale),
+        modifier = modifier.size(SHOULDER_KEY * scale),
         id = Id.Key(keyCode),
         foreground = { pressed ->
-            OutlinedKey(pressed = pressed.value, shape = shape, modifier = Modifier.fillMaxSize()) {
-                KeyLabel(label, (20 * scale).sp)
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 3.dp * scale, vertical = 3.5.dp * scale)
+                        .background(if (pressed.value) ClassicGamePad.pressedFill else Color.Transparent, shape)
+                        .border(ClassicGamePad.stroke, ClassicGamePad.outline, shape),
+            ) {
+                Text(
+                    text = label,
+                    color = ClassicGamePad.outline,
+                    fontSize = (20 * scale).sp,
+                    fontWeight = FontWeight.Normal,
+                    modifier =
+                        Modifier
+                            .align(if (isLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                            .padding(
+                                start = if (isLeft) 9.dp * scale else 0.dp,
+                                end = if (isLeft) 0.dp else 9.dp * scale,
+                                bottom = 4.dp * scale,
+                            ),
+                )
             }
         },
         background = { },
@@ -325,45 +402,29 @@ private fun PadKitScope.ShoulderButton(
 }
 
 @Composable
-private fun PadKitScope.StartSelect(
-    scale: Float,
-    modifier: Modifier = Modifier,
-) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(16.dp * scale)) {
-        PillKey(KeyEvent.KEYCODE_BUTTON_SELECT, "SELECT", scale)
-        PillKey(KeyEvent.KEYCODE_BUTTON_START, "START", scale)
-    }
-}
-
-@Composable
 private fun PadKitScope.PillKey(
+    modifier: Modifier,
     keyCode: Int,
-    label: String,
     scale: Float,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        ControlButton(
-            // A taller touch area than the drawing, so the small key is easy to hit.
-            modifier = Modifier.size(width = 60.dp * scale, height = 34.dp * scale),
-            id = Id.Key(keyCode),
-            foreground = { pressed ->
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    OutlinedKey(
-                        pressed = pressed.value,
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.size(width = 56.dp * scale, height = 22.dp * scale),
-                    ) { }
-                }
-            },
-            background = { },
-        )
-        Text(
-            text = label,
-            color = ClassicGamePad.outline,
-            fontSize = (9 * scale).sp,
-            fontWeight = FontWeight.Medium,
-        )
-    }
+    // Select and Start: small pills, with a touch area much bigger than the drawing.
+    ControlButton(
+        modifier = modifier.size(PILL_KEY * scale),
+        id = Id.Key(keyCode),
+        foreground = { pressed ->
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                val shape = RoundedCornerShape(50)
+                Box(
+                    modifier =
+                        Modifier
+                            .size(width = 40.dp * scale, height = 17.dp * scale)
+                            .background(if (pressed.value) ClassicGamePad.pressedFill else Color.Transparent, shape)
+                            .border(ClassicGamePad.stroke, ClassicGamePad.outline, shape),
+                )
+            }
+        },
+        background = { },
+    )
 }
 
 @Composable
@@ -372,39 +433,33 @@ private fun PadKitScope.MenuButton(
     scale: Float,
 ) {
     ControlButton(
-        modifier = modifier.size(46.dp * scale),
+        modifier = modifier.size(MENU_KEY * scale),
         id = Id.Key(KeyEvent.KEYCODE_BUTTON_MODE),
         foreground = { pressed ->
-            OutlinedKey(pressed = pressed.value, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxSize()) {
-                Icon(Icons.Default.Menu, contentDescription = null, tint = ClassicGamePad.outline, modifier = Modifier.fillMaxSize(0.65f))
+            val shape = RoundedCornerShape(6.dp * scale)
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(4.dp * scale)
+                        .background(if (pressed.value) ClassicGamePad.pressedFill else ClassicGamePad.menuFill, shape)
+                        .border(ClassicGamePad.stroke, ClassicGamePad.outline, shape),
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val barWidth = size.width * 0.6f
+                    val barHeight = size.height * 0.11f
+                    val left = (size.width - barWidth) / 2
+                    for (top in listOf(0.27f, 0.45f, 0.63f)) {
+                        drawRoundRect(
+                            color = ClassicGamePad.menuBars,
+                            topLeft = Offset(left, size.height * top),
+                            size = Size(barWidth, barHeight),
+                            cornerRadius = CornerRadius(1.2.dp.toPx()),
+                        )
+                    }
+                }
             }
         },
         background = { },
     )
-}
-
-@Composable
-private fun OutlinedKey(
-    pressed: Boolean,
-    shape: Shape,
-    modifier: Modifier,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier =
-            modifier
-                .background(if (pressed) ClassicGamePad.pressedFill else ClassicGamePad.idleFill, shape)
-                .border(ClassicGamePad.STROKE_DP.dp, ClassicGamePad.outline, shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
-    }
-}
-
-@Composable
-private fun KeyLabel(
-    text: String,
-    size: androidx.compose.ui.unit.TextUnit,
-) {
-    Text(text = text, color = ClassicGamePad.outline, fontSize = size, fontWeight = FontWeight.Medium)
 }

@@ -27,7 +27,7 @@ object ClassicScreenSettings {
         val preferences = preferences(context)
         return Values(
             size = enumValueOrDefault(preferences.getString(KEY_SIZE, null), ClassicScreenSize.FIT),
-            position = enumValueOrDefault(preferences.getString(KEY_POSITION, null), ClassicScreenPosition.TOP),
+            position = enumValueOrDefault(preferences.getString(KEY_POSITION, null), ClassicScreenPosition.MIDDLE),
         )
     }
 

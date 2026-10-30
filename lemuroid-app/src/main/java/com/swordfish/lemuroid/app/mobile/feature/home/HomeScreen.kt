@@ -184,7 +184,6 @@ fun HomeScreen(
                             game = game,
                             onClick = { onGameClick(game) },
                             onLongClick = { onGameLongClick(game) },
-                            onOptionsClick = { onGameLongClick(game) },
                         )
                     }
                 }
@@ -208,7 +207,6 @@ fun HomeScreen(
                 game = game,
                 onClick = { onGameClick(game) },
                 onLongClick = { onGameLongClick(game) },
-                onOptionsClick = { onGameLongClick(game) },
             )
         }
     }
