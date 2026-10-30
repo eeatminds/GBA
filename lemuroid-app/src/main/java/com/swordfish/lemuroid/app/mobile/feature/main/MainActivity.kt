@@ -1,0 +1,590 @@
+package com.swordfish.lemuroid.app.mobile.feature.main
+
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
+import android.os.Bundle
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import com.swordfish.lemuroid.lib.storage.local.PickedGameFiles
+import com.swordfish.lemuroid.common.displayToast
+import com.swordfish.lemuroid.app.shared.library.GameSaveFiles
+import androidx.lifecycle.lifecycleScope
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.fredporciuncula.flow.preferences.FlowSharedPreferences
+import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.mobile.feature.favorites.FavoritesScreen
+import com.swordfish.lemuroid.app.mobile.feature.favorites.FavoritesViewModel
+import com.swordfish.lemuroid.app.mobile.feature.games.GamesScreen
+import com.swordfish.lemuroid.app.mobile.feature.games.GamesViewModel
+import com.swordfish.lemuroid.app.mobile.feature.home.AddGamesButton
+import com.swordfish.lemuroid.app.mobile.feature.home.HomeScreen
+import com.swordfish.lemuroid.app.mobile.feature.home.HomeViewModel
+import com.swordfish.lemuroid.app.mobile.feature.online.OnlineScreen
+import com.swordfish.lemuroid.app.mobile.feature.online.OnlineViewModel
+import com.swordfish.lemuroid.app.mobile.feature.search.SearchScreen
+import com.swordfish.lemuroid.app.mobile.feature.search.SearchViewModel
+import com.swordfish.lemuroid.app.mobile.feature.settings.advanced.AdvancedSettingsScreen
+import com.swordfish.lemuroid.app.mobile.feature.settings.advanced.AdvancedSettingsViewModel
+import com.swordfish.lemuroid.app.mobile.feature.settings.bios.BiosScreen
+import com.swordfish.lemuroid.app.mobile.feature.settings.bios.BiosSettingsViewModel
+import com.swordfish.lemuroid.app.mobile.feature.settings.coreselection.CoresSelectionScreen
+import com.swordfish.lemuroid.app.mobile.feature.settings.coreselection.CoresSelectionViewModel
+import com.swordfish.lemuroid.app.mobile.feature.settings.general.SettingsScreen
+import com.swordfish.lemuroid.app.mobile.feature.settings.general.SettingsViewModel
+import com.swordfish.lemuroid.app.mobile.feature.settings.inputdevices.InputDevicesSettingsScreen
+import com.swordfish.lemuroid.app.mobile.feature.settings.inputdevices.InputDevicesSettingsViewModel
+import com.swordfish.lemuroid.app.mobile.feature.settings.savesync.SaveSyncSettingsScreen
+import com.swordfish.lemuroid.app.mobile.feature.settings.savesync.SaveSyncSettingsViewModel
+import com.swordfish.lemuroid.app.mobile.feature.shortcuts.ShortcutsGenerator
+import com.swordfish.lemuroid.app.mobile.feature.systems.MetaSystemsScreen
+import com.swordfish.lemuroid.app.mobile.feature.systems.MetaSystemsViewModel
+import com.swordfish.lemuroid.app.mobile.shared.compose.ui.AppTheme
+import com.swordfish.lemuroid.app.shared.GameInteractor
+import com.swordfish.lemuroid.app.shared.game.BaseGameActivity
+import com.swordfish.lemuroid.app.shared.game.GameLauncher
+import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
+import com.swordfish.lemuroid.app.shared.main.BusyActivity
+import com.swordfish.lemuroid.app.shared.main.GameLaunchTaskHandler
+import com.swordfish.lemuroid.app.shared.online.OnlineGameLauncher
+import com.swordfish.lemuroid.app.shared.online.OnlineSettings
+import com.swordfish.lemuroid.app.shared.settings.GameFilePickerLauncher
+import com.swordfish.lemuroid.app.shared.settings.SettingsInteractor
+import com.swordfish.lemuroid.app.shared.settings.StorageFrameworkPickerLauncher
+import com.swordfish.lemuroid.common.coroutines.safeLaunch
+import com.swordfish.lemuroid.ext.feature.review.ReviewManager
+import com.swordfish.lemuroid.lib.android.RetrogradeComponentActivity
+import com.swordfish.lemuroid.lib.bios.BiosManager
+import com.swordfish.lemuroid.lib.core.CoresSelection
+import com.swordfish.lemuroid.lib.injection.PerActivity
+import com.swordfish.lemuroid.lib.library.covers.CustomCoverManager
+import com.swordfish.lemuroid.lib.library.MetaSystemID
+import com.swordfish.lemuroid.lib.library.SystemID
+import com.swordfish.lemuroid.lib.library.db.RetrogradeDatabase
+import com.swordfish.lemuroid.lib.library.db.entity.Game
+import com.swordfish.lemuroid.lib.preferences.SharedPreferencesHelper
+import com.swordfish.lemuroid.lib.savesync.SaveSyncManager
+import com.swordfish.lemuroid.lib.storage.DirectoriesManager
+import dagger.Provides
+import de.charlex.compose.material3.HtmlText
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import javax.inject.Inject
+
+@OptIn(DelicateCoroutinesApi::class)
+class MainActivity : RetrogradeComponentActivity(), BusyActivity {
+    @Inject
+    lateinit var gameLaunchTaskHandler: GameLaunchTaskHandler
+
+    @Inject
+    lateinit var saveSyncManager: SaveSyncManager
+
+    @Inject
+    lateinit var retrogradeDb: RetrogradeDatabase
+
+    @Inject
+    lateinit var gameInteractor: GameInteractor
+
+    @Inject
+    lateinit var biosManager: BiosManager
+
+    @Inject
+    lateinit var coresSelection: CoresSelection
+
+    @Inject
+    lateinit var settingsInteractor: SettingsInteractor
+
+    @Inject
+    lateinit var inputDeviceManager: InputDeviceManager
+
+    @Inject
+    lateinit var onlineGameLauncher: OnlineGameLauncher
+
+    @Inject
+    lateinit var directoriesManager: DirectoriesManager
+
+    private val gameSaveFiles by lazy { GameSaveFiles(directoriesManager) }
+
+    // Game whose save is being exported or imported while the system file picker is open.
+    private var pendingSaveGame: Game? = null
+
+    // Game waiting for "erase save" confirmation.
+    private val eraseSaveGame = mutableStateOf<Game?>(null)
+
+    private val exportSaveLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+            val game = pendingSaveGame ?: return@registerForActivityResult
+            pendingSaveGame = null
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch {
+                val ok = gameSaveFiles.export(applicationContext, game, uri)
+                displayToast(if (ok) R.string.save_exported else R.string.save_export_failed)
+            }
+        }
+
+    private val importSaveLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val game = pendingSaveGame ?: return@registerForActivityResult
+            pendingSaveGame = null
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch {
+                val ok = gameSaveFiles.import(applicationContext, game, uri)
+                displayToast(if (ok) R.string.save_imported else R.string.save_import_failed)
+            }
+        }
+
+    private fun exportSave(game: Game) {
+        if (!gameSaveFiles.hasSave(game)) {
+            displayToast(R.string.save_none)
+            return
+        }
+        pendingSaveGame = game
+        exportSaveLauncher.launch(gameSaveFiles.exportName(game))
+    }
+
+    private fun importSave(game: Game) {
+        pendingSaveGame = game
+        importSaveLauncher.launch(arrayOf("*/*"))
+    }
+
+    private fun isAddedFile(game: Game): Boolean = PickedGameFiles.contains(applicationContext, Uri.parse(game.fileUri))
+
+    private fun removeGame(game: Game) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val uri = Uri.parse(game.fileUri)
+            PickedGameFiles.remove(applicationContext, uri)
+            runCatching { contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            retrogradeDb.gameDao().delete(listOf(game))
+        }
+    }
+
+    // Room code from an invite link, consumed by the Online screen.
+    private val pendingInviteCode = mutableStateOf<String?>(null)
+
+    private val reviewManager = ReviewManager()
+
+    private val mainViewModel: MainViewModel by viewModels {
+        MainViewModel.Factory(applicationContext, saveSyncManager)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            SystemBarStyle.dark(Color.TRANSPARENT),
+            SystemBarStyle.dark(Color.TRANSPARENT),
+        )
+        super.onCreate(savedInstanceState)
+
+        GlobalScope.safeLaunch {
+            reviewManager.initialize(applicationContext)
+        }
+
+        handleInviteIntent(intent)
+
+        setContent {
+            val navController = rememberNavController()
+            MainScreen(navController)
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun MainScreen(navController: NavHostController) {
+        AppTheme {
+            val navBackStackEntry = navController.currentBackStackEntryAsState()
+            val currentDestination = navBackStackEntry.value?.destination
+            val currentRoute =
+                currentDestination?.route
+                    ?.let { MainRoute.findByRoute(it) }
+                    ?: MainRoute.HOME
+
+            val infoDialogDisplayed =
+                remember {
+                    mutableStateOf(false)
+                }
+
+            LaunchedEffect(currentRoute) {
+                mainViewModel.changeRoute(currentRoute)
+            }
+
+            val inviteCode = pendingInviteCode.value
+            LaunchedEffect(inviteCode) {
+                if (inviteCode != null && currentRoute != MainRoute.ONLINE) {
+                    navController.navigateToRoute(MainRoute.ONLINE)
+                }
+            }
+
+            val selectedGameState =
+                remember {
+                    mutableStateOf<Game?>(null)
+                }
+
+            val onGameLongClick = { game: Game ->
+                selectedGameState.value = game
+            }
+
+            val onGameClick = { game: Game ->
+                gameInteractor.onGamePlay(game)
+            }
+
+            val onGameFavoriteToggle = { game: Game, isFavorite: Boolean ->
+                gameInteractor.onFavoriteToggle(game, isFavorite)
+            }
+
+            val onHelpPressed = {
+                infoDialogDisplayed.value = true
+            }
+
+            val mainUIState =
+                mainViewModel.state
+                    .collectAsState(MainViewModel.UiState())
+                    .value
+
+            Scaffold(
+                topBar = {
+                    MainTopBar(
+                        currentRoute = currentRoute,
+                        navController = navController,
+                        onHelpPressed = onHelpPressed,
+                        mainUIState = mainUIState,
+                        onUpdateQueryString = { mainViewModel.changeQueryString(it) },
+                    )
+                },
+                bottomBar = { MainNavigationBar(currentRoute, navController) },
+                floatingActionButton = {
+                    if (currentRoute == MainRoute.HOME) {
+                        AddGamesButton(
+                            onAddGame = { GameFilePickerLauncher.pickFiles(this@MainActivity) },
+                            onAddFolder = { StorageFrameworkPickerLauncher.pickFolder(this@MainActivity) },
+                            onHelp = { infoDialogDisplayed.value = true },
+                        )
+                    }
+                },
+            ) { padding ->
+                NavHost(
+                    modifier = Modifier.fillMaxSize(),
+                    navController = navController,
+                    startDestination = MainRoute.HOME.route,
+                ) {
+                    composable(MainRoute.HOME) {
+                        HomeScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        HomeViewModel.Factory(
+                                            applicationContext,
+                                            retrogradeDb,
+                                            coresSelection,
+                                        ),
+                                ),
+                            onGameClick = onGameClick,
+                            onGameLongClick = onGameLongClick,
+                            onOpenCoreSelection = { navController.navigateToRoute(MainRoute.SETTINGS_CORES_SELECTION) },
+                        )
+                    }
+                    composable(MainRoute.FAVORITES) {
+                        FavoritesScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory = FavoritesViewModel.Factory(retrogradeDb),
+                                ),
+                            onGameClick = onGameClick,
+                            onGameLongClick = onGameLongClick,
+                        )
+                    }
+                    composable(MainRoute.SEARCH) {
+                        SearchScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory = SearchViewModel.Factory(retrogradeDb),
+                                ),
+                            searchQuery = mainUIState.searchQuery,
+                            onGameClick = onGameClick,
+                            onGameLongClick = onGameLongClick,
+                            onGameFavoriteToggle = onGameFavoriteToggle,
+                            onResetSearchQuery = { mainViewModel.changeQueryString("") },
+                        )
+                    }
+                    composable(MainRoute.ONLINE) {
+                        val onlineViewModel: OnlineViewModel =
+                            viewModel(factory = OnlineViewModel.Factory(applicationContext, retrogradeDb))
+                        LaunchedEffect(inviteCode) {
+                            if (inviteCode != null) {
+                                onlineViewModel.openInvite(inviteCode)
+                                pendingInviteCode.value = null
+                            }
+                        }
+                        OnlineScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel = onlineViewModel,
+                            onHostLink = { game, mode, isPublic, playerName, serverUrl ->
+                                onlineGameLauncher.hostLink(this@MainActivity, game, mode, isPublic, playerName, serverUrl)
+                            },
+                            onHostNetplay = { game, delay, isPublic, playerName, serverUrl ->
+                                onlineGameLauncher.hostNetplay(this@MainActivity, game, delay, isPublic, playerName, serverUrl)
+                            },
+                            onJoin = { game, room, playerName, serverUrl ->
+                                onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
+                            },
+                        )
+                    }
+                    composable(MainRoute.SYSTEMS) {
+                        MetaSystemsScreen(
+                            modifier = Modifier.padding(padding),
+                            navController = navController,
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        MetaSystemsViewModel.Factory(
+                                            retrogradeDb,
+                                            applicationContext,
+                                        ),
+                                ),
+                        )
+                    }
+                    composable(MainRoute.SYSTEM_GAMES) { entry ->
+                        val metaSystemId = entry.arguments?.getString("metaSystemId")
+                        GamesScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        GamesViewModel.Factory(
+                                            retrogradeDb,
+                                            MetaSystemID.valueOf(metaSystemId!!),
+                                        ),
+                                ),
+                            onGameClick = onGameClick,
+                            onGameLongClick = onGameLongClick,
+                            onGameFavoriteToggle = onGameFavoriteToggle,
+                        )
+                    }
+                    composable(MainRoute.SETTINGS) {
+                        SettingsScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        SettingsViewModel.Factory(
+                                            applicationContext,
+                                            settingsInteractor,
+                                            saveSyncManager,
+                                            FlowSharedPreferences(
+                                                SharedPreferencesHelper.getLegacySharedPreferences(
+                                                    applicationContext,
+                                                ),
+                                            ),
+                                        ),
+                                ),
+                            navController = navController,
+                        )
+                    }
+                    composable(MainRoute.SETTINGS_ADVANCED) {
+                        AdvancedSettingsScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        AdvancedSettingsViewModel.Factory(
+                                            applicationContext,
+                                            settingsInteractor,
+                                        ),
+                                ),
+                            navController = navController,
+                        )
+                    }
+                    composable(MainRoute.SETTINGS_BIOS) {
+                        BiosScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory = BiosSettingsViewModel.Factory(biosManager),
+                                ),
+                        )
+                    }
+                    composable(MainRoute.SETTINGS_CORES_SELECTION) {
+                        CoresSelectionScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        CoresSelectionViewModel.Factory(
+                                            applicationContext,
+                                            coresSelection,
+                                        ),
+                                ),
+                        )
+                    }
+                    composable(MainRoute.SETTINGS_INPUT_DEVICES) {
+                        InputDevicesSettingsScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        InputDevicesSettingsViewModel.Factory(
+                                            applicationContext,
+                                            inputDeviceManager,
+                                        ),
+                                ),
+                        )
+                    }
+                    composable(MainRoute.SETTINGS_SAVE_SYNC) {
+                        SaveSyncSettingsScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel =
+                                viewModel(
+                                    factory =
+                                        SaveSyncSettingsViewModel.Factory(
+                                            application,
+                                            saveSyncManager,
+                                        ),
+                                ),
+                        )
+                    }
+                }
+            }
+
+            MainGameContextActions(
+                selectedGameState = selectedGameState,
+                shortcutSupported = gameInteractor.supportShortcuts(),
+                onGamePlay = { gameInteractor.onGamePlay(it) },
+                onGameRestart = { gameInteractor.onGameRestart(it) },
+                onExportSave = ::exportSave,
+                onImportSave = ::importSave,
+                onEraseSave = { eraseSaveGame.value = it },
+                canRemoveGame = ::isAddedFile,
+                onRemoveGame = ::removeGame,
+                onCreateShortcut = { gameInteractor.onCreateShortcut(it) },
+                onSetCustomName = { game, name -> gameInteractor.onSetCustomName(game, name) },
+                onClearCustomName = { game -> gameInteractor.onClearCustomName(game) },
+                onSetCustomCoverUri = { game, uri -> gameInteractor.onSetCustomCoverUri(game, uri) },
+                onClearCustomCoverUri = { game -> gameInteractor.onClearCustomCoverUri(game) },
+            )
+
+            eraseSaveGame.value?.let { game ->
+                AlertDialog(
+                    onDismissRequest = { eraseSaveGame.value = null },
+                    title = { androidx.compose.material3.Text(getString(R.string.save_erase_title)) },
+                    text = { androidx.compose.material3.Text(getString(R.string.save_erase_message, game.customName ?: game.title)) },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                eraseSaveGame.value = null
+                                lifecycleScope.launch {
+                                    gameSaveFiles.erase(game)
+                                    displayToast(R.string.save_erased)
+                                }
+                            },
+                        ) { androidx.compose.material3.Text(getString(R.string.save_erase_confirm)) }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = { eraseSaveGame.value = null }) {
+                            androidx.compose.material3.Text(getString(R.string.online_cancel))
+                        }
+                    },
+                )
+            }
+
+            if (infoDialogDisplayed.value) {
+                val message =
+                    remember {
+                        val systemFolders =
+                            SystemID.values()
+                                .joinToString(", ") { "<i>${it.dbname}</i>" }
+
+                        getString(R.string.lemuroid_help_content)
+                            .replace("\$SYSTEMS", systemFolders)
+                    }
+
+                AlertDialog(
+                    text = { HtmlText(text = message) },
+                    onDismissRequest = { infoDialogDisplayed.value = false },
+                    confirmButton = { },
+                )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleInviteIntent(intent)
+    }
+
+    private fun handleInviteIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        OnlineSettings.parseRoomCode(intent.dataString)?.let { pendingInviteCode.value = it }
+    }
+
+    override fun activity(): Activity = this
+
+    override fun isBusy(): Boolean = mainViewModel.state.value.operationInProgress ?: false
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        when (requestCode) {
+            BaseGameActivity.REQUEST_PLAY_GAME -> {
+                GlobalScope.safeLaunch {
+                    gameLaunchTaskHandler.handleGameFinish(
+                        true,
+                        this@MainActivity,
+                        resultCode,
+                        data,
+                    )
+                }
+            }
+        }
+    }
+
+    @dagger.Module
+    abstract class Module {
+        @dagger.Module
+        companion object {
+            @Provides
+            @PerActivity
+            @JvmStatic
+            fun settingsInteractor(
+                activity: MainActivity,
+                directoriesManager: DirectoriesManager,
+            ) = SettingsInteractor(activity, directoriesManager)
+
+            @Provides
+            @PerActivity
+            @JvmStatic
+            fun gameInteractor(
+                activity: MainActivity,
+                retrogradeDb: RetrogradeDatabase,
+                shortcutsGenerator: ShortcutsGenerator,
+                gameLauncher: GameLauncher,
+                customCoverManager: CustomCoverManager,
+            ) = GameInteractor(activity, retrogradeDb, false, shortcutsGenerator, gameLauncher, customCoverManager)
+        }
+    }
+}

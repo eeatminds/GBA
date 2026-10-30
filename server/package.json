@@ -1,0 +1,16 @@
+{
+  "name": "retrolink-server",
+  "version": "1.0.0",
+  "description": "Relay server for RetroLink online link cable rooms",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}
