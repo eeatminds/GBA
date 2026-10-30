@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon: two linked rings. 108dp canvas, artwork stays inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M29,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0"
+        android:strokeWidth="7"
+        android:strokeColor="#FFFFFF"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M49,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0"
+        android:strokeWidth="7"
+        android:strokeColor="#FFD86B"
+        android:fillColor="#00000000" />
+</vector>

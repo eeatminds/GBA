@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_games">Add games</string>
+    <string name="add_game">Add a game</string>
+    <string name="add_game_folder">Add game folder</string>
+    <string name="add_game_help">Help</string>
+    <string name="add_game_picker_missing">This device has no file picker. Use Add game folder instead.</string>
+    <string name="home_my_games">My games</string>
+    <string name="game_options">Game options</string>
+    <string name="add_game_not_supported">Not a game file this app can open: %1$s. Unzip .7z or .rar files first.</string>
+    <plurals name="add_game_adding">
+        <item quantity="one">Adding your game…</item>
+        <item quantity="other">Adding %d games…</item>
+    </plurals>
+    <!-- In-game menu -->
+    <string name="game_menu_cheats">Cheats</string>
+    <string name="game_menu_screenshot">Screenshot</string>
+    <string name="game_menu_screen_size">Screen size</string>
+    <string name="screen_size_fit">Fit</string>
+    <string name="screen_size_sharp">Sharp pixels</string>
+    <string name="game_menu_screen_position">Screen position</string>
+    <string name="screen_position_top">Top</string>
+    <string name="screen_position_middle">Center</string>
+    <string name="game_menu_state_empty">Empty</string>
+    <string name="game_menu_sound">Sound</string>
+    <string name="menu_value_on">On</string>
+    <string name="menu_value_off">Off</string>
+    <string name="screenshot_saved">Screenshot saved to your Gallery</string>
+    <string name="screenshot_failed">Could not save the screenshot</string>
+
+    <string name="cheats_add">Add cheat</string>
+    <string name="cheats_edit">Edit cheat</string>
+    <string name="cheats_delete">Delete cheat</string>
+    <string name="cheats_save">Save</string>
+    <string name="cheats_name">Name</string>
+    <string name="cheats_code">Code</string>
+    <string name="cheats_default_name">Cheat</string>
+    <string name="cheats_empty">No cheats yet. Add a code to use it in this game. Turn a cheat off with its switch.</string>
+    <string name="cheats_code_hint">One code per line. Works with the code types the game\'s emulator supports, such as GameShark, Action Replay, CodeBreaker or Game Genie.</string>
+    <!-- Long-press game menu -->
+    <string name="game_context_export_save">Export save</string>
+    <string name="game_context_import_save">Import save</string>
+    <string name="game_context_erase_save">Erase save</string>
+    <string name="game_context_remove_game">Remove game</string>
+    <string name="save_none">This game has no save yet.</string>
+    <string name="save_exported">Save exported</string>
+    <string name="save_export_failed">Could not export the save</string>
+    <string name="save_imported">Save imported. It loads the next time you start the game.</string>
+    <string name="save_import_failed">Could not import this file</string>
+    <string name="save_erase_title">Erase save?</string>
+    <string name="save_erase_message">This deletes the in-game save and auto-save for %1$s. It cannot be undone.</string>
+    <string name="save_erase_confirm">Erase</string>
+    <string name="save_erased">Save erased</string>
+
+    <!-- Home -->
+    <string name="home_search_hint">Search your games</string>
+    <string name="home_continue_playing">Continue playing</string>
+    <string name="home_all_consoles">All</string>
+    <string name="home_no_results">No games match your search.</string>
+    <string name="home_clear_search">Clear search</string>
+</resources>
