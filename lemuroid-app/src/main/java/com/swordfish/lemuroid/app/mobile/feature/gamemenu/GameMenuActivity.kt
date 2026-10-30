@@ -187,7 +187,7 @@ class GameMenuActivity : RetrogradeComponentActivity() {
                         exitTransition = { fadeOut() },
                     ) {
                         composable(GameMenuRoute.HOME) {
-                            GameMenuHomeScreen(navController, gameMenuRequest, ::onResult, onClose = { finish() })
+                            GameMenuHomeScreen(navController, gameMenuRequest, ::onResult)
                         }
                         composable(GameMenuRoute.SAVE) {
                             GameMenuStatesScreen(

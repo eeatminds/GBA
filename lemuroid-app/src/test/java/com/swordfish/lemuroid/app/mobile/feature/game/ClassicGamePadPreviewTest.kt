@@ -150,13 +150,10 @@ class ClassicGamePadPreviewTest {
                     GameMenuRow("Cheats") { }
                     GameMenuRow("Screenshot") { }
                     GameMenuRow("Sound", value = "On") { }
-                    GameMenuRow("Screen size", value = "Fit") { }
                     GameMenuRow("Screen position", value = "Center") { }
                     GameMenuRow("Edit controls") { }
-                    GameMenuRow("Settings") { }
                     GameMenuRow("Restart") { }
                     GameMenuRow("Exit game") { }
-                    GameMenuRow("Close") { }
                 }
             }
         }

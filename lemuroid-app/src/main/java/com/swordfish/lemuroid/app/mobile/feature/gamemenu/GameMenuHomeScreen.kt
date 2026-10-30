@@ -28,8 +28,6 @@ import com.alorma.compose.settings.storage.memory.rememberMemoryIntSettingState
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.mobile.feature.game.ClassicScreenPosition
 import com.swordfish.lemuroid.app.mobile.feature.game.ClassicScreenSettings
-import com.swordfish.lemuroid.app.mobile.feature.game.ClassicScreenSize
-import com.swordfish.lemuroid.app.mobile.feature.gamemenu.tilt.TiltConfigurationMenuEntry
 import com.swordfish.lemuroid.app.shared.GameMenuContract
 import com.swordfish.lemuroid.app.utils.android.settings.LemuroidSettingsList
 import kotlin.reflect.KFunction1
@@ -43,7 +41,6 @@ fun GameMenuHomeScreen(
     navController: NavController,
     gameMenuRequest: GameMenuActivity.GameMenuRequest,
     onResult: KFunction1<Intent.() -> Unit, Unit>,
-    onClose: () -> Unit,
 ) {
     val on = stringResource(R.string.menu_value_on)
     val off = stringResource(R.string.menu_value_off)
@@ -75,20 +72,9 @@ fun GameMenuHomeScreen(
         }
 
         if (gameMenuRequest.game.systemId in HANDHELD_SYSTEMS) {
-            // These change the game screen behind the menu right away, so the menu stays open.
+            // This moves the game behind the menu right away, so the menu stays open.
             val context = LocalContext.current
             var screen by remember { mutableStateOf(ClassicScreenSettings.read(context)) }
-            GameMenuRow(
-                stringResource(R.string.game_menu_screen_size),
-                value =
-                    stringResource(
-                        if (screen.size == ClassicScreenSize.FIT) R.string.screen_size_fit else R.string.screen_size_sharp,
-                    ),
-            ) {
-                val next = if (screen.size == ClassicScreenSize.FIT) ClassicScreenSize.SHARP_PIXELS else ClassicScreenSize.FIT
-                ClassicScreenSettings.setSize(context, next)
-                screen = screen.copy(size = next)
-            }
             GameMenuRow(
                 stringResource(R.string.game_menu_screen_position),
                 value =
@@ -113,32 +99,8 @@ fun GameMenuHomeScreen(
             )
         }
 
-        if (gameMenuRequest.allTiltConfigurations.isNotEmpty()) {
-            val tiltConfigurationEntries =
-                gameMenuRequest.allTiltConfigurations
-                    .map { TiltConfigurationMenuEntry.fromTiltConfiguration(it) }
-            val selectedIndex =
-                gameMenuRequest.allTiltConfigurations
-                    .indexOf(gameMenuRequest.currentTiltConfiguration)
-
-            LemuroidSettingsList(
-                title = { Text(text = stringResource(id = R.string.game_menu_tilt_sensor)) },
-                items = tiltConfigurationEntries.map { stringResource(it.descriptionId) },
-                state = rememberMemoryIntSettingState(selectedIndex),
-                onItemSelected = { index, _ ->
-                    onResult {
-                        putExtra(GameMenuContract.RESULT_CHANGE_TILT_CONFIG, tiltConfigurationEntries[index].configuration)
-                    }
-                },
-            )
-        }
-
         GameMenuRow(stringResource(R.string.game_menu_edit_touch_controls)) {
             onResult { putExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, true) }
-        }
-
-        if (gameMenuRequest.advancedCoreOptions.isNotEmpty() || gameMenuRequest.coreOptions.isNotEmpty()) {
-            GameMenuRow(stringResource(R.string.game_menu_settings)) { navController.navigateToRoute(GameMenuRoute.OPTIONS) }
         }
 
         GameMenuRow(stringResource(R.string.game_menu_restart)) {
@@ -147,7 +109,6 @@ fun GameMenuHomeScreen(
         GameMenuRow(stringResource(R.string.game_menu_quit)) {
             onResult { putExtra(GameMenuContract.RESULT_QUIT, true) }
         }
-        GameMenuRow(stringResource(R.string.close), onClick = onClose)
     }
 }
 

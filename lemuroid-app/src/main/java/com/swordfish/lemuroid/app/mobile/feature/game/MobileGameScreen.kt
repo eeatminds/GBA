@@ -165,7 +165,6 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
                     gameAspectRatio = classicAspectRatio,
                     nativeWidth = if (isGBA) 240 else 160,
                     nativeHeight = if (isGBA) 160 else 144,
-                    screenSize = screenValues.size,
                     screenPosition = screenValues.position,
                     hasShoulderButtons = currentControllerConfig?.touchControllerID == TouchControllerID.GBA,
                     showControls = touchControllerSettings != null && touchControlsVisibleState.value,
