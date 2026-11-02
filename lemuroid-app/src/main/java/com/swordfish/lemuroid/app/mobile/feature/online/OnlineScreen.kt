@@ -68,6 +68,10 @@ import com.swordfish.lemuroid.app.shared.online.RoomInfo
 import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.db.entity.Game
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private val Game.displayName: String get() = customName ?: title
 
@@ -91,6 +95,17 @@ fun OnlineScreen(
             }
         Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         viewModel.clearMessage()
+    }
+
+    // Coming back from a game: offer to go back into its room.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshRecentRoom()
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LazyColumn(
@@ -127,6 +142,16 @@ fun OnlineScreen(
                     modifier = Modifier.weight(1f),
                     onClick = { viewModel.showDialog(OnlineViewModel.Dialog.JoinCode()) },
                 ) { Text(stringResource(R.string.online_join_code)) }
+            }
+        }
+
+        state.recentRoom?.let { code ->
+            item {
+                RecentRoomCard(
+                    code = code,
+                    onRejoin = { viewModel.openInvite(code) },
+                    onDismiss = { viewModel.forgetRecentRoom() },
+                )
             }
         }
 
@@ -251,6 +276,28 @@ private fun IntroCard() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
+        }
+    }
+}
+
+@Composable
+private fun RecentRoomCard(
+    code: String,
+    onRejoin: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.online_recent_room_title, code), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.online_recent_room_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRejoin) { Text(stringResource(R.string.online_recent_room_rejoin)) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+            }
         }
     }
 }

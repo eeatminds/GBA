@@ -174,6 +174,7 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
                         viewportPosition.value = it
                         GameViewport.rect.value = it
                     },
+                    onGameSpacePositioned = { GameViewport.area.value = it },
                 )
                 if (currentControllerConfig != null && touchControllerSettings != null) {
                     MenuEditTouchControls(viewModel, currentControllerConfig, touchControllerSettings)

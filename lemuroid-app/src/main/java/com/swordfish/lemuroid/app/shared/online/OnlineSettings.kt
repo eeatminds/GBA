@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import com.swordfish.lemuroid.BuildConfig
+import java.io.File
 
 /** Player name and server address for online rooms, stored on the device. */
 class OnlineSettings(context: Context) {
@@ -26,10 +27,36 @@ class OnlineSettings(context: Context) {
     val isServerConfigured: Boolean
         get() = serverUrl.isNotBlank()
 
+    // The game runs in its own process, which has its own copy of the preferences, so the
+    // recent room goes in a small file that every process reads fresh.
+    private val recentRoomFile = File(context.applicationContext.filesDir, RECENT_ROOM_FILE)
+
+    /** Remembers the trade & battle room we were in, so the Online tab can offer to go back. */
+    fun rememberRoom(code: String) {
+        runCatching { recentRoomFile.writeText("$code\n${System.currentTimeMillis()}") }
+    }
+
+    /** The room we were in lately, if any. */
+    val recentRoom: String?
+        get() {
+            val lines = runCatching { recentRoomFile.readLines() }.getOrNull() ?: return null
+            val code = lines.getOrNull(0)?.takeIf { it.length == ROOM_CODE_LENGTH } ?: return null
+            val age = System.currentTimeMillis() - (lines.getOrNull(1)?.toLongOrNull() ?: return null)
+            return code.takeIf { age in 0..RECENT_ROOM_MS }
+        }
+
+    fun forgetRoom() {
+        runCatching { recentRoomFile.delete() }
+    }
+
     companion object {
         private const val PREFERENCES_NAME = "online_settings"
         private const val KEY_PLAYER_NAME = "player_name"
         private const val KEY_SERVER_URL = "server_url"
+        private const val RECENT_ROOM_FILE = "recent_room.txt"
+
+        // Rooms stay open while anyone is in them, and 5 minutes after the last player leaves.
+        private const val RECENT_ROOM_MS = 30 * 60_000L
         const val MAX_NAME_LENGTH = 20
 
         fun normalizeServerUrl(value: String): String {

@@ -1,6 +1,7 @@
 package com.swordfish.lemuroid.app.shared.online
 
 import android.app.Activity
+import android.content.Context
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.shared.game.BaseGameActivity
 import com.swordfish.lemuroid.app.shared.game.GameProcessLock
@@ -8,6 +9,7 @@ import com.swordfish.lemuroid.app.shared.main.GameLaunchTaskHandler
 import com.swordfish.lemuroid.common.displayToast
 import com.swordfish.lemuroid.lib.core.CoreUpdater
 import com.swordfish.lemuroid.lib.core.CoresSelection
+import com.swordfish.lemuroid.lib.library.CoreID
 import com.swordfish.lemuroid.lib.library.GameSystem
 import com.swordfish.lemuroid.lib.library.SystemCoreConfig
 import com.swordfish.lemuroid.lib.library.SystemID
@@ -18,6 +20,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.io.File
 
 /** Starts a game connected to an online room. */
 class OnlineGameLauncher(
@@ -140,13 +143,19 @@ class OnlineGameLauncher(
             return
         }
 
-        activity.displayToast(R.string.online_preparing)
         GlobalScope.launch(Dispatchers.Main) {
             val systemCoreConfig = coreConfig()
-            // Make sure the room's core is installed before the game starts.
-            withContext(Dispatchers.IO) {
-                runCatching { coreUpdater.downloadCores(activity.applicationContext, listOf(systemCoreConfig.coreID)) }
-                    .onFailure { Timber.e(it, "Could not install the core for the online room") }
+            // Make sure the room's core is installed before the game starts. Cores that come
+            // with the app are there already; asking Google Play for them anyway fails slowly
+            // (it retries for about 20 seconds).
+            val context = activity.applicationContext
+            val installed = withContext(Dispatchers.IO) { isCoreInstalled(context, systemCoreConfig.coreID) }
+            if (!installed) {
+                activity.displayToast(R.string.online_preparing)
+                withContext(Dispatchers.IO) {
+                    runCatching { coreUpdater.downloadCores(context, listOf(systemCoreConfig.coreID)) }
+                        .onFailure { Timber.e(it, "Could not install the core for the online room") }
+                }
             }
             gameLaunchTaskHandler.handleGameStart(activity.applicationContext)
             BaseGameActivity.launchGame(
@@ -162,4 +171,15 @@ class OnlineGameLauncher(
     }
 
     private fun Game.displayName(): String = customName ?: title
+
+    // Same places the game loader looks for a core.
+    private fun isCoreInstalled(
+        context: Context,
+        coreID: CoreID,
+    ): Boolean {
+        if (File(context.applicationInfo.nativeLibraryDir, coreID.libretroFileName).exists()) return true
+        return runCatching {
+            context.filesDir.walkBottomUp().any { it.name == coreID.libretroFileName }
+        }.getOrDefault(false)
+    }
 }

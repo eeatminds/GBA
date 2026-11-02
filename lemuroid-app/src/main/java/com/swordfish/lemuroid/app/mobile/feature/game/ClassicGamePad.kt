@@ -104,6 +104,7 @@ fun PadKitScope.ClassicGameLayout(
     screenSize: ClassicScreenSize = ClassicScreenSize.FIT,
     screenPosition: ClassicScreenPosition = ClassicScreenPosition.MIDDLE,
     onGameAreaPositioned: (Rect) -> Unit,
+    onGameSpacePositioned: (Rect) -> Unit = { },
 ) {
     val scale =
         settings?.let {
@@ -132,7 +133,9 @@ fun PadKitScope.ClassicGameLayout(
     if (!isLandscape) {
         Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
             // The game takes the space the controls leave free.
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth().weight(1f).onGloballyPositioned { onGameSpacePositioned(it.boundsInRoot()) },
+            ) {
                 val size = gameSize(maxWidth, maxHeight)
                 val freeSpace = (maxHeight - size.height).coerceAtLeast(0.dp)
                 val top = if (screenPosition == ClassicScreenPosition.MIDDLE) freeSpace * EYE_LINE else 0.dp
@@ -160,7 +163,7 @@ fun PadKitScope.ClassicGameLayout(
     } else {
         // Game and controls stay clear of the camera cutout.
         Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize().onGloballyPositioned { onGameSpacePositioned(it.boundsInRoot()) }) {
                 val size = gameSize(maxWidth, maxHeight)
                 Box(
                     modifier =

@@ -8,10 +8,16 @@
 //   1. The client sends one JSON text message:
 //        {"t":"host","kind":"link"|"netplay","name","game","system","core","mode","delay","public","maxPlayers","protocol"}
 //        {"t":"join","code","name","protocol"}
-//   2. The server answers {"t":"hosted"|"joined","clientId","room","players"} or {"t":"error","code","message"}.
+//        {"t":"resume","code","id","token","protocol"}  (take your seat back after losing the connection)
+//   2. The server answers {"t":"hosted"|"joined","clientId","token","room","players"} or {"t":"error","code","message"}.
 //   3. Packets are binary frames. Client to server: [target id u16 BE][payload].
 //      Server to client: [sender id u16 BE][payload]. Target 0xFFFF means everyone else.
-//   4. Other JSON messages: peer_joined, peer_left, closed, kicked, kick (host only), leave, ping/pong.
+//   4. Other JSON messages: peer_joined, peer_left, peer_away, peer_back, closed, kicked, kick (owner only),
+//      leave, ping/pong.
+//
+// In trade & battle rooms a player whose connection drops keeps their seat (and link) for
+// RESUME_GRACE_MS, and an empty room stays open for EMPTY_ROOM_MS, so a phone that briefly
+// loses its connection, or a creator who steps out, doesn't end the room.
 
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
@@ -29,6 +35,8 @@ import {
 const MAX_PAYLOAD = 64 * 1024;
 const JOIN_TIMEOUT_MS = 15_000;
 const HEARTBEAT_MS = 20_000;
+const RESUME_GRACE_MS = 3 * 60_000;
+const SWEEP_MS = 30_000;
 // Game states for 'play together' rooms can be a few MB, sent in 60 KB chunks.
 const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 const MESSAGES_PER_SECOND = 3000;
@@ -41,8 +49,11 @@ export function createRelayServer(options = {}) {
     androidPackage: options.androidPackage ?? process.env.ANDROID_PACKAGE ?? '',
     androidCertSha256: options.androidCertSha256 ?? process.env.ANDROID_CERT_SHA256 ?? '',
     log: options.log ?? ((...args) => console.log(new Date().toISOString(), ...args)),
+    resumeGraceMs: options.resumeGraceMs ?? RESUME_GRACE_MS,
   };
-  const registry = options.registry ?? new RoomRegistry();
+  const registry = options.registry ?? new RoomRegistry({ emptyRoomMs: options.emptyRoomMs });
+  // Seats held for players who lost their connection: "CODE:id" -> timer.
+  const awayTimers = new Map();
 
   const httpServer = http.createServer((req, res) => handleHttp(req, res, registry, config));
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD + 2 });
@@ -56,7 +67,7 @@ export function createRelayServer(options = {}) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
-  wss.on('connection', (ws) => handleConnection(ws, registry, config));
+  wss.on('connection', (ws) => handleConnection(ws, registry, config, awayTimers));
 
   const heartbeat = setInterval(() => {
     for (const ws of wss.clients) {
@@ -70,6 +81,12 @@ export function createRelayServer(options = {}) {
   }, HEARTBEAT_MS);
   heartbeat.unref();
 
+  // Empty trade & battle rooms close after a while.
+  const sweeper = setInterval(() => {
+    for (const code of registry.sweep()) config.log(`room ${code} closed (empty)`);
+  }, options.sweepMs ?? SWEEP_MS);
+  sweeper.unref();
+
   return {
     httpServer,
     registry,
@@ -78,6 +95,9 @@ export function createRelayServer(options = {}) {
     },
     close() {
       clearInterval(heartbeat);
+      clearInterval(sweeper);
+      for (const timer of awayTimers.values()) clearTimeout(timer);
+      awayTimers.clear();
       for (const ws of wss.clients) ws.terminate();
       return new Promise((resolve) => httpServer.close(() => resolve()));
     },
@@ -85,11 +105,13 @@ export function createRelayServer(options = {}) {
 }
 
 function sendJson(ws, message) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }
 
-function handleConnection(ws, registry, config) {
-  const state = { room: null, player: null, tokens: MESSAGES_PER_SECOND, lastRefill: Date.now() };
+function handleConnection(ws, registry, config, awayTimers) {
+  // leaving: the player said goodbye. replaced: the same player came back on a new connection.
+  const state = { room: null, player: null, tokens: MESSAGES_PER_SECOND, lastRefill: Date.now(), leaving: false, replaced: false };
+  ws.relayState = state;
   ws.isAlive = true;
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -132,18 +154,36 @@ function handleConnection(ws, registry, config) {
           state.room = room;
           state.player = player;
           clearTimeout(joinTimer);
-          sendJson(ws, { t: 'hosted', clientId: 0, ...roomSnapshot(room) });
+          sendJson(ws, { t: 'hosted', clientId: 0, token: player.token, ...roomSnapshot(room) });
           config.log(`room ${room.code} created (${room.mode}, ${room.isPublic ? 'public' : 'private'})`);
         } else if (message.t === 'join') {
-          const { room, player, groupsChanged } = registry.joinRoom(ws, message);
+          const { room, player, groupsChanged, ownerChanged } = registry.joinRoom(ws, message);
           state.room = room;
           state.player = player;
           clearTimeout(joinTimer);
-          sendJson(ws, { t: 'joined', clientId: player.id, ...roomSnapshot(room) });
+          sendJson(ws, { t: 'joined', clientId: player.id, token: player.token, ...roomSnapshot(room) });
           for (const other of room.players.values()) {
             if (other.id !== player.id) sendJson(other.connection, { t: 'peer_joined', id: player.id, name: player.name });
           }
           if (groupsChanged) broadcastGroups(room);
+          if (ownerChanged) broadcastToRoom(room, { t: 'owner', id: room.ownerId });
+        } else if (message.t === 'resume') {
+          const { room, player, previous } = registry.resume(ws, message);
+          const key = `${room.code}:${player.id}`;
+          clearTimeout(awayTimers.get(key));
+          awayTimers.delete(key);
+          // The old connection may still look open: retire it without freeing the seat.
+          if (previous && previous !== ws) {
+            if (previous.relayState) previous.relayState.replaced = true;
+            previous.terminate();
+          }
+          state.room = room;
+          state.player = player;
+          clearTimeout(joinTimer);
+          sendJson(ws, { t: 'joined', clientId: player.id, token: player.token, resumed: true, ...roomSnapshot(room) });
+          for (const other of room.players.values()) {
+            if (other.id !== player.id) sendJson(other.connection, { t: 'peer_back', id: player.id });
+          }
         } else if (message.t === 'ping') {
           sendJson(ws, { t: 'pong' });
         }
@@ -158,6 +198,7 @@ function handleConnection(ws, registry, config) {
         sendJson(ws, { t: 'pong' });
         break;
       case 'leave':
+        state.leaving = true;
         ws.close(1000, 'left');
         break;
       case 'pos':
@@ -175,8 +216,13 @@ function handleConnection(ws, registry, config) {
         if (state.player.id !== room.ownerId || !Number.isInteger(message.id) || message.id === state.player.id) break;
         const target = state.room.players.get(message.id);
         if (target) {
-          sendJson(target.connection, { t: 'kicked', reason: typeof message.reason === 'string' ? message.reason.slice(0, 40) : 'removed' });
-          target.connection.close(4001, 'kicked');
+          if (target.connection) {
+            if (target.connection.relayState) target.connection.relayState.leaving = true;
+            sendJson(target.connection, { t: 'kicked', reason: typeof message.reason === 'string' ? message.reason.slice(0, 40) : 'removed' });
+            target.connection.close(4001, 'kicked');
+          } else {
+            removePlayer(registry, config, awayTimers, room, target.id);
+          }
         }
         break;
       }
@@ -188,24 +234,47 @@ function handleConnection(ws, registry, config) {
   ws.on('close', () => {
     clearTimeout(joinTimer);
     const { room, player } = state;
-    if (!room || !player) return;
+    if (!room || !player || state.replaced) return;
     state.room = null;
-    const result = registry.leave(room, player.id);
-    if (!result.removed) return;
-    if (result.closed) {
-      config.log(`room ${room.code} closed`);
-      for (const other of room.players.values()) {
-        sendJson(other.connection, { t: 'closed', reason: 'host_left' });
-        other.connection.close(4000, 'host left');
-      }
-    } else {
-      for (const other of room.players.values()) sendJson(other.connection, { t: 'peer_left', id: player.id });
-      if (result.groupsChanged) broadcastGroups(room);
-      if (result.ownerChanged) broadcastToRoom(room, { t: 'owner', id: room.ownerId });
+    // Someone else (this player, reconnected) holds the seat now.
+    if (player.connection && player.connection !== ws) return;
+    // A trade & battle player who dropped (no goodbye) keeps their seat for a while.
+    if (!state.leaving && room.kind === 'link' && player.connection === ws && registry.markAway(room, player.id)) {
+      broadcastToRoom(room, { t: 'peer_away', id: player.id });
+      const key = `${room.code}:${player.id}`;
+      clearTimeout(awayTimers.get(key));
+      const timer = setTimeout(() => {
+        awayTimers.delete(key);
+        if (room.players.get(player.id)?.away) removePlayer(registry, config, awayTimers, room, player.id);
+      }, config.resumeGraceMs);
+      timer.unref();
+      awayTimers.set(key, timer);
+      return;
     }
+    removePlayer(registry, config, awayTimers, room, player.id);
   });
 
   ws.on('error', () => ws.terminate());
+}
+
+// Takes a player out of a room for good and tells everyone else.
+function removePlayer(registry, config, awayTimers, room, playerId) {
+  const key = `${room.code}:${playerId}`;
+  clearTimeout(awayTimers.get(key));
+  awayTimers.delete(key);
+  const result = registry.leave(room, playerId);
+  if (!result.removed) return;
+  if (result.closed) {
+    config.log(`room ${room.code} closed`);
+    for (const other of room.players.values()) {
+      sendJson(other.connection, { t: 'closed', reason: 'host_left' });
+      other.connection?.close(4000, 'host left');
+    }
+  } else {
+    for (const other of room.players.values()) sendJson(other.connection, { t: 'peer_left', id: playerId });
+    if (result.groupsChanged) broadcastGroups(room);
+    if (result.ownerChanged) broadcastToRoom(room, { t: 'owner', id: room.ownerId });
+  }
 }
 
 function roomSnapshot(room) {
@@ -282,7 +351,7 @@ function relayPresence(state, message) {
   }
   const text = JSON.stringify(out);
   for (const other of room.players.values()) {
-    if (other.id !== player.id && other.connection.readyState === other.connection.OPEN) other.connection.send(text);
+    if (other.id !== player.id && other.connection && other.connection.readyState === other.connection.OPEN) other.connection.send(text);
   }
 }
 

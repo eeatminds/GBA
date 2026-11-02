@@ -92,11 +92,91 @@ test('host, join, relay packets and close room', async () => {
   assert.deepEqual([...atGuest.payload], [9, 8]);
 
   // A trade & battle room stays open for the others when the host leaves.
-  host.ws.close();
+  host.sendJson({ t: 'leave' });
   assert.equal((await guest.next(ofType('peer_left'))).id, 0);
   assert.deepEqual((await guest.next(ofType('groups'))).groups, []);
   assert.equal((await guest.next(ofType('owner'))).id, 1);
   guest.ws.close();
+});
+
+test('a dropped player is away, then takes their seat and link back', async () => {
+  const host = connect();
+  await host.opened;
+  host.sendJson({ t: 'host', system: 'gbc', name: 'Gold' });
+  const hosted = await host.next(ofType('hosted'));
+  assert.equal(typeof hosted.token, 'string');
+  const code = hosted.room.code;
+
+  const guest = connect();
+  await guest.opened;
+  guest.sendJson({ t: 'join', code, name: 'Silver' });
+  const joined = await guest.next(ofType('joined'));
+  await host.next(ofType('groups'));
+
+  // The guest's connection drops: they are away, still linked.
+  guest.ws.terminate();
+  assert.equal((await host.next(ofType('peer_away'))).id, 1);
+
+  // A wrong token doesn't get the seat.
+  const thief = connect();
+  await thief.opened;
+  thief.sendJson({ t: 'resume', code, id: 1, token: 'nope' });
+  assert.equal((await thief.next(ofType('error'))).code, 'resume_failed');
+  thief.ws.close();
+
+  const back = connect();
+  await back.opened;
+  back.sendJson({ t: 'resume', code, id: 1, token: joined.token });
+  const resumed = await back.next(ofType('joined'));
+  assert.equal(resumed.clientId, 1);
+  assert.equal(resumed.resumed, true);
+  assert.deepEqual(resumed.groups, [[{ id: 0, slot: 0 }, { id: 1, slot: 1 }]]);
+  assert.equal((await host.next(ofType('peer_back'))).id, 1);
+
+  host.sendPacket(1, [4, 2]);
+  assert.deepEqual([...(await back.next(binary)).payload], [4, 2]);
+
+  // The creator steps out for good: the room stays open for the guest.
+  host.sendJson({ t: 'leave' });
+  assert.equal((await back.next(ofType('peer_left'))).id, 0);
+  assert.equal((await back.next(ofType('owner'))).id, 1);
+  back.sendJson({ t: 'leave' });
+  await back.closed;
+  // Empty now, but the code still works.
+  const room = await (await fetch(`http://${base}/api/rooms/${code}`)).json();
+  assert.equal(room.room.players, 0);
+});
+
+test('a seat is given up when its player does not come back in time', async () => {
+  const quick = createRelayServer({ log: () => {}, resumeGraceMs: 150 });
+  const address = await quick.listen(0, '127.0.0.1');
+  const open = () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/ws`);
+    const inbox = [];
+    ws.on('message', (data) => inbox.push(JSON.parse(data.toString())));
+    return { ws, inbox, opened: new Promise((resolve) => ws.on('open', resolve)) };
+  };
+  const waitFor = async (inbox, t) => {
+    for (let i = 0; i < 100; i++) {
+      const found = inbox.find((m) => m.t === t);
+      if (found) return found;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(`no ${t}`);
+  };
+  const a = open();
+  await a.opened;
+  a.ws.send(JSON.stringify({ t: 'host', system: 'gba' }));
+  const { room } = await waitFor(a.inbox, 'hosted');
+  const b = open();
+  await b.opened;
+  b.ws.send(JSON.stringify({ t: 'join', code: room.code }));
+  await waitFor(b.inbox, 'joined');
+  b.ws.terminate();
+  assert.equal((await waitFor(a.inbox, 'peer_away')).id, 1);
+  assert.equal((await waitFor(a.inbox, 'peer_left')).id, 1);
+  a.ws.close();
+  await quick.close();
 });
 
 test('play together room closes when the host leaves', async () => {

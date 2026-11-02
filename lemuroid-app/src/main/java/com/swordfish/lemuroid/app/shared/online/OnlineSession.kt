@@ -1,9 +1,11 @@
 package com.swordfish.lemuroid.app.shared.online
 
+import android.os.SystemClock
 import com.swordfish.libretrodroid.LibretroDroid
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -35,7 +38,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Play together rooms: LibretroDroid's netplay engine sends inputs and game states. Client
  *   id 0 is the host.
  *
- * Either way, this class moves the packets over a WebSocket to the relay server.
+ * Either way, this class moves the packets over a WebSocket to the relay server. In trade &
+ * battle rooms a dropped connection (a phone switching networks, or the app sent to the
+ * background) is picked up again: the server keeps our seat and link for a few minutes and
+ * we take it back with the token it gave us.
  *
  * [setCoreVariables] changes the running core's options (used to plug Gambatte into the bridge).
  */
@@ -44,7 +50,8 @@ class OnlineSession(
     private val scope: CoroutineScope,
     private val setCoreVariables: (List<Pair<String, String>>) -> Unit = { },
 ) {
-    data class Player(val id: Int, val name: String)
+    /** [away]: lost their connection; their seat is kept while they come back. */
+    data class Player(val id: Int, val name: String, val away: Boolean = false)
 
     /** A player's place in a link group. Slot 0 leads the link. */
     data class LinkMember(val id: Int, val slot: Int)
@@ -67,6 +74,8 @@ class OnlineSession(
             // The player we asked, while waiting for their answer.
             val outgoingRequest: Int? = null,
             val sync: Sync = Sync.OK,
+            // Our connection dropped and we are getting our seat back.
+            val reconnecting: Boolean = false,
         ) : State {
             val isHost: Boolean get() = clientId == 0
 
@@ -91,6 +100,17 @@ class OnlineSession(
         data class LinkDeclined(val name: String) : Event
 
         data class LinkError(val message: String) : Event
+
+        /** [linkedWithUs]: the room linked them with us right away. */
+        data class PlayerJoined(val name: String, val linkedWithUs: Boolean) : Event
+
+        data class PlayerLeft(val name: String) : Event
+
+        data class PlayerAway(val name: String) : Event
+
+        data class PlayerBack(val name: String) : Event
+
+        data object Reconnected : Event
     }
 
     /** Play together rooms only: whether the game is waiting on the network. */
@@ -104,6 +124,7 @@ class OnlineSession(
         ROOM_FULL,
         VERSION_MISMATCH,
         HOST_LEFT,
+        ROOM_CLOSED,
         REMOVED,
         SERVER_ERROR,
     }
@@ -118,6 +139,12 @@ class OnlineSession(
 
     /** Whether players in this room link up with each other (trade & battle rooms). */
     val hasLinks: Boolean get() = config.kind == RoomKind.LINK
+
+    /** Whether we made the room (false: we joined one). */
+    val isCreator: Boolean get() = config.isHost
+
+    /** The room's code once known (the one we joined, or the one the server gave our room). */
+    val roomCode: String? get() = seat?.code ?: config.roomCode
 
     /** Where other players are in their game ("pos" messages), for sharing the world. */
     @Volatile var onPresence: ((from: Int, message: JSONObject) -> Unit)? = null
@@ -142,6 +169,20 @@ class OnlineSession(
     @Volatile private var webSocket: WebSocket? = null
 
     private var syncJob: Job? = null
+
+    // Our place in the room, to take back after the connection drops. The token is null with
+    // servers that don't keep seats; we then join the room again as a new player.
+    private data class Seat(val code: String, val id: Int, val token: String?)
+
+    @Volatile private var seat: Seat? = null
+
+    @Volatile private var protocol: String = ""
+
+    private val reconnecting = AtomicBoolean(false)
+    private var reconnectJob: Job? = null
+    private val wakeUps = Channel<Unit>(Channel.CONFLATED)
+    private val attemptResults = Channel<Boolean>(Channel.CONFLATED)
+    private var connectAttempts = 0
 
     /** Call once the game is running. */
     fun start() {
@@ -172,11 +213,17 @@ class OnlineSession(
 
     fun close() {
         if (!active.getAndSet(false)) return
+        stopReconnecting()
         runCatching { webSocket?.send(JSONObject().put("t", "leave").toString()) }
         webSocket?.close(NORMAL_CLOSURE, "left")
         webSocket = null
         stopTransport()
         if (mutableState.value !is State.Failed) mutableState.value = State.Left
+    }
+
+    /** The game is on screen again: if we are reconnecting, try right now. */
+    fun onForeground() {
+        if (reconnecting.get()) wakeUps.trySend(Unit)
     }
 
     /** Ask another player to link with us. */
@@ -214,12 +261,31 @@ class OnlineSession(
     }
 
     private fun connect(protocol: String) {
+        this.protocol = protocol
         mutableState.value = State.Connecting
-        val request = Request.Builder().url(OnlineSettings.webSocketUrl(config.serverUrl)).build()
-        webSocket = client.newWebSocket(request, Listener(protocol))
+        openSocket()
     }
 
-    private fun helloMessage(protocol: String): JSONObject {
+    private fun openSocket() {
+        val request = Request.Builder().url(OnlineSettings.webSocketUrl(config.serverUrl)).build()
+        webSocket = client.newWebSocket(request, Listener())
+    }
+
+    private fun helloMessage(): JSONObject {
+        val seat = seat
+        if (seat != null) {
+            // Coming back: our own seat if the server keeps one, otherwise a new one.
+            return if (seat.token != null) {
+                JSONObject()
+                    .put("t", "resume")
+                    .put("code", seat.code)
+                    .put("id", seat.id)
+                    .put("token", seat.token)
+                    .put("protocol", protocol)
+            } else {
+                joinMessage(seat.code)
+            }
+        }
         return if (config.isHost) {
             JSONObject()
                 .put("t", "host")
@@ -234,26 +300,31 @@ class OnlineSession(
                 .put("maxPlayers", config.maxPlayers)
                 .put("protocol", protocol)
         } else {
-            JSONObject()
-                .put("t", "join")
-                .put("code", config.roomCode)
-                .put("name", config.playerName)
-                .put("protocol", protocol)
+            joinMessage(config.roomCode)
         }
     }
 
-    private inner class Listener(private val protocol: String) : WebSocketListener() {
+    private fun joinMessage(code: String?): JSONObject =
+        JSONObject()
+            .put("t", "join")
+            .put("code", code)
+            .put("name", config.playerName)
+            .put("protocol", protocol)
+
+    // Events from sockets we already gave up on are ignored.
+    private inner class Listener : WebSocketListener() {
         override fun onOpen(
             webSocket: WebSocket,
             response: Response,
         ) {
-            webSocket.send(helloMessage(protocol).toString())
+            webSocket.send(helloMessage().toString())
         }
 
         override fun onMessage(
             webSocket: WebSocket,
             text: String,
         ) {
+            if (webSocket !== this@OnlineSession.webSocket) return
             val message = runCatching { JSONObject(text) }.getOrNull() ?: return
             handleControlMessage(message)
         }
@@ -262,6 +333,7 @@ class OnlineSession(
             webSocket: WebSocket,
             bytes: ByteString,
         ) {
+            if (webSocket !== this@OnlineSession.webSocket) return
             if (!transportStarted.get() || bytes.size < 3) return
             val data = bytes.toByteArray()
             val from = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
@@ -273,6 +345,7 @@ class OnlineSession(
             code: Int,
             reason: String,
         ) {
+            if (webSocket !== this@OnlineSession.webSocket) return
             handleSocketEnd(code)
         }
 
@@ -281,11 +354,69 @@ class OnlineSession(
             t: Throwable,
             response: Response?,
         ) {
+            if (webSocket !== this@OnlineSession.webSocket) return
             Timber.w(t, "Online room connection failed")
-            if (!active.get()) return
-            val wasInRoom = mutableState.value is State.InRoom
-            fail(if (wasInRoom) Reason.CONNECTION_LOST else Reason.CONNECTION_FAILED)
+            connectionLost()
         }
+    }
+
+    // The socket broke without a goodbye.
+    private fun connectionLost() {
+        if (!active.get()) return
+        webSocket = null
+        if (reconnecting.get()) {
+            attemptResults.trySend(false)
+            return
+        }
+        val inRoom = mutableState.value is State.InRoom
+        when {
+            // Trade & battle rooms keep our seat: go get it back.
+            inRoom && config.kind == RoomKind.LINK && seat != null -> startReconnecting()
+            // Not in the room yet: a couple more tries before giving up.
+            !inRoom && connectAttempts < INITIAL_CONNECT_ATTEMPTS -> {
+                connectAttempts++
+                scope.launch(Dispatchers.IO) {
+                    delay(connectAttempts * INITIAL_RETRY_DELAY_MS)
+                    if (active.get() && webSocket == null) openSocket()
+                }
+            }
+            else -> fail(if (inRoom) Reason.CONNECTION_LOST else Reason.CONNECTION_FAILED)
+        }
+    }
+
+    private fun startReconnecting() {
+        if (!reconnecting.compareAndSet(false, true)) return
+        updateRoom { it.copy(reconnecting = true) }
+        while (attemptResults.tryReceive().isSuccess) Unit
+        reconnectJob =
+            scope.launch(Dispatchers.IO) {
+                val started = SystemClock.elapsedRealtime()
+                var attempt = 0
+                while (active.get() && reconnecting.get()) {
+                    // Wait a little (less if the player comes back to the game).
+                    withTimeoutOrNull(RECONNECT_DELAYS_MS[minOf(attempt, RECONNECT_DELAYS_MS.lastIndex)]) { wakeUps.receive() }
+                    if (!active.get() || !reconnecting.get()) return@launch
+                    if (SystemClock.elapsedRealtime() - started > RECONNECT_WINDOW_MS) {
+                        fail(Reason.CONNECTION_LOST)
+                        return@launch
+                    }
+                    openSocket()
+                    val succeeded = withTimeoutOrNull(RECONNECT_ATTEMPT_TIMEOUT_MS) { attemptResults.receive() } ?: false
+                    if (succeeded) return@launch
+                    // Give up on this attempt's socket before it can report anything.
+                    val stale = webSocket
+                    webSocket = null
+                    stale?.cancel()
+                    while (attemptResults.tryReceive().isSuccess) Unit
+                    attempt++
+                }
+            }
+    }
+
+    private fun stopReconnecting() {
+        reconnecting.set(false)
+        reconnectJob?.cancel()
+        reconnectJob = null
     }
 
     private fun handleControlMessage(message: JSONObject) {
@@ -293,9 +424,11 @@ class OnlineSession(
             "hosted", "joined" -> {
                 val clientId = message.getInt("clientId")
                 val room = message.getJSONObject("room")
+                val code = room.getString("code")
+                seat = Seat(code, clientId, message.optString("token").takeIf { it.isNotEmpty() })
                 val inRoom =
                     State.InRoom(
-                        code = room.getString("code"),
+                        code = code,
                         clientId = clientId,
                         players = parsePlayers(message),
                         maxPlayers = room.optInt("maxPlayers", config.maxPlayers),
@@ -304,6 +437,11 @@ class OnlineSession(
                         groups = parseGroups(message.optJSONArray("groups")),
                     )
                 mutableState.value = inRoom
+                connectAttempts = 0
+                if (reconnecting.getAndSet(false)) {
+                    attemptResults.trySend(true)
+                    mutableEvents.tryEmit(Event.Reconnected)
+                }
                 val inputDelay = room.optInt("delay", config.inputDelayFrames)
                 startTransport(clientId, inputDelay)
                 transport.groupChanged(clientId, inRoom.myGroup)
@@ -314,10 +452,37 @@ class OnlineSession(
                 val name = message.optString("name")
                 updateRoom { it.copy(players = (it.players.filter { p -> p.id != id } + Player(id, name)).sortedBy { p -> p.id }) }
                 if (isHost()) transport.peerJoined(id)
+                pendingJoins[id] = name
+                // In trade & battle rooms a "groups" message may follow right away, linking them
+                // with us; give it a moment so the notice can say so.
+                if (config.kind == RoomKind.LINK) {
+                    scope.launch {
+                        delay(JOIN_NOTICE_DELAY_MS)
+                        announceJoin(id)
+                    }
+                } else {
+                    announceJoin(id)
+                }
+            }
+
+            "peer_away" -> {
+                val id = message.optInt("id", -1)
+                val name = (mutableState.value as? State.InRoom)?.playerName(id).orEmpty()
+                updateRoom { room -> room.copy(players = room.players.map { if (it.id == id) it.copy(away = true) else it }) }
+                if (name.isNotEmpty()) mutableEvents.tryEmit(Event.PlayerAway(name))
+            }
+
+            "peer_back" -> {
+                val id = message.optInt("id", -1)
+                val name = (mutableState.value as? State.InRoom)?.playerName(id).orEmpty()
+                updateRoom { room -> room.copy(players = room.players.map { if (it.id == id) it.copy(away = false) else it }) }
+                if (name.isNotEmpty()) mutableEvents.tryEmit(Event.PlayerBack(name))
             }
 
             "peer_left" -> {
                 val id = message.getInt("id")
+                val name = (mutableState.value as? State.InRoom)?.playerName(id).orEmpty()
+                if (name.isNotEmpty() && pendingJoins.remove(id) == null) mutableEvents.tryEmit(Event.PlayerLeft(name))
                 updateRoom { room ->
                     room.copy(
                         players = room.players.filter { p -> p.id != id },
@@ -345,6 +510,7 @@ class OnlineSession(
                 }
                 val room = mutableState.value as? State.InRoom ?: return
                 transport.groupChanged(room.clientId, room.myGroup)
+                pendingJoins.keys.toList().forEach { announceJoin(it) }
             }
 
             "owner" -> updateRoom { it.copy(ownerId = message.optInt("id", it.ownerId)) }
@@ -373,11 +539,20 @@ class OnlineSession(
             "kicked" -> fail(Reason.REMOVED)
 
             "error" -> {
+                val code = message.optString("code")
+                val current = seat
+                // Our seat is gone (we were away too long): join the room again as a new player.
+                if (code == "resume_failed" && current != null) {
+                    seat = current.copy(token = null)
+                    webSocket?.send(joinMessage(current.code).toString())
+                    return
+                }
                 val reason =
-                    when (message.optString("code")) {
-                        "not_found" -> Reason.ROOM_NOT_FOUND
-                        "room_full" -> Reason.ROOM_FULL
-                        "protocol_mismatch" -> Reason.VERSION_MISMATCH
+                    when {
+                        code == "not_found" && current != null -> Reason.ROOM_CLOSED
+                        code == "not_found" -> Reason.ROOM_NOT_FOUND
+                        code == "room_full" -> Reason.ROOM_FULL
+                        code == "protocol_mismatch" -> Reason.VERSION_MISMATCH
                         else -> Reason.SERVER_ERROR
                     }
                 fail(reason, message.optString("message").takeIf { it.isNotBlank() })
@@ -385,11 +560,21 @@ class OnlineSession(
         }
     }
 
+    // Players who just joined, until we know whether they were linked with us.
+    private val pendingJoins = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
+    private fun announceJoin(id: Int) {
+        val name = pendingJoins.remove(id) ?: return
+        val room = mutableState.value as? State.InRoom
+        val linked = room?.myGroup?.any { it.id == id } == true
+        mutableEvents.tryEmit(Event.PlayerJoined(name, linked))
+    }
+
     private fun parsePlayers(message: JSONObject): List<Player> {
         val players = message.optJSONArray("players") ?: return emptyList()
         return (0 until players.length())
             .map { players.getJSONObject(it) }
-            .map { Player(it.getInt("id"), it.optString("name")) }
+            .map { Player(it.getInt("id"), it.optString("name"), it.optBoolean("away", false)) }
             .sortedBy { it.id }
     }
 
@@ -405,7 +590,7 @@ class OnlineSession(
             CLOSE_HOST_LEFT -> fail(Reason.HOST_LEFT)
             CLOSE_KICKED -> fail(Reason.REMOVED)
             NORMAL_CLOSURE -> close()
-            else -> fail(Reason.CONNECTION_LOST)
+            else -> connectionLost()
         }
     }
 
@@ -416,6 +601,7 @@ class OnlineSession(
         // A more specific reason (like "host left") may already be set; keep it.
         if (mutableState.value !is State.Failed) mutableState.value = State.Failed(reason, message)
         active.set(false)
+        stopReconnecting()
         webSocket?.close(NORMAL_CLOSURE, null)
         webSocket = null
         stopTransport()
@@ -613,6 +799,15 @@ class OnlineSession(
         private const val CORE_SUPPORT_POLL_MS = 250L
         private const val CORE_SUPPORT_ATTEMPTS = 60
         private const val SYNC_POLL_MS = 300L
+
+        private const val JOIN_NOTICE_DELAY_MS = 600L
+        private const val INITIAL_CONNECT_ATTEMPTS = 2
+        private const val INITIAL_RETRY_DELAY_MS = 1_500L
+
+        // The server keeps a seat for 3 minutes; stop trying a little before that.
+        private const val RECONNECT_WINDOW_MS = 170_000L
+        private val RECONNECT_DELAYS_MS = longArrayOf(500, 1_500, 3_000, 5_000, 8_000)
+        private const val RECONNECT_ATTEMPT_TIMEOUT_MS = 12_000L
 
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder()

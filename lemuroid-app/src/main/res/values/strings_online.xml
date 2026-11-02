@@ -74,10 +74,20 @@
     <!-- Players in a room, and link cables between them -->
     <string name="online_status_players">Players</string>
     <string name="online_status_linked_with">Linked with %1$s</string>
-    <string name="online_status_tap_to_link">Not linked · tap to link with a player</string>
+    <string name="online_status_tap_to_link">Not linked yet · Tap here and pick who to link with</string>
+    <string name="online_status_linked_pokemon">Linked with %1$s · Now go upstairs in a Pokémon Center</string>
+    <string name="online_status_partner_away">%1$s lost connection · Waiting for them to come back</string>
+    <string name="online_status_reconnecting">Connection dropped · Reconnecting, keep the game open</string>
+    <string name="online_status_alone">Waiting for a friend · Tap here to invite</string>
     <string name="online_room_sheet_title">Room %1$s</string>
     <string name="online_room_sheet_players">%1$d/%2$d players</string>
-    <string name="online_room_sheet_hint">Link with a player to trade and battle, as if your games were joined by a link cable. Then use the link feature in your game (in Pokémon games: upstairs in any Pokémon Center).</string>
+    <string name="online_steps_title">How to trade and battle</string>
+    <string name="online_step_invite">Invite a friend: tap Invite and send them the code.</string>
+    <string name="online_step_link">Link up. With 2 players this happens by itself; with more, tap Link next to a player.</string>
+    <string name="online_step_go_pokemon">Both players: go upstairs in any Pokémon Center and talk to the receptionist. The game asks you to save first.</string>
+    <string name="online_step_go_other">Both players: open the link or multiplayer option in your game.</string>
+    <string name="online_step_play_pokemon">Pick Trade or Battle (Colosseum) and have fun.</string>
+    <string name="online_player_away">Lost connection, coming back…</string>
     <string name="online_player_you">%1$s (you)</string>
     <string name="online_player_linked_with_you">Linked with you</string>
     <string name="online_player_linked">Linked with someone else</string>
@@ -96,8 +106,7 @@
     <string name="online_status_waiting_game">Starting game…</string>
     <string name="online_status_connecting">Connecting to room…</string>
     <string name="online_status_room">Room %1$s · %2$d/%3$d</string>
-    <string name="online_status_waiting_players">Waiting for players. Tap to share the code.</string>
-    <string name="online_status_share">Share</string>
+    <string name="online_status_room_short">%1$s · %2$d/%3$d</string>
     <string name="online_share_text">Join my %1$s room. Code: %2$s\n%3$s</string>
     <string name="online_share_title">Share room</string>
     <string name="online_error_not_supported">This core does not support online play.</string>
@@ -107,6 +116,7 @@
     <string name="online_error_room_full">This room is full.</string>
     <string name="online_error_version">The host uses a different app version. Everyone needs the latest update.</string>
     <string name="online_error_host_left">The host closed the room.</string>
+    <string name="online_error_room_closed">The room has closed.</string>
     <string name="online_error_removed">You were removed from the room.</string>
     <string name="online_error_server">The room server had a problem.</string>
     <string name="online_status_left">You left the room.</string>
@@ -125,4 +135,25 @@
     <string name="online_error_core_missing">This room needs an emulator core that is not available in this app.</string>
     <string name="online_status_waiting_host">Loading the host\'s game…</string>
     <string name="online_status_waiting_sync">Waiting for other players…</string>
+
+    <!-- While a room starts -->
+    <string name="online_loading_creating">Creating your room</string>
+    <string name="online_loading_joining">Joining room %1$s</string>
+    <string name="online_loading_step_game">Starting the game</string>
+    <string name="online_loading_step_room">Connecting to the room</string>
+    <string name="online_loading_wait">Please wait. Don\'t press back or close the game.</string>
+
+    <!-- Short notices in the game -->
+    <string name="online_notice_joined">%1$s joined the room.</string>
+    <string name="online_notice_joined_linked">%1$s joined. You\'re linked!</string>
+    <string name="online_notice_joined_linked_pokemon">%1$s joined. You\'re linked! Both go upstairs in any Pokémon Center to trade or battle.</string>
+    <string name="online_notice_left">%1$s left the room.</string>
+    <string name="online_notice_away">%1$s lost connection. Their place is kept for 3 minutes.</string>
+    <string name="online_notice_back">%1$s is back.</string>
+    <string name="online_notice_reconnected">Reconnected to the room.</string>
+
+    <!-- Going back to a room -->
+    <string name="online_recent_room_title">Back to room %1$s</string>
+    <string name="online_recent_room_message">Rooms stay open while anyone is in them, and for 5 minutes after the last player leaves.</string>
+    <string name="online_recent_room_rejoin">Rejoin</string>
 </resources>

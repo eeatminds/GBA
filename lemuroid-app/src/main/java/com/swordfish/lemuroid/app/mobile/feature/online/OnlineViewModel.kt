@@ -67,6 +67,8 @@ class OnlineViewModel(
         val netplayGames: List<Game> = emptyList(),
         val dialog: Dialog? = null,
         val message: Message? = null,
+        // A trade & battle room we were in lately, to go back to.
+        val recentRoom: String? = null,
     ) {
         val serverConfigured: Boolean get() = serverUrl.isNotBlank()
     }
@@ -77,7 +79,7 @@ class OnlineViewModel(
 
     private val mutableState =
         MutableStateFlow(
-            UiState(playerName = settings.playerName, serverUrl = settings.serverUrl),
+            UiState(playerName = settings.playerName, serverUrl = settings.serverUrl, recentRoom = settings.recentRoom),
         )
     val state: StateFlow<UiState> = mutableState.asStateFlow()
 
@@ -118,6 +120,16 @@ class OnlineViewModel(
                     )
                 }
             }
+    }
+
+    /** The Online tab is on screen again (for example after a game): check for a room to go back to. */
+    fun refreshRecentRoom() {
+        mutableState.update { it.copy(recentRoom = settings.recentRoom) }
+    }
+
+    fun forgetRecentRoom() {
+        settings.forgetRoom()
+        mutableState.update { it.copy(recentRoom = null) }
     }
 
     fun setPlayerName(name: String) {

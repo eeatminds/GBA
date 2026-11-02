@@ -33,6 +33,10 @@ import kotlin.math.roundToInt
 /** Where the game picture is drawn on screen, in pixels (set by the game screen layout). */
 object GameViewport {
     val rect = MutableStateFlow<Rect?>(null)
+
+    // The space the game picture sits in (the picture keeps its shape, so it may not fill it).
+    // Null with layouts that don't report it.
+    val area = MutableStateFlow<Rect?>(null)
 }
 
 /**

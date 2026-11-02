@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BROADCAST, RoomRegistry, cleanName, describeGroups, isValidCode } from '../src/rooms.js';
+import { BROADCAST, EMPTY_ROOM_MS, RoomRegistry, cleanName, describeGroups, describePlayers, isValidCode } from '../src/rooms.js';
 
 test('host gets client id 0 and joiners get the lowest free id', () => {
   const registry = new RoomRegistry();
@@ -68,8 +68,52 @@ test('trade & battle rooms stay open when the host leaves, and the next player o
   assert.equal(registry.joinRoom('c', { code: room.code }).player.id, 0);
   registry.leave(room, 0);
   registry.leave(room, 1);
-  assert.equal(registry.leave(room, 2).closed, true);
+  // Empty, but the code keeps working for a while.
+  assert.equal(registry.leave(room, 2).closed, false);
+  assert.equal(registry.rooms.size, 1);
+  assert.deepEqual(registry.sweep(Date.now()), []);
+  assert.deepEqual(registry.sweep(Date.now() + EMPTY_ROOM_MS), [room.code]);
   assert.equal(registry.rooms.size, 0);
+});
+
+test('the first player into an empty trade & battle room owns it', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { name: 'Ash' });
+  registry.joinRoom('a', { code: room.code, name: 'Misty' });
+  registry.leave(room, 0);
+  registry.leave(room, 1);
+  assert.equal(room.ownerId, 1);
+  const { player, ownerChanged } = registry.joinRoom('b', { code: room.code, name: 'Brock' });
+  assert.equal(player.id, 0);
+  assert.equal(ownerChanged, true);
+  assert.equal(room.ownerId, 0);
+  assert.equal(room.emptySince, null);
+  assert.deepEqual(registry.sweep(Date.now() + EMPTY_ROOM_MS), []);
+});
+
+test('a dropped player keeps their seat and link, and takes it back with their token', () => {
+  let n = 0;
+  const registry = new RoomRegistry({ token: () => `token${n++}` });
+  const { room, player: host } = registry.createRoom('host', { name: 'Gold' });
+  const { player: guest } = registry.joinRoom('guest', { code: room.code, name: 'Silver' });
+  assert.notEqual(host.token, guest.token);
+
+  assert.equal(registry.markAway(room, 1), true);
+  assert.deepEqual(describePlayers(room), [{ id: 0, name: 'Gold' }, { id: 1, name: 'Silver', away: true }]);
+  // Still linked, but nothing is sent while away.
+  assert.equal(room.groups.length, 1);
+  assert.deepEqual(registry.recipients(room, 0, BROADCAST), []);
+  // A newcomer doesn't get the held seat.
+  assert.equal(registry.joinRoom('third', { code: room.code }).player.id, 2);
+  registry.leave(room, 2);
+
+  assert.throws(() => registry.resume('again', { code: room.code, id: 1, token: 'wrong' }), { code: 'resume_failed' });
+  assert.throws(() => registry.resume('again', { code: 'ZZZZZZ', id: 1, token: guest.token }), { code: 'resume_failed' });
+  const resumed = registry.resume('again', { code: room.code, id: 1, token: guest.token });
+  assert.equal(resumed.player.id, 1);
+  assert.equal(resumed.previous, null);
+  assert.equal(guest.away, false);
+  assert.deepEqual(registry.recipients(room, 0, BROADCAST).map((p) => p.connection), ['again']);
 });
 
 test('play together rooms send to everyone except the sender', () => {

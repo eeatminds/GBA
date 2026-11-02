@@ -34,6 +34,7 @@ import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelSideEffects
 import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
 import com.swordfish.lemuroid.app.shared.online.OnlineConfig
 import com.swordfish.lemuroid.app.shared.online.OnlineSession
+import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
 import com.swordfish.lemuroid.app.shared.online.world.WorldSession
 import com.swordfish.lemuroid.app.shared.online.world.WorldOverlay
@@ -420,6 +421,12 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         finishTriggered = true
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Back from another app: if the room connection dropped meanwhile, get it back now.
+        onlineSession?.onForeground()
+    }
+
     override fun onStop() {
         if (!finishTriggered && !isFinishing && !isChangingConfigurations) {
             baseGameScreenViewModel.requestBackgroundSave()
@@ -431,7 +438,14 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         if (!isChangingConfigurations) {
             worldSession.value?.stop()
             GameViewport.rect.value = null
-            onlineSession?.close()
+            GameViewport.area.value = null
+            // Remember the room for a while, so the Online tab can offer to go back in.
+            val session = onlineSession
+            val code = session?.roomCode
+            if (session != null && session.hasLinks && code != null && session.state.value is OnlineSession.State.InRoom) {
+                OnlineSettings(applicationContext).rememberRoom(code)
+            }
+            session?.close()
             GameService.requestTermination()
         }
         super.onDestroy()

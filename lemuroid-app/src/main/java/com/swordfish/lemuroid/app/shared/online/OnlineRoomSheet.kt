@@ -1,14 +1,18 @@
 package com.swordfish.lemuroid.app.shared.online
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -17,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,11 +33,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
 
-/** Everyone in the room, and (in trade & battle rooms) who is linked with whom. */
+/**
+ * Everyone in the room, and (in trade & battle rooms) who is linked with whom, with the steps
+ * to trade and battle: the step the player is on is highlighted.
+ */
 @Composable
 fun OnlineRoomSheet(
     room: OnlineSession.State.InRoom,
     hasLinks: Boolean,
+    isPokemon: Boolean,
     onLink: (Int) -> Unit,
     onUnlink: () -> Unit,
     onInvite: () -> Unit,
@@ -51,29 +60,14 @@ fun OnlineRoomSheet(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (hasLinks) {
-                    Text(
-                        stringResource(R.string.online_room_sheet_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Column(
-                    modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    room.players.forEach { player ->
-                        PlayerRow(room, player, hasLinks, onLink)
-                    }
-                }
-                if (hasLinks && room.myGroup != null) {
-                    HorizontalDivider()
-                    OutlinedButton(onClick = onUnlink, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.online_unlink))
-                    }
-                }
-            }
+            OnlineRoomSheetContent(
+                room = room,
+                hasLinks = hasLinks,
+                isPokemon = isPokemon,
+                onLink = onLink,
+                onUnlink = onUnlink,
+                modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+            )
         },
         confirmButton = {
             TextButton(onClick = onInvite) {
@@ -85,6 +79,106 @@ fun OnlineRoomSheet(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         },
     )
+}
+
+/** The steps, the players and the unplug button. */
+@Composable
+fun OnlineRoomSheetContent(
+    room: OnlineSession.State.InRoom,
+    hasLinks: Boolean,
+    isPokemon: Boolean,
+    onLink: (Int) -> Unit,
+    onUnlink: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (hasLinks) {
+            LinkSteps(room, isPokemon)
+            HorizontalDivider()
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            room.players.forEach { player ->
+                PlayerRow(room, player, hasLinks, onLink)
+            }
+        }
+        if (hasLinks && room.myGroup != null) {
+            OutlinedButton(onClick = onUnlink, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.online_unlink))
+            }
+        }
+    }
+}
+
+/** 1. Invite a friend  2. Link up  3. Go to the link spot in the game  4. Trade or battle. */
+@Composable
+private fun LinkSteps(
+    room: OnlineSession.State.InRoom,
+    isPokemon: Boolean,
+) {
+    val invited = room.players.size > 1
+    val linked = room.myGroup != null
+    val steps =
+        buildList {
+            add(stringResource(R.string.online_step_invite) to invited)
+            add(stringResource(R.string.online_step_link) to linked)
+            add(stringResource(if (isPokemon) R.string.online_step_go_pokemon else R.string.online_step_go_other) to false)
+            if (isPokemon) add(stringResource(R.string.online_step_play_pokemon) to false)
+        }
+    // The first step not done yet is the one to do now.
+    val current = steps.indexOfFirst { !it.second }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            stringResource(R.string.online_steps_title),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        steps.forEachIndexed { index, (text, done) ->
+            StepRow(number = index + 1, text = text, done = done, current = index == current)
+        }
+    }
+}
+
+@Composable
+private fun StepRow(
+    number: Int,
+    text: String,
+    done: Boolean,
+    current: Boolean,
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(
+            shape = CircleShape,
+            color =
+                when {
+                    done -> colors.primary
+                    current -> colors.primaryContainer
+                    else -> colors.surfaceVariant
+                },
+            contentColor =
+                when {
+                    done -> colors.onPrimary
+                    current -> colors.onPrimaryContainer
+                    else -> colors.onSurfaceVariant
+                },
+            modifier = Modifier.size(24.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (done) {
+                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                } else {
+                    Text(number.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (current) colors.onSurface else colors.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
 }
 
 @Composable
@@ -108,21 +202,25 @@ private fun PlayerRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (hasLinks) {
-                val status =
-                    when {
-                        linkedWithMe -> R.string.online_player_linked_with_you
-                        group != null -> R.string.online_player_linked
-                        else -> R.string.online_player_not_linked
-                    }
+            val status =
+                when {
+                    player.away -> stringResource(R.string.online_player_away)
+                    !hasLinks -> null
+                    isMe && group != null -> stringResource(R.string.online_status_linked_with, room.linkedNames.joinToString(", "))
+                    linkedWithMe -> stringResource(R.string.online_player_linked_with_you)
+                    group != null -> stringResource(R.string.online_player_linked)
+                    else -> stringResource(R.string.online_player_not_linked)
+                }
+            if (status != null) {
+                val highlight = (linkedWithMe || (isMe && group != null)) && !player.away
                 Text(
-                    stringResource(status),
+                    status,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (linkedWithMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        if (hasLinks && !isMe && !linkedWithMe) {
+        if (hasLinks && !isMe && !linkedWithMe && !player.away) {
             val asked = room.outgoingRequest == player.id
             FilledTonalButton(onClick = { onLink(player.id) }, enabled = !asked) {
                 Icon(Icons.Filled.Link, contentDescription = null, modifier = Modifier.padding(end = 6.dp))

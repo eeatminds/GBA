@@ -1,6 +1,12 @@
 // Room bookkeeping for the GBA/GBC Emulator relay. Pure logic, no networking, so it is easy to test.
 
+import { randomBytes } from 'node:crypto';
+
 export const BROADCAST = 0xffff;
+
+// A trade & battle room with nobody in it stays open this long, so its code keeps working
+// (the creator can come back, friends with the invite can still join).
+export const EMPTY_ROOM_MS = 5 * 60_000;
 
 // Trade & battle rooms hold up to 8 players. Inside a room, players link up in small
 // groups, like plugging in link cables: only players in the same group exchange data.
@@ -80,9 +86,11 @@ export function normalizeCode(code) {
 }
 
 export class RoomRegistry {
-  constructor({ maxRooms = 5000, random = Math.random } = {}) {
+  constructor({ maxRooms = 5000, random = Math.random, token = () => randomBytes(16).toString('hex'), emptyRoomMs = EMPTY_ROOM_MS } = {}) {
     this.maxRooms = maxRooms;
     this.random = random;
+    this.token = token;
+    this.emptyRoomMs = emptyRoomMs;
     this.rooms = new Map();
   }
 
@@ -128,7 +136,8 @@ export class RoomRegistry {
     const delay = Number.isInteger(request.delay) ? Math.max(1, Math.min(15, request.delay)) : 4;
 
     const code = this.newCode();
-    const host = { id: 0, name: cleanName(request.name, 'Player 1'), connection };
+    // The token lets a player take their seat back after losing their connection.
+    const host = { id: 0, name: cleanName(request.name, 'Player 1'), connection, token: this.token(), away: false };
     const room = {
       code,
       kind,
@@ -148,6 +157,8 @@ export class RoomRegistry {
       groups: [],
       // Pending link requests, as "from>to".
       requests: new Set(),
+      // When the last player left (trade & battle rooms stay open a while after that).
+      emptySince: null,
     };
     this.rooms.set(code, room);
     return { room, player: host };
@@ -173,8 +184,15 @@ export class RoomRegistry {
     }
     if (id < 0) throw new RoomError('room_full', 'This room is full.');
 
-    const player = { id, name: cleanName(request.name, `Player ${id + 1}`), connection };
+    const player = { id, name: cleanName(request.name, `Player ${id + 1}`), connection, token: this.token(), away: false };
     room.players.set(id, player);
+    room.emptySince = null;
+    // Joining a room nobody owns any more (everyone left): the new player owns it.
+    let ownerChanged = false;
+    if (!room.players.has(room.ownerId)) {
+      room.ownerId = id;
+      ownerChanged = true;
+    }
 
     // With just two players there is only one sensible link: connect them right away.
     let groupsChanged = false;
@@ -186,11 +204,39 @@ export class RoomRegistry {
       ]);
       groupsChanged = true;
     }
-    return { room, player, groupsChanged };
+    return { room, player, groupsChanged, ownerChanged };
+  }
+
+  // A player lost their connection without leaving. They keep their seat and their link
+  // while they come back (see `resume`); nothing is sent to them in the meantime.
+  markAway(room, playerId) {
+    const player = room.players.get(playerId);
+    if (!player || !this.rooms.has(room.code)) return false;
+    player.away = true;
+    player.connection = null;
+    return true;
+  }
+
+  // A player who lost their connection takes their seat back with the token they were given.
+  // Returns { room, player, previous } where `previous` is the old connection, if any.
+  resume(connection, request) {
+    const code = normalizeCode(request.code);
+    const room = isValidCode(code) ? this.rooms.get(code) : undefined;
+    const player = room?.players.get(request.id);
+    if (!room || !player || typeof request.token !== 'string' || request.token !== player.token) {
+      throw new RoomError('resume_failed', 'Your place in the room is gone.');
+    }
+    if (room.protocol && typeof request.protocol === 'string' && request.protocol !== room.protocol) {
+      throw new RoomError('protocol_mismatch', 'The host is using a different app version. Both players need the latest update.');
+    }
+    const previous = player.connection;
+    player.connection = connection;
+    player.away = false;
+    return { room, player, previous };
   }
 
   // Returns { closed, removed, groupsChanged, ownerChanged }. A netplay room closes when its
-  // host leaves; a link room closes when its last player leaves.
+  // host leaves. A link room stays open, even empty for a while (see `sweep`).
   leave(room, playerId) {
     if (!this.rooms.has(room.code) || !room.players.has(playerId)) {
       return { closed: false, removed: false, groupsChanged: false, ownerChanged: false };
@@ -202,9 +248,13 @@ export class RoomRegistry {
     }
     const groupsChanged = this.removeFromGroup(room, playerId);
 
-    if ((room.kind !== 'link' && playerId === 0) || room.players.size === 0) {
+    if (room.kind !== 'link' && (playerId === 0 || room.players.size === 0)) {
       this.rooms.delete(room.code);
       return { closed: true, removed: true, groupsChanged, ownerChanged: false };
+    }
+    if (room.players.size === 0) {
+      room.emptySince = Date.now();
+      return { closed: false, removed: true, groupsChanged, ownerChanged: false };
     }
     let ownerChanged = false;
     if (room.ownerId === playerId) {
@@ -212,6 +262,18 @@ export class RoomRegistry {
       ownerChanged = true;
     }
     return { closed: false, removed: true, groupsChanged, ownerChanged };
+  }
+
+  // Closes trade & battle rooms that have been empty for a while. Returns their codes.
+  sweep(now = Date.now()) {
+    const closed = [];
+    for (const room of this.rooms.values()) {
+      if (room.players.size === 0 && room.emptySince !== null && now - room.emptySince >= this.emptyRoomMs) {
+        this.rooms.delete(room.code);
+        closed.push(room.code);
+      }
+    }
+    return closed;
   }
 
   groupSize(room) {
@@ -300,12 +362,13 @@ export class RoomRegistry {
       candidates = [...room.players.keys()].filter((id) => id !== fromId);
     }
     if (targetId !== BROADCAST) candidates = candidates.filter((id) => id === targetId);
-    return candidates.map((id) => room.players.get(id)).filter(Boolean);
+    // Players who lost their connection get nothing until they are back.
+    return candidates.map((id) => room.players.get(id)).filter((player) => player && player.connection);
   }
 
   publicRooms() {
     return [...this.rooms.values()]
-      .filter((room) => room.isPublic && room.players.size < room.maxPlayers)
+      .filter((room) => room.isPublic && room.players.size < room.maxPlayers && [...room.players.values()].some((p) => !p.away))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 200)
       .map((room) => describeRoom(room));
@@ -337,7 +400,7 @@ export function describeRoom(room) {
 }
 
 export function describePlayers(room) {
-  return [...room.players.values()].map((p) => ({ id: p.id, name: p.name }));
+  return [...room.players.values()].map((p) => (p.away ? { id: p.id, name: p.name, away: true } : { id: p.id, name: p.name }));
 }
 
 export function describeGroups(room) {
