@@ -38,6 +38,7 @@ import com.swordfish.touchinput.radial.sensors.TiltConfiguration
 import com.swordfish.touchinput.radial.settings.TouchControllerSettingsManager
 import gg.padkit.inputevents.InputEvent
 import gg.padkit.inputstate.InputState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -296,6 +297,20 @@ class BaseGameScreenViewModel(
                 saves.writeSaveSnapshot(snapshot)
                 sideEffects.requestSuccessfulFinish()
             }
+        }
+    }
+
+    /**
+     * A quiet save while playing (auto-resume snapshot and in-game save), so a crash or a
+     * closed app loses at most a few seconds of play.
+     */
+    fun requestPeriodicSave() {
+        if (loadingState.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val snapshot = saves.captureSaveSnapshot(true)
+                saves.writeSaveSnapshot(snapshot)
+            }.onFailure { Timber.w(it, "Periodic save failed") }
         }
     }
 

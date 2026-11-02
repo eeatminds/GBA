@@ -4,6 +4,7 @@ import android.content.Context
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
 import com.swordfish.lemuroid.common.graphics.GraphicsUtils
+import com.swordfish.lemuroid.app.shared.library.SaveBackup
 import com.swordfish.lemuroid.app.shared.game.GameFrames
 import com.swordfish.lemuroid.common.graphics.takeScreenshot
 import com.swordfish.lemuroid.lib.library.GameSystem
@@ -93,6 +94,8 @@ class GameViewModelSaves(
         )
         savesManager.setSaveRAM(game, snapshot.sram)
         snapshot.autoSave?.let { statesManager.setAutoSave(game, systemCoreConfig.coreID, it) }
+        // A copy in the player's backup folder, if they picked one.
+        SaveBackup.backup(appContext, game, snapshot.sram)
     }
 
     // On some cores unserialize fails with no reason. So we need to try multiple times.

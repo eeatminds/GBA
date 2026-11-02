@@ -23,6 +23,12 @@
     <string name="screen_position_middle">Center</string>
     <string name="game_menu_state_empty">Empty</string>
     <string name="game_menu_sound">Sound</string>
+    <!-- Save backups -->
+    <string name="settings_category_save_backup">Save backup</string>
+    <string name="settings_title_save_backup">Back up in-game saves</string>
+    <string name="settings_description_save_backup_off">Off. Pick a folder to keep a copy of every in-game save there, for example in Google Drive.</string>
+    <string name="settings_description_save_backup_on">On: copies go to "%1$s". Tap to pick another folder.</string>
+    <string name="settings_title_save_backup_stop">Stop backing up</string>
     <string name="menu_value_on">On</string>
     <string name="menu_value_off">Off</string>
     <string name="screenshot_saved">Screenshot saved to your Gallery</string>

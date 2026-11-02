@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.swordfish.lemuroid.app.shared.cheats.CheatsManager
 import com.swordfish.lemuroid.common.graphics.takeScreenshot
 import kotlinx.coroutines.Dispatchers
@@ -175,6 +176,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             applyCheats()
             // The core registers its link interface while the game loads.
             session?.start()
+            // Auto-resume: a quiet snapshot every 30 seconds while the game is on screen.
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    delay(PERIODIC_SAVE_MS)
+                    baseGameScreenViewModel.requestPeriodicSave()
+                }
+            }
         }
 
         lifecycleScope.launch {
@@ -511,6 +519,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     companion object {
         const val DIALOG_REQUEST = 100
+
+        // How often the auto-resume snapshot is saved while playing.
+        private const val PERIODIC_SAVE_MS = 30_000L
 
         private const val EXTRA_GAME = "GAME"
         private const val EXTRA_LOAD_SAVE = "LOAD_SAVE"

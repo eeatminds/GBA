@@ -1,10 +1,15 @@
 package com.swordfish.lemuroid.app.mobile.feature.settings.general
 
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -14,6 +19,7 @@ import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.mobile.feature.main.MainRoute
 import com.swordfish.lemuroid.app.mobile.feature.main.navigateToRoute
 import com.swordfish.lemuroid.app.shared.library.LibraryIndexScheduler
+import com.swordfish.lemuroid.app.shared.library.SaveBackup
 import com.swordfish.lemuroid.app.utils.android.settings.LemuroidCardSettingsGroup
 import com.swordfish.lemuroid.app.utils.android.settings.LemuroidSettingsList
 import com.swordfish.lemuroid.app.utils.android.settings.LemuroidSettingsMenuLink
@@ -53,6 +59,7 @@ fun SettingsScreen(
             indexingInProgress = indexingInProgress,
             scanInProgress = scanInProgress,
         )
+        SaveBackupSettings()
         GeneralSettings()
         InputSettings(navController = navController)
         MiscSettings(
@@ -189,6 +196,43 @@ private fun GeneralSettings() {
             title = { Text(text = stringResource(id = R.string.settings_title_viewport_alignment)) },
             items = stringListResource(R.array.pref_key_viewport_alignment_display_names),
         )
+    }
+}
+
+/** Copies of in-game saves in a folder the player picks (Google Drive works through the picker). */
+@Composable
+private fun SaveBackupSettings() {
+    val context = LocalContext.current
+    var folderName by remember { mutableStateOf(SaveBackup.folderName(context)) }
+    val picker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                runCatching { SaveBackup.setFolder(context, uri) }
+                folderName = SaveBackup.folderName(context)
+            }
+        }
+
+    LemuroidCardSettingsGroup(title = { Text(text = stringResource(id = R.string.settings_category_save_backup)) }) {
+        LemuroidSettingsMenuLink(
+            title = { Text(text = stringResource(id = R.string.settings_title_save_backup)) },
+            subtitle = {
+                Text(
+                    text =
+                        folderName?.let { stringResource(R.string.settings_description_save_backup_on, it) }
+                            ?: stringResource(R.string.settings_description_save_backup_off),
+                )
+            },
+            onClick = { picker.launch(null) },
+        )
+        if (folderName != null) {
+            LemuroidSettingsMenuLink(
+                title = { Text(text = stringResource(id = R.string.settings_title_save_backup_stop)) },
+                onClick = {
+                    SaveBackup.setFolder(context, null)
+                    folderName = null
+                },
+            )
+        }
     }
 }
 
