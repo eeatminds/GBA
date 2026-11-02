@@ -66,6 +66,29 @@ void Environment::deinitialize() {
     gameGeometryAspectRatio = -1.0f;
 
     rumbleStates.fill(libretrodroid::RumbleState {});
+    memoryRegions.clear();
+}
+
+const std::vector<Environment::MemoryRegion>& Environment::getMemoryRegions() const {
+    return memoryRegions;
+}
+
+bool Environment::environment_handle_set_memory_maps(const struct retro_memory_map* map) {
+    memoryRegions.clear();
+    if (map == nullptr) return false;
+    for (unsigned i = 0; i < map->num_descriptors; i++) {
+        const retro_memory_descriptor& descriptor = map->descriptors[i];
+        // Banked or mirrored areas (select/disconnect masks) aren't a plain block; skip them.
+        if (descriptor.ptr == nullptr || descriptor.len == 0 || descriptor.select != 0 || descriptor.disconnect != 0) {
+            continue;
+        }
+        memoryRegions.push_back(MemoryRegion {
+            descriptor.start,
+            static_cast<uint8_t*>(descriptor.ptr) + descriptor.offset,
+            descriptor.len,
+        });
+    }
+    return true;
 }
 
 void Environment::updateVariable(const std::string& key, const std::string& value) {
@@ -338,6 +361,10 @@ bool Environment::handle_callback_environment(unsigned cmd, void *data) {
                 static_cast<const struct lrd_netpacket_callback*>(data)
             );
             return true;
+
+        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+            LOGD("Called RETRO_ENVIRONMENT_SET_MEMORY_MAPS");
+            return environment_handle_set_memory_maps(static_cast<const struct retro_memory_map*>(data));
 
         case RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE:
             LOGD("Called RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE");

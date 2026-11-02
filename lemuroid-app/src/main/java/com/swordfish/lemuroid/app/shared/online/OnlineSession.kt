@@ -119,6 +119,16 @@ class OnlineSession(
     /** Whether players in this room link up with each other (trade & battle rooms). */
     val hasLinks: Boolean get() = config.kind == RoomKind.LINK
 
+    /** Where other players are in their game ("pos" messages), for sharing the world. */
+    @Volatile var onPresence: ((from: Int, message: JSONObject) -> Unit)? = null
+
+    @Volatile var onPlayerLeft: ((id: Int) -> Unit)? = null
+
+    /** Tell the room where we are in our game. */
+    fun sendPresence(message: JSONObject) {
+        if (mutableState.value is State.InRoom) sendControl(message)
+    }
+
     private val transport: Transport =
         when {
             config.kind == RoomKind.NETPLAY -> NetplayTransport()
@@ -316,6 +326,12 @@ class OnlineSession(
                     )
                 }
                 if (isHost()) transport.peerLeft(id)
+                onPlayerLeft?.invoke(id)
+            }
+
+            "pos" -> {
+                val from = message.optInt("from", -1)
+                if (from >= 0) onPresence?.invoke(from, message)
             }
 
             "groups" -> {

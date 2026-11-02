@@ -125,6 +125,16 @@ public class LibretroDroid {
     /** [width, height, ARGB_8888 pixels...] of the last frame drawn in software, or null. */
     public static native int[] captureFrame();
 
+    public static final int MEMORY_SAVE_RAM = 0;
+    public static final int MEMORY_SYSTEM_RAM = 2;
+    public static final int MEMORY_VIDEO_RAM = 3;
+
+    /** A memory block of the running game (MEMORY_*), or null. Only valid while the game is loaded. */
+    public static native java.nio.ByteBuffer getMemoryData(int id);
+
+    /** The game's memory at the addresses it sees, as published by the core. Only valid while the game is loaded. */
+    public static native MemoryRegion[] getMemoryRegions();
+
     public static native byte[] serializeSRAM();
     public static native boolean unserializeSRAM(byte[] sram);
 

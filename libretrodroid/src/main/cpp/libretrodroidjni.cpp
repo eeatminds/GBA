@@ -825,3 +825,39 @@ JNIEXPORT jintArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_captu
 }
 
 }
+
+extern "C" {
+
+// Memory of the running game, for features that follow the game (like seeing other players
+// in the same world). The buffers point straight at the core's memory: only use them while
+// the game is loaded.
+JNIEXPORT jobject JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_getMemoryData(
+    JNIEnv* env,
+    jclass obj,
+    jint id
+) {
+    size_t size = 0;
+    void* data = libretrodroid::LibretroDroid::getInstance().getMemoryData(static_cast<unsigned>(id), size);
+    if (data == nullptr || size == 0) return nullptr;
+    return env->NewDirectByteBuffer(data, static_cast<jlong>(size));
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_getMemoryRegions(
+    JNIEnv* env,
+    jclass obj
+) {
+    const auto& regions = Environment::getInstance().getMemoryRegions();
+    jclass regionClass = env->FindClass("com/swordfish/libretrodroid/MemoryRegion");
+    jmethodID constructor = env->GetMethodID(regionClass, "<init>", "(JLjava/nio/ByteBuffer;)V");
+    jobjectArray result = env->NewObjectArray(static_cast<jsize>(regions.size()), regionClass, nullptr);
+    for (size_t i = 0; i < regions.size(); i++) {
+        jobject buffer = env->NewDirectByteBuffer(regions[i].data, static_cast<jlong>(regions[i].length));
+        jobject region = env->NewObject(regionClass, constructor, static_cast<jlong>(regions[i].start), buffer);
+        env->SetObjectArrayElement(result, static_cast<jsize>(i), region);
+        env->DeleteLocalRef(buffer);
+        env->DeleteLocalRef(region);
+    }
+    return result;
+}
+
+}

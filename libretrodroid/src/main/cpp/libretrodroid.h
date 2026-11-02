@@ -141,6 +141,9 @@ public:
     // cores. Used for save previews and screenshots so they show exactly the game picture.
     std::vector<uint32_t> captureFrame(unsigned& width, unsigned& height);
 
+    // A memory block of the running core (RETRO_MEMORY_*), or nullptr. Valid until the game is unloaded.
+    void* getMemoryData(unsigned id, size_t& size);
+
     // Handle callbacks
     void handleVideoRefresh(const void *data, unsigned width, unsigned height, size_t pitch);
     size_t handleAudioCallback(const int16_t* data, size_t frames);

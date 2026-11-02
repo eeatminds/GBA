@@ -108,7 +108,18 @@ public:
 
     const std::vector<std::vector<struct Controller>> &getControllers() const;
 
+    // A block of the emulated console's memory, at the address the game sees it.
+    struct MemoryRegion {
+        uint64_t start;
+        uint8_t* data;
+        size_t length;
+    };
+
+    // Plain memory areas the core published with RETRO_ENVIRONMENT_SET_MEMORY_MAPS.
+    const std::vector<MemoryRegion>& getMemoryRegions() const;
+
 private:
+    bool environment_handle_set_memory_maps(const struct retro_memory_map* map);
     bool environment_handle_set_variables(const struct retro_variable* received);
     bool environment_handle_get_variable(struct retro_variable* requested);
     bool environment_handle_set_controller_info(const struct retro_controller_info* received);
@@ -136,6 +147,8 @@ private:
 
     float screenRotation = 0;
     bool screenRotationUpdated = false;
+
+    std::vector<MemoryRegion> memoryRegions;
 
     bool gameGeometryUpdated = false;
     unsigned gameGeometryWidth = 0;

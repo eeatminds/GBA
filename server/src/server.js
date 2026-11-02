@@ -160,6 +160,9 @@ function handleConnection(ws, registry, config) {
       case 'leave':
         ws.close(1000, 'left');
         break;
+      case 'pos':
+        relayPresence(state, message);
+        break;
       case 'link_request':
       case 'link_accept':
       case 'link_decline':
@@ -259,6 +262,27 @@ function handleLinkMessage(registry, state, message) {
     }
   } catch (error) {
     if (error instanceof RoomError) sendJson(player.connection, { t: 'link_error', code: error.code, message: error.message });
+  }
+}
+
+// "Same world": where a player's character is in their game, passed to everyone else in the
+// room so their app can draw it. Only known fields, with sane values, get through.
+const WORD = /^[a-z0-9._-]{1,24}$/;
+
+function relayPresence(state, message) {
+  const { room, player } = state;
+  if (room.kind !== 'link' || typeof message.w !== 'string' || !WORD.test(message.w)) return;
+  const out = { t: 'pos', from: player.id, w: message.w };
+  if (message.m !== undefined) {
+    if (typeof message.m !== 'string' || !WORD.test(message.m)) return;
+    const numbers = ['x', 'y', 's', 'f', 'h'].map((key) => message[key]);
+    if (!numbers.every((n) => Number.isInteger(n) && Math.abs(n) <= 1_000_000)) return;
+    out.m = message.m;
+    [out.x, out.y, out.s, out.f, out.h] = numbers;
+  }
+  const text = JSON.stringify(out);
+  for (const other of room.players.values()) {
+    if (other.id !== player.id && other.connection.readyState === other.connection.OPEN) other.connection.send(text);
   }
 }
 

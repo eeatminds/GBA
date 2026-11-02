@@ -1,0 +1,129 @@
+package com.swordfish.lemuroid.app.shared.online.world
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
+class Gen3AdapterTest {
+    private val ewram = ByteBuffer.allocate(0x40000).order(ByteOrder.LITTLE_ENDIAN)
+    private val iwram = ByteBuffer.allocate(0x8000).order(ByteOrder.LITTLE_ENDIAN)
+    private val memory =
+        GameMemory(
+            listOf(
+                GameMemory.Region(0x02000000, ewram),
+                GameMemory.Region(0x03000000, iwram),
+            ),
+        )
+    private val layout = Gen3Adapter.EMERALD
+    private val adapter = Gen3Adapter(Rom(ByteArray(0x100), 0x08000000), layout)
+
+    private fun put32(
+        address: Long,
+        value: Long,
+    ) = buffer(address).putInt(offset(address), value.toInt())
+
+    private fun put16(
+        address: Long,
+        value: Int,
+    ) = buffer(address).putShort(offset(address), value.toShort())
+
+    private fun put8(
+        address: Long,
+        value: Int,
+    ) = buffer(address).put(offset(address), value.toByte())
+
+    private fun buffer(address: Long) = if (address >= 0x03000000) iwram else ewram
+
+    private fun offset(address: Long) = (address and 0xFFFFFF).toInt()
+
+    // Emerald, standing on tile (10, 5) of map 0.9, having scrolled 4 pixels to the right.
+    private fun walkingRight() {
+        put32(layout.main + 4, layout.cb2Overworld or 1)
+        val saveBlock = 0x02025a00L
+        put32(layout.saveBlock1, saveBlock)
+        put16(saveBlock, 10)
+        put16(saveBlock + 2, 5)
+        put8(saveBlock + 4, 0)
+        put8(saveBlock + 5, 9)
+        put32(layout.fieldCamera + 0x10, 4)
+        put32(layout.fieldCamera + 0x14, 0)
+        put8(layout.playerAvatar + 4, 3)
+        put8(layout.playerAvatar + 5, 0)
+        put8(layout.objectEvents + 5, 89)
+        val sprite = layout.sprites + 3 * 0x44
+        put16(sprite + 0x20, 120)
+        put16(sprite + 0x22, 72)
+        put8(sprite + 0x28, -8)
+        put8(sprite + 0x29, -16)
+        put8(sprite + 0x3E, 0x3)
+        put16(layout.spriteCoordOffsetX, 0)
+        put16(layout.spriteCoordOffsetY, -40)
+    }
+
+    @Test
+    fun `reads position, map and sprite while walking`() {
+        walkingRight()
+        val avatar = adapter.read(memory)
+        assertNotNull(avatar)
+        avatar!!
+        assertEquals("0.9", avatar.map)
+        // The tile already moved to 10 at the start of the step; the view is 4 of 16 pixels in.
+        assertEquals(10 * 16 + 4 - 16, avatar.x)
+        assertEquals(5 * 16, avatar.y)
+        assertEquals(89, avatar.look.sprite)
+        assertEquals(120 - 8, avatar.screenX)
+        assertEquals(72 - 16 - 40, avatar.screenY)
+    }
+
+    @Test
+    fun `walking left counts from the other side of the tile`() {
+        walkingRight()
+        put32(layout.fieldCamera + 0x10, -4)
+        assertEquals(10 * 16 - 4 + 16, adapter.read(memory)!!.x)
+    }
+
+    @Test
+    fun `nothing outside the overworld or when the player is hidden`() {
+        walkingRight()
+        put8(layout.sprites + 3 * 0x44 + 0x3E, 0x7)
+        assertNull(adapter.read(memory))
+        walkingRight()
+        put32(layout.main + 4, 0x08000101)
+        assertNull(adapter.read(memory))
+    }
+
+    @Test
+    fun `layouts are picked by game code and version`() {
+        assertEquals(Gen3Adapter.EMERALD, Gen3Adapter.layoutFor("BPEE", 0))
+        assertEquals(Gen3Adapter.FIRERED_11, Gen3Adapter.layoutFor("BPRE", 1))
+        assertEquals(Gen3Adapter.RUBY_11, Gen3Adapter.layoutFor("AXVE", 2))
+        assertNull(Gen3Adapter.layoutFor("BPEJ", 0))
+        assertNull(Gen3Adapter.layoutFor("BPEE", 1))
+    }
+
+    // Uses a real Emerald ROM when EMERALD_ROM points to one (never stored with the code).
+    @Test
+    fun `draws Brendan and May from the game's own graphics`() {
+        val file = System.getenv("EMERALD_ROM")?.let(::File)
+        assumeTrue(file != null && file.exists())
+        val rom = file!!.readBytes()
+        val real = WorldAdapters.forRom("gba", rom)
+        assertNotNull(real)
+        for (sprite in listOf(0, 89)) {
+            for (frame in 0 until 18) {
+                val picture = real!!.sprite(Look(sprite, frame, false))
+                assertNotNull("sprite $sprite frame $frame", picture)
+                assertEquals(16, picture!!.width)
+                assertEquals(32, picture.height)
+                assertTrue(picture.pixels.count { it != 0 } > 100)
+            }
+        }
+        assertEquals("hoenn-e", real!!.world)
+    }
+}

@@ -567,6 +567,13 @@ void LibretroDroid::handleVideoRefresh(
     }
 }
 
+void* LibretroDroid::getMemoryData(unsigned id, size_t& size) {
+    size = 0;
+    if (!core) return nullptr;
+    size = core->retro_get_memory_size(id);
+    return size > 0 ? core->retro_get_memory_data(id) : nullptr;
+}
+
 std::vector<uint32_t> LibretroDroid::captureFrame(unsigned& width, unsigned& height) {
     std::lock_guard<std::mutex> lock(frameCaptureLock);
     width = lastFrameWidth;

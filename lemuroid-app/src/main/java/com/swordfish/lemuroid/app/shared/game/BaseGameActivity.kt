@@ -12,6 +12,8 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -33,6 +35,11 @@ import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
 import com.swordfish.lemuroid.app.shared.online.OnlineConfig
 import com.swordfish.lemuroid.app.shared.online.OnlineSession
 import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
+import com.swordfish.lemuroid.app.shared.online.world.WorldSession
+import com.swordfish.lemuroid.app.shared.online.world.WorldOverlay
+import com.swordfish.lemuroid.app.shared.online.world.WorldAdapters
+import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.world.GameMemory
 import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
 import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
@@ -105,6 +112,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     // Set when the game was started from an online room.
     private var onlineConfig: OnlineConfig? = null
     private var onlineSession: OnlineSession? = null
+    private val worldSession = mutableStateOf<WorldSession?>(null)
 
     // Cheats would make players' games differ in "play together" rooms.
     private val cheatsAllowed: Boolean
@@ -163,6 +171,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                         GameScreen(viewModel)
                     }
                     if (session != null) {
+                        worldSession.value?.let { world ->
+                            val room = session.state.collectAsState().value as? OnlineSession.State.InRoom
+                            WorldOverlay(world, room?.players?.associate { it.id to it.name }.orEmpty())
+                        }
                         OnlineStatusBar(session = session, gameTitle = game.customName ?: game.title)
                     }
                 }
@@ -176,6 +188,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             applyCheats()
             // The core registers its link interface while the game loads.
             session?.start()
+            // Trade & battle rooms also share the world, in games we know how to read.
+            if (session != null && session.hasLinks) startWorld(session)
             // Auto-resume: a quiet snapshot every 30 seconds while the game is on screen.
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (true) {
@@ -415,10 +429,25 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     override fun onDestroy() {
         if (!isChangingConfigurations) {
+            worldSession.value?.stop()
+            GameViewport.rect.value = null
             onlineSession?.close()
             GameService.requestTermination()
         }
         super.onDestroy()
+    }
+
+    /** See the other players in our game: their characters are drawn over the game picture. */
+    private fun startWorld(session: OnlineSession) {
+        lifecycleScope.launch {
+            val rom = WorldAdapters.loadRom(applicationContext, game) ?: return@launch
+            val adapter = WorldAdapters.forRom(game.systemId, rom) ?: return@launch
+            val world = WorldSession(adapter, { GameMemory.ofRunningGame() }, session::sendPresence, lifecycleScope)
+            session.onPresence = world::onPresence
+            session.onPlayerLeft = world::onPlayerLeft
+            worldSession.value = world
+            world.start()
+        }
     }
 
     private fun applyCheats() {

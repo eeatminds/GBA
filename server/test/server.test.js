@@ -161,6 +161,32 @@ test('players ask to link, accept, decline and unlink', async () => {
   players.forEach((p) => p.ws.close());
 });
 
+test('positions in the world go to everyone else in the room', async () => {
+  const players = [connect(), connect(), connect()];
+  await Promise.all(players.map((p) => p.opened));
+  const [a, b, c] = players;
+  a.sendJson({ t: 'host', system: 'gba', name: 'May' });
+  const { room } = await a.next(ofType('hosted'));
+  b.sendJson({ t: 'join', code: room.code });
+  await b.next(ofType('joined'));
+  c.sendJson({ t: 'join', code: room.code });
+  await c.next(ofType('joined'));
+
+  a.sendJson({ t: 'pos', w: 'hoenn-e', m: '0.9', x: 160, y: 96, s: 89, f: 3, h: 1, extra: 'dropped' });
+  for (const p of [b, c]) {
+    assert.deepEqual(await p.next(ofType('pos')), { t: 'pos', from: 0, w: 'hoenn-e', m: '0.9', x: 160, y: 96, s: 89, f: 3, h: 1 });
+  }
+  // Hidden (not walking around): just the world.
+  a.sendJson({ t: 'pos', w: 'hoenn-e' });
+  assert.deepEqual(await b.next(ofType('pos')), { t: 'pos', from: 0, w: 'hoenn-e' });
+  // Bad values are dropped.
+  a.sendJson({ t: 'pos', w: 'hoenn-e', m: '<script>', x: 1, y: 1, s: 1, f: 1, h: 0 });
+  a.sendJson({ t: 'pos', w: 'hoenn-e', m: '0.1', x: 'far', y: 1, s: 1, f: 1, h: 0 });
+  a.sendJson({ t: 'pos', w: 'hoenn-e', m: '0.2', x: 2, y: 2, s: 1, f: 1, h: 0 });
+  assert.equal((await b.next(ofType('pos'))).m, '0.2');
+  players.forEach((p) => p.ws.close());
+});
+
 test('the room owner can remove a player', async () => {
   const host = connect();
   await host.opened;

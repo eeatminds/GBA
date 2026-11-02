@@ -49,6 +49,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.swordfish.lemuroid.app.shared.online.world.GameViewport
 import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel
 import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelTouchControls.Companion.MENU_LOADING_ANIMATION_MILLIS
 import com.swordfish.lemuroid.app.shared.settings.HapticFeedbackMode
@@ -169,7 +170,10 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
                     hasShoulderButtons = currentControllerConfig?.touchControllerID == TouchControllerID.GBA,
                     showControls = touchControllerSettings != null && touchControlsVisibleState.value,
                     settings = touchControllerSettings,
-                    onGameAreaPositioned = { viewportPosition.value = it },
+                    onGameAreaPositioned = {
+                        viewportPosition.value = it
+                        GameViewport.rect.value = it
+                    },
                 )
                 if (currentControllerConfig != null && touchControllerSettings != null) {
                     MenuEditTouchControls(viewModel, currentControllerConfig, touchControllerSettings)
@@ -187,7 +191,10 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
                         Modifier
                             .layoutId(GameScreenLayout.CONSTRAINTS_GAME_VIEW)
                             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                            .onGloballyPositioned { viewportPosition.value = it.boundsInRoot() },
+                            .onGloballyPositioned {
+                            viewportPosition.value = it.boundsInRoot()
+                            GameViewport.rect.value = it.boundsInRoot()
+                        },
                 )
 
                 val isVisible =
