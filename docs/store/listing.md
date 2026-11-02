@@ -6,7 +6,7 @@ copyrighted game art. Google and game publishers remove listings that do.
 
 ## App name (30 characters max)
 
-RetroLink: Retro Emulator
+GBA/GBC Emulator: Retro Emulator
 
 ## Short description (80 characters max)
 
@@ -14,7 +14,7 @@ Play your own retro games, alone or online with friends.
 
 ## Full description
 
-RetroLink is a free, open-source emulator for the games you own.
+GBA/GBC Emulator is a free, open-source emulator for the games you own.
 
 PLAY ONLINE WITH FRIENDS
 • Play together: host a room and play 2 to 4 player games over the internet.
@@ -30,10 +30,10 @@ EVERYTHING YOU NEED
 • Optional cloud backup of your saves
 
 FREE AND OPEN SOURCE
-No ads, no in-app purchases. RetroLink is based on Lemuroid and libretro cores and is
+No ads, no in-app purchases. GBA/GBC Emulator is based on Lemuroid and libretro cores and is
 licensed under the GPL-3.0. Source code: <your GitHub link>
 
-RetroLink does not include any games. Use only games you own.
+GBA/GBC Emulator does not include any games. Use only games you own.
 
 ## Category and tags
 

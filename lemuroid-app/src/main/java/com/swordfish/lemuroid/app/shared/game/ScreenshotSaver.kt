@@ -26,7 +26,7 @@ object ScreenshotSaver {
             val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val safeTitle = gameTitle.replace(Regex("[^A-Za-z0-9 ._-]"), "").trim().ifBlank { "game" }.take(60)
             val fileName = "${safeTitle}_$time.png"
-            val safeAlbum = albumName.replace(Regex("[^A-Za-z0-9 ._-]"), "").ifBlank { "Screenshots" }
+            val safeAlbum = albumName.replace("/", "-").replace(Regex("[^A-Za-z0-9 ._-]"), "").ifBlank { "Screenshots" }
 
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

@@ -1,4 +1,4 @@
-// RetroLink relay server: online rooms for link cable play.
+// GBA/GBC Emulator relay server: online rooms for link cable play.
 //
 // Each phone runs its own copy of the game. The emulator core (gpSP) exchanges small
 // link cable / wireless adapter packets, and this server forwards them between the
@@ -34,7 +34,7 @@ const MESSAGES_PER_SECOND = 3000;
 
 export function createRelayServer(options = {}) {
   const config = {
-    appName: options.appName ?? process.env.APP_NAME ?? 'RetroLink',
+    appName: options.appName ?? process.env.APP_NAME ?? 'GBA/GBC Emulator',
     appScheme: options.appScheme ?? process.env.APP_SCHEME ?? 'retrolink',
     playStoreUrl: options.playStoreUrl ?? process.env.PLAY_STORE_URL ?? '',
     androidPackage: options.androidPackage ?? process.env.ANDROID_PACKAGE ?? '',
@@ -392,8 +392,9 @@ h1{font-size:22px;margin:0 0 12px}p{color:var(--muted);margin:6px 0}.game{color:
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT ?? 8080);
   const server = createRelayServer();
-  server.listen(port, '0.0.0.0').then((address) => {
-    console.log(`RetroLink relay listening on port ${address.port}`);
+  const host = process.env.HOST || '0.0.0.0';
+  server.listen(port, host).then((address) => {
+    console.log(`GBA/GBC Emulator relay listening on port ${address.port}`);
   });
   const shutdown = () => server.close().then(() => process.exit(0));
   process.on('SIGINT', shutdown);

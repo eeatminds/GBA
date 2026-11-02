@@ -1,4 +1,4 @@
-# Publishing RetroLink on Google Play
+# Publishing GBA/GBC Emulator on Google Play
 
 A checklist from code to a live Play Store app. Steps marked **(once)** only happen the first time.
 
@@ -7,7 +7,7 @@ A checklist from code to a live Play Store app. Steps marked **(once)** only hap
 Edit `gradle.properties`:
 
 ```properties
-app.name=RetroLink
+app.name=GBA/GBC Emulator
 app.applicationId=com.yourname.retrolink
 app.versionCode=1
 app.versionName=1.0.0
@@ -21,7 +21,7 @@ app.linkScheme=retrolink
 - Pick an original app name. Do not use console, game or company names (Nintendo, Game Boy,
   PlayStation, Pokémon and so on) in the name, icon or screenshots.
 
-To rename the app everywhere, also replace "RetroLink" in
+To rename the app everywhere, also replace "GBA/GBC Emulator" in
 `lemuroid-app/src/main/res/values*/strings.xml` and run `APP_NAME="New Name" python3 scripts/make_icons.py`.
 
 ## 2. Put the room server online (once)

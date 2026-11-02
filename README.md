@@ -1,10 +1,10 @@
-# RetroLink
+# GBA/GBC Emulator
 
-RetroLink is a free, open-source retro game emulator for Android with online play.
+GBA/GBC Emulator is a free, open-source retro game emulator for Android with online play.
 It is based on [Lemuroid](https://github.com/Swordfish90/Lemuroid) by Filippo Scognamiglio
 and uses [libretro](https://www.libretro.com/) cores.
 
-## What's new in RetroLink
+## What's new in GBA/GBC Emulator
 
 - **Online "Play together" rooms**: 2 to 4 players play one multiplayer game over the internet
   (NES, SNES, Mega Drive/Genesis, Master System, Game Gear, Sega CD, PC Engine, Atari 2600/7800,
@@ -65,7 +65,7 @@ cd server && npm test
 
 ## Credits and license
 
-RetroLink is licensed under the GNU General Public License v3.0 (see `COPYING`).
+GBA/GBC Emulator is licensed under the GNU General Public License v3.0 (see `COPYING`).
 
 - [Lemuroid](https://github.com/Swordfish90/Lemuroid), Copyright (C) Filippo Scognamiglio and contributors, GPL-3.0
 - [LibretroDroid](https://github.com/Swordfish90/LibretroDroid), Copyright (C) Filippo Scognamiglio, GPL-3.0
@@ -74,4 +74,4 @@ RetroLink is licensed under the GNU General Public License v3.0 (see `COPYING`).
 - [gpSP](https://github.com/libretro/gpsp), GPL-2.0-or-later (see `extra-cores/README.md`)
 - [Oboe](https://github.com/google/oboe), Apache-2.0, and [libretro-common](https://github.com/libretro/libretro-common), MIT
 
-RetroLink does not include any games or BIOS files.
+GBA/GBC Emulator does not include any games or BIOS files.

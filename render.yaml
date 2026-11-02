@@ -11,7 +11,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: APP_NAME
-        value: RetroLink
+        value: GBA/GBC Emulator
       - key: APP_SCHEME
         value: retrolink
       # Fill these in after your first Play Store upload to enable verified invite links:

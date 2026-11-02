@@ -1,4 +1,4 @@
-// Room bookkeeping for the RetroLink relay. Pure logic, no networking, so it is easy to test.
+// Room bookkeeping for the GBA/GBC Emulator relay. Pure logic, no networking, so it is easy to test.
 
 export const BROADCAST = 0xffff;
 

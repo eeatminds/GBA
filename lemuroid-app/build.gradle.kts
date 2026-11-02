@@ -14,7 +14,7 @@ plugins {
 fun appProperty(name: String, default: String = ""): String =
     (project.findProperty(name) as String?)?.trim() ?: default
 
-val appName = appProperty("app.name", "RetroLink")
+val appName = appProperty("app.name", "GBA/GBC Emulator")
 val onlineServerUrl = appProperty("app.onlineServerUrl").trimEnd('/')
 val linkScheme = appProperty("app.linkScheme", "retrolink")
 val onlineServerHost =
