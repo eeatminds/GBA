@@ -1,18 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- App icon: two linked rings. 108dp canvas, artwork stays inside the 66dp safe zone. -->
+<!-- App icon: two handhelds joined by a link cable. 108dp canvas, artwork stays inside the
+     66dp safe zone. scripts/make_icons.py draws the PNG versions from the same shapes. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M29,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0"
-        android:strokeWidth="7"
+        android:pathData="M42.3,62 C42,81 66,81 65.7,62"
+        android:strokeWidth="2.8"
         android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
         android:fillColor="#00000000" />
-    <path
-        android:pathData="M49,54a15,15 0,1 0,30 0a15,15 0,1 0,-30 0"
-        android:strokeWidth="7"
-        android:strokeColor="#FFD86B"
-        android:fillColor="#00000000" />
+    <group
+        android:translateX="40"
+        android:translateY="49"
+        android:rotation="-10">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M-6,-14H6A4,4 0,0 1,10 -10V10A4,4 0,0 1,6 14H-6A4,4 0,0 1,-10 10V-10A4,4 0,0 1,-6 -14Z" />
+        <path
+            android:fillColor="#3A1FB5"
+            android:pathData="M-4.9,-10.5H4.9A1.6,1.6 0,0 1,6.5 -8.9V-2.1A1.6,1.6 0,0 1,4.9 -0.5H-4.9A1.6,1.6 0,0 1,-6.5 -2.1V-8.9A1.6,1.6 0,0 1,-4.9 -10.5Z" />
+        <path
+            android:fillColor="#3A1FB5"
+            android:pathData="M-6.3,4H-1.3A0.7,0.7 0,0 1,-0.6 4.7V5.5A0.7,0.7 0,0 1,-1.3 6.2H-6.3A0.7,0.7 0,0 1,-7 5.5V4.7A0.7,0.7 0,0 1,-6.3 4Z M-4.2,1.9H-3.4A0.7,0.7 0,0 1,-2.7 2.6V7.6A0.7,0.7 0,0 1,-3.4 8.3H-4.2A0.7,0.7 0,0 1,-4.9 7.6V2.6A0.7,0.7 0,0 1,-4.2 1.9Z" />
+        <path
+            android:fillColor="#3A1FB5"
+            android:pathData="M2,6.3a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z M4.8,3.9a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z" />
+    </group>
+    <group
+        android:translateX="68"
+        android:translateY="49"
+        android:rotation="10">
+        <path
+            android:fillColor="#FFD86B"
+            android:pathData="M-6,-14H6A4,4 0,0 1,10 -10V10A4,4 0,0 1,6 14H-6A4,4 0,0 1,-10 10V-10A4,4 0,0 1,-6 -14Z" />
+        <path
+            android:fillColor="#3A1FB5"
+            android:pathData="M-4.9,-10.5H4.9A1.6,1.6 0,0 1,6.5 -8.9V-2.1A1.6,1.6 0,0 1,4.9 -0.5H-4.9A1.6,1.6 0,0 1,-6.5 -2.1V-8.9A1.6,1.6 0,0 1,-4.9 -10.5Z" />
+        <path
+            android:fillColor="#3A1FB5"
+            android:pathData="M-6.3,4H-1.3A0.7,0.7 0,0 1,-0.6 4.7V5.5A0.7,0.7 0,0 1,-1.3 6.2H-6.3A0.7,0.7 0,0 1,-7 5.5V4.7A0.7,0.7 0,0 1,-6.3 4Z M-4.2,1.9H-3.4A0.7,0.7 0,0 1,-2.7 2.6V7.6A0.7,0.7 0,0 1,-3.4 8.3H-4.2A0.7,0.7 0,0 1,-4.9 7.6V2.6A0.7,0.7 0,0 1,-4.2 1.9Z" />
+        <path
+            android:fillColor="#3A1FB5"
+            android:pathData="M2,6.3a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z M4.8,3.9a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z" />
+    </group>
 </vector>

@@ -6,7 +6,7 @@ copyrighted game art. Google and game publishers remove listings that do.
 
 ## App name (30 characters max)
 
-GBA/GBC Emulator: Retro Emulator
+GBA/GBC Emulator
 
 ## Short description (80 characters max)
 
