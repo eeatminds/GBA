@@ -84,6 +84,23 @@ class Gen2AdapterTest {
     }
 
     @Test
+    fun `covered by the start menu and text boxes, not by turning`() {
+        walkingRight()
+        assertEquals(false, adapter.read(memory)!!.covered)
+        // Turning on the spot runs a tiny script.
+        put(layout.scriptRunning, 9)
+        assertEquals(false, adapter.read(memory)!!.covered)
+        // Talking to someone or reading a sign.
+        put(layout.scriptRunning, 0xFF)
+        assertEquals(true, adapter.read(memory)!!.covered)
+        // The start menu (it also runs a script).
+        put(layout.windowStackSize, 1)
+        val avatar = adapter.read(memory)!!
+        assertEquals("24.4", avatar.map)
+        assertEquals(true, avatar.covered)
+    }
+
+    @Test
     fun `only English versions are recognised`() {
         assertEquals(Gen2Adapter.CRYSTAL, Gen2Adapter.layoutFor("PM_CRYSTAL\u0000", "BYTE"))
         assertEquals(Gen2Adapter.GOLD_SILVER, Gen2Adapter.layoutFor("POKEMON_SLV", "AAXE"))

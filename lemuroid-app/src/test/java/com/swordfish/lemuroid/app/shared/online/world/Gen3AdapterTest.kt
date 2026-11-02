@@ -79,6 +79,11 @@ class Gen3AdapterTest {
         assertEquals(89, avatar.look.sprite)
         assertEquals(120 - 8, avatar.screenX)
         assertEquals(72 - 16 - 40, avatar.screenY)
+        assertEquals(false, avatar.look.flip)
+
+        // Facing right: the game mirrors the left-facing frame through the OAM attributes.
+        put32(layout.sprites + 3 * 0x44, 1L shl 28)
+        assertEquals(true, adapter.read(memory)!!.look.flip)
     }
 
     @Test
@@ -96,6 +101,17 @@ class Gen3AdapterTest {
         walkingRight()
         put32(layout.main + 4, 0x08000101)
         assertNull(adapter.read(memory))
+    }
+
+    @Test
+    fun `covered while the start menu or a text box holds the player`() {
+        walkingRight()
+        assertEquals(false, adapter.read(memory)!!.covered)
+        put8(layout.fieldControlsLocked, 1)
+        val avatar = adapter.read(memory)!!
+        // Still on the map for everyone else, just not drawn over the menu.
+        assertEquals("0.9", avatar.map)
+        assertEquals(true, avatar.covered)
     }
 
     @Test

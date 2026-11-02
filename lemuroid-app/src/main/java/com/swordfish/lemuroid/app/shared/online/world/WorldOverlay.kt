@@ -48,6 +48,8 @@ fun WorldOverlay(
     val viewport by GameViewport.rect.collectAsState()
     val area = viewport ?: return
     val local = view.local ?: return
+    // A menu or text box is open: don't draw others over it.
+    if (local.covered) return
     val visible = view.others.filterValues { it.current.map == local.map }
     if (visible.isEmpty()) return
 

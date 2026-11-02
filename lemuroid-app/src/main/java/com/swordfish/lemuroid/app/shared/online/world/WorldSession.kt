@@ -61,7 +61,7 @@ class WorldSession(
                     if (gameMemory == null) gameMemory = memory()
                     val local = gameMemory?.let { runCatching { adapter.read(it) }.getOrNull() }
                     val now = SystemClock.uptimeMillis()
-                    val shared = local?.copy(screenX = 0, screenY = 0)
+                    val shared = local?.copy(screenX = 0, screenY = 0, covered = false)
                     if (shared != null && (shared != lastSent || now - lastSentAt >= HEARTBEAT_MS)) {
                         send(message(shared))
                         lastSent = shared

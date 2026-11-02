@@ -27,7 +27,8 @@ data class Look(val sprite: Int, val frame: Int, val flip: Boolean)
  *
  * [x]/[y]: position in pixels on [map], the same way for every player of this world, so two
  * players' positions can be compared. [screenX]/[screenY]: top-left of our own sprite on the
- * game screen (only used for our own character).
+ * game screen (only used for our own character). [covered]: a menu or text box is open on our
+ * screen, so others aren't drawn on top of it (we still stand on the map for them).
  */
 data class Avatar(
     val map: String,
@@ -36,6 +37,7 @@ data class Avatar(
     val look: Look,
     val screenX: Int = 0,
     val screenY: Int = 0,
+    val covered: Boolean = false,
 )
 
 /** A small ARGB picture; transparent pixels are 0. */

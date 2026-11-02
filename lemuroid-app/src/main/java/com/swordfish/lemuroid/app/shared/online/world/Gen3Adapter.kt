@@ -31,6 +31,8 @@ class Gen3Adapter(
         val spriteCoordOffsetX: Long,
         val spriteCoordOffsetY: Long,
         val fieldCamera: Long,
+        // Set while the start menu, a text box or a script holds the player.
+        val fieldControlsLocked: Long,
         val graphicsInfoPointers: Long,
         val graphicsInfoCount: Int,
         val spritePalettes: Long,
@@ -80,7 +82,8 @@ class Gen3Adapter(
                 (memory.s8(sprite + SPRITE_CENTER_TO_CORNER_Y) ?: 0) + coordOffsetY
 
         val frame = currentFrame(memory, sprite)
-        val flip = (memory.u8(sprite + SPRITE_FLAGS + 1) ?: 0) and FLAG_H_FLIP != 0
+        // The live mirroring is in the OAM attributes (bit 28); right-facing frames are left ones mirrored.
+        val flip = ((memory.u32(sprite) ?: 0L) shr OAM_H_FLIP_BIT) and 1L == 1L
 
         return Avatar(
             map = "$mapGroup.$mapNum",
@@ -89,6 +92,7 @@ class Gen3Adapter(
             look = Look(graphicsId, frame, flip),
             screenX = screenX,
             screenY = screenY,
+            covered = (memory.u8(layout.fieldControlsLocked) ?: 0) != 0,
         )
     }
 
@@ -187,7 +191,7 @@ class Gen3Adapter(
         private const val FLAG_IN_USE = 0x1
         private const val FLAG_COORD_OFFSET = 0x2
         private const val FLAG_INVISIBLE = 0x4
-        private const val FLAG_H_FLIP = 0x1
+        private const val OAM_H_FLIP_BIT = 28
 
         private const val INFO_PALETTE_TAG = 0x02L
         private const val INFO_WIDTH = 0x08L
@@ -211,6 +215,7 @@ class Gen3Adapter(
             spriteCoordOffsetX = 0x02021bc8,
             spriteCoordOffsetY = 0x02021bca,
             fieldCamera = 0x03005050,
+            fieldControlsLocked = 0x03000f9c,
             graphicsInfoPointers = graphicsInfoPointers,
             graphicsInfoCount = 0x260 / 4,
             spritePalettes = spritePalettes,
@@ -233,6 +238,7 @@ class Gen3Adapter(
             spriteCoordOffsetX = 0x030024d0,
             spriteCoordOffsetY = 0x030027e0,
             fieldCamera = 0x03004880,
+            fieldControlsLocked = 0x030006a4,
             graphicsInfoPointers = graphicsInfoPointers,
             graphicsInfoCount = 0x368 / 4,
             spritePalettes = spritePalettes,
@@ -252,6 +258,7 @@ class Gen3Adapter(
                 spriteCoordOffsetX = 0x02021bbc,
                 spriteCoordOffsetY = 0x02021bbe,
                 fieldCamera = 0x03005dd0,
+                fieldControlsLocked = 0x03000f2c,
                 graphicsInfoPointers = 0x08505620,
                 graphicsInfoCount = 0x3bc / 4,
                 spritePalettes = 0x0850bbc8,

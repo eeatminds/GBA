@@ -31,6 +31,9 @@ class Gen2Adapter(
         val stepDirection: Int,
         val bgMapOffsetX: Int,
         val bgMapOffsetY: Int,
+        // Open menus (the start menu is 1), and the player event a script runs for.
+        val windowStackSize: Int,
+        val scriptRunning: Int,
         // ROM offsets.
         val facings: Int,
         val overworldSprites: Int,
@@ -82,6 +85,10 @@ class Gen2Adapter(
         val screenY =
             ((memory.u8(ram(player + OBJECT_SPRITE_Y)) ?: 0) + (memory.u8(ram(player + OBJECT_SPRITE_Y_OFFSET)) ?: 0) - 4 + offsetY) and 0xFF
 
+        // The start menu opens a window; text boxes (people, signs, trainers, items) run a script.
+        val event = memory.u8(ram(layout.scriptRunning)) ?: 0
+        val covered = (memory.u8(ram(layout.windowStackSize)) ?: 0) != 0 || event !in QUIET_EVENTS
+
         return Avatar(
             map = "$group.$number",
             x = x,
@@ -89,6 +96,7 @@ class Gen2Adapter(
             look = Look(sprite or (palette shl 8), facing, false),
             screenX = signed(screenX),
             screenY = signed(screenY),
+            covered = covered,
         )
     }
 
@@ -171,6 +179,10 @@ class Gen2Adapter(
         private const val LEFT = 2
         private const val RIGHT = 3
 
+        // Player events that show nothing on screen: none, crossing into the next map, a
+        // warp, falling through a hole, and turning on the spot (a short script while walking).
+        private val QUIET_EVENTS = setOf(0, 4, 5, 6, 9)
+
         private const val OAM_XFLIP = 0x20
         private const val OAM_YFLIP = 0x40
 
@@ -199,6 +211,8 @@ class Gen2Adapter(
                 stepDirection = 0xD151,
                 bgMapOffsetX = 0xD14C,
                 bgMapOffsetY = 0xD14D,
+                windowStackSize = 0xCF78,
+                scriptRunning = 0xD438,
                 facings = romOffset(0x01, 0x4049),
                 overworldSprites = romOffset(0x05, 0x4736),
                 objectPalettes = romOffset(0x02, 0x7469),
@@ -218,6 +232,8 @@ class Gen2Adapter(
                 stepDirection = 0xCE86,
                 bgMapOffsetX = 0xCE81,
                 bgMapOffsetY = 0xCE82,
+                windowStackSize = 0xCEAF,
+                scriptRunning = 0xD15F,
                 facings = romOffset(0x01, 0x404A),
                 overworldSprites = romOffset(0x05, 0x47DE),
                 objectPalettes = romOffset(0x02, 0x78AE),
