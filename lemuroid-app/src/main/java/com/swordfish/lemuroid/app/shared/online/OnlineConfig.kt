@@ -10,9 +10,9 @@ import com.swordfish.lemuroid.lib.library.SystemID
 import java.io.Serializable
 
 /**
- * How the emulated GBAs are connected. Every player in a room must use the same mode,
- * so the host picks it and joiners inherit it. Values map to gpSP's "gpsp_serial" option
- * and to the mode keys used by the relay server.
+ * How the emulated consoles are connected. Every player in a room uses the same mode, so the
+ * host picks it and joiners inherit it. GBA values map to gpSP's "gpsp_serial" option; Game
+ * Boy rooms always use a 2-player link cable. [maxPlayers] is how many can share one link.
  */
 enum class LinkMode(
     val serverKey: String,
@@ -56,6 +56,13 @@ enum class LinkMode(
         R.string.online_mode_advance_wars_description,
         4,
     ),
+    GAME_BOY(
+        "gb",
+        "",
+        R.string.online_mode_game_boy,
+        R.string.online_mode_game_boy_description,
+        2,
+    ),
     ;
 
     companion object {
@@ -63,7 +70,7 @@ enum class LinkMode(
     }
 }
 
-/** "Trade & battle" rooms link separate GBAs; "play together" rooms share one game. */
+/** "Trade & battle" rooms link separate consoles; "play together" rooms share one game. */
 enum class RoomKind(val serverKey: String) {
     LINK("link"),
     NETPLAY("netplay"),
@@ -72,6 +79,28 @@ enum class RoomKind(val serverKey: String) {
     companion object {
         fun fromServerKey(key: String?): RoomKind = values().firstOrNull { it.serverKey == key } ?: LINK
     }
+}
+
+/**
+ * Consoles that can link in trade & battle rooms. Game Boy and Game Boy Color games share
+ * rooms ("gb"), because their games link with each other.
+ */
+object LinkSystems {
+    const val ROOM_CAPACITY = 8
+
+    private val families =
+        mapOf(
+            SystemID.GBA.dbname to "gba",
+            SystemID.GB.dbname to "gb",
+            SystemID.GBC.dbname to "gb",
+        )
+
+    val systemIds: List<String> = families.keys.toList()
+
+    /** The room family for a game's console, or null when it can't link. */
+    fun family(systemId: String): String? = families[systemId]
+
+    fun isGameBoy(systemId: String): Boolean = family(systemId) == "gb"
 }
 
 /** Systems that support "play together" rooms, and how many players they allow. */
@@ -122,11 +151,27 @@ data class OnlineConfig(
     val inputDelayFrames: Int,
     val maxPlayers: Int,
 ) : Serializable {
-    /** Rooms only match players running the same core. */
-    val protocol: String get() = if (kind == RoomKind.NETPLAY) "retrolink-netplay-1/$coreName" else ""
+    /** Rooms only match players running the same core and link protocol. */
+    val protocol: String
+        get() =
+            when {
+                kind == RoomKind.NETPLAY -> "retrolink-netplay-1/$coreName"
+                mode == LinkMode.GAME_BOY -> GB_LINK_PROTOCOL
+                else -> ""
+            }
+
+    val isGameBoyLink: Boolean get() = kind == RoomKind.LINK && mode == LinkMode.GAME_BOY
 
     companion object {
-        /** Trade & battle rooms always use gpSP, the GBA core with network link support. */
+        const val GB_LINK_PROTOCOL = "retrolink-gblink-1"
+
+        /** Game Boy rooms use Gambatte, which has a link cable over a network socket. */
+        fun gbLinkCoreConfig(systemId: String): SystemCoreConfig? {
+            val system = GameSystem.findById(systemId)
+            return system.systemCoreConfigs.firstOrNull { it.coreID == CoreID.GAMBATTE }
+        }
+
+        /** GBA trade & battle rooms always use gpSP, the GBA core with network link support. */
         fun gpspCoreConfig(mode: LinkMode): SystemCoreConfig {
             val gba = GameSystem.findById(SystemID.GBA.dbname)
             val base = gba.systemCoreConfigs.first { it.coreID == CoreID.GPSP }

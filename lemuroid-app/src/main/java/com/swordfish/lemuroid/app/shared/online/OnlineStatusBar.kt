@@ -2,6 +2,7 @@ package com.swordfish.lemuroid.app.shared.online
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -47,6 +49,40 @@ fun OnlineStatusBar(
 ) {
     val state by session.state.collectAsState()
     val context = LocalContext.current
+    var showRoom by remember { mutableStateOf(false) }
+
+    // Answers to our link requests, and link problems, as short messages.
+    LaunchedEffect(session) {
+        session.events.collect { event ->
+            val text =
+                when (event) {
+                    is OnlineSession.Event.LinkDeclined -> context.getString(R.string.online_link_declined, event.name)
+                    is OnlineSession.Event.LinkError -> event.message.ifBlank { context.getString(R.string.online_error_server) }
+                }
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val room = state as? OnlineSession.State.InRoom
+    if (room != null) {
+        room.incomingRequests.firstOrNull()?.let { player ->
+            LinkRequestDialog(
+                player = player,
+                onAccept = { session.acceptLink(player.id) },
+                onDecline = { session.declineLink(player.id) },
+            )
+        }
+        if (showRoom) {
+            OnlineRoomSheet(
+                room = room,
+                hasLinks = session.hasLinks,
+                onLink = { session.requestLink(it) },
+                onUnlink = { session.unlink() },
+                onInvite = { shareRoom(context, session.serverUrl, room.code, gameTitle) },
+                onDismiss = { showRoom = false },
+            )
+        }
+    }
 
     // Errors stay visible for a while, then the pill hides so it does not cover the game.
     var visible by remember { mutableStateOf(true) }
@@ -70,10 +106,7 @@ fun OnlineStatusBar(
             modifier =
                 Modifier
                     .widthIn(max = 420.dp)
-                    .clickable(enabled = state is OnlineSession.State.InRoom) {
-                        val room = state as? OnlineSession.State.InRoom ?: return@clickable
-                        shareRoom(context, session.serverUrl, room.code, gameTitle)
-                    },
+                    .clickable(enabled = state is OnlineSession.State.InRoom) { showRoom = true },
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -108,6 +141,9 @@ fun OnlineStatusBar(
                                     current.sync == OnlineSession.Sync.WAITING_FOR_PLAYERS ->
                                         stringResource(R.string.online_status_waiting_sync)
                                     current.players.size <= 1 -> stringResource(R.string.online_status_waiting_players)
+                                    session.hasLinks && current.myGroup != null ->
+                                        stringResource(R.string.online_status_linked_with, current.linkedNames.joinToString(", "))
+                                    session.hasLinks -> stringResource(R.string.online_status_tap_to_link)
                                     else -> current.players.joinToString(", ") { it.name }
                                 }
                             Text(
@@ -118,8 +154,8 @@ fun OnlineStatusBar(
                             )
                         }
                         Icon(
-                            Icons.Filled.Share,
-                            contentDescription = stringResource(R.string.online_status_share),
+                            Icons.Filled.People,
+                            contentDescription = stringResource(R.string.online_status_players),
                             modifier = Modifier.size(18.dp),
                         )
                     }

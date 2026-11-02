@@ -1,0 +1,204 @@
+package com.swordfish.lemuroid.app.shared.online
+
+import timber.log.Timber
+import java.io.DataInputStream
+import java.io.IOException
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+
+/**
+ * A Game Boy link cable that runs through the room server.
+ *
+ * Gambatte's "network link" connects to a TCP address and swaps 2-byte messages
+ * ([data, speed flag]): the side that drives the transfer writes 2 bytes and waits for 2
+ * back; the other side answers as soon as it sees them. This bridge listens on this phone
+ * only (127.0.0.1), Gambatte connects to it, and every message goes to and from the linked
+ * player as a room packet.
+ *
+ * While nobody is linked, it answers like an unplugged cable (0xFF), so the game never
+ * waits forever.
+ */
+class GbLinkBridge(
+    private val ports: IntRange = DEFAULT_PORTS,
+) {
+    private val lock = Any()
+    private val outgoing = LinkedBlockingQueue<ByteArray>()
+
+    @Volatile private var running = false
+    private var server: ServerSocket? = null
+    private var socket: Socket? = null
+    private var peer: Int? = null
+
+    // Messages since the current link started: sent by our game, and received from the peer.
+    // If the link breaks while our game still waits for answers, we answer for the peer.
+    private var sent = 0
+    private var received = 0
+
+    /** Starts listening and returns the port Gambatte should connect to, or null. */
+    fun start(): Int? {
+        synchronized(lock) {
+            if (running) return server?.localPort
+            for (port in ports) {
+                val candidate =
+                    runCatching { ServerSocket(port, 1, InetAddress.getLoopbackAddress()) }.getOrNull() ?: continue
+                server = candidate
+                running = true
+                Thread({ acceptLoop(candidate) }, "gb-link-accept").apply {
+                    isDaemon = true
+                    start()
+                }
+                return port
+            }
+        }
+        Timber.e("No free port for the Game Boy link")
+        return null
+    }
+
+    fun stop() {
+        synchronized(lock) {
+            running = false
+            runCatching { server?.close() }
+            runCatching { socket?.close() }
+            server = null
+            socket = null
+            peer = null
+        }
+        outgoing.clear()
+        // Wake the room's sending thread.
+        outgoing.offer(ByteArray(0))
+    }
+
+    /** The room player our cable is plugged into, or null when unplugged. */
+    fun setPeer(id: Int?) {
+        synchronized(lock) {
+            if (id == peer) return
+            val owed = sent - received
+            repeat(owed.coerceAtLeast(0)) { writeToGame(NO_PARTNER) }
+            sent = 0
+            received = 0
+            peer = id
+        }
+    }
+
+    /** A message from another player in the room. */
+    fun fromPeer(
+        from: Int,
+        data: ByteArray,
+    ) {
+        if (data.size != MESSAGE_SIZE) return
+        synchronized(lock) {
+            if (from != peer) return
+            if (socket == null) {
+                // Our game isn't connected (yet): answer like an unplugged cable.
+                outgoing.offer(roomPacket(from, NO_PARTNER))
+                return
+            }
+            received++
+            writeToGame(data)
+        }
+    }
+
+    /**
+     * Next room packet to send: [0 = data][target id, 2 bytes][message], the same shape the
+     * other link transports produce. Returns null on timeout or when stopped.
+     */
+    fun takeOutgoing(timeoutMs: Int): ByteArray? {
+        val packet = outgoing.poll(timeoutMs.toLong(), TimeUnit.MILLISECONDS) ?: return null
+        return packet.takeIf { it.isNotEmpty() }
+    }
+
+    private fun acceptLoop(server: ServerSocket) {
+        while (running) {
+            val client =
+                try {
+                    server.accept()
+                } catch (e: IOException) {
+                    if (running) Timber.w(e, "Game Boy link accept failed")
+                    return
+                }
+            client.tcpNoDelay = true
+            synchronized(lock) {
+                runCatching { socket?.close() }
+                socket = client
+                sent = 0
+                received = 0
+            }
+            Thread({ readLoop(client) }, "gb-link-read").apply {
+                isDaemon = true
+                start()
+            }
+        }
+    }
+
+    private fun readLoop(client: Socket) {
+        val input = DataInputStream(client.getInputStream())
+        val message = ByteArray(MESSAGE_SIZE)
+        try {
+            while (running) {
+                input.readFully(message)
+                synchronized(lock) {
+                    val target = peer
+                    if (target == null) {
+                        writeToGame(NO_PARTNER)
+                    } else {
+                        sent++
+                        outgoing.offer(roomPacket(target, message.copyOf()))
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            Timber.i("Game Boy link closed by the emulator")
+        } finally {
+            synchronized(lock) {
+                if (socket === client) socket = null
+            }
+            runCatching { client.close() }
+        }
+    }
+
+    // Call with the lock held.
+    private fun writeToGame(message: ByteArray) {
+        val current = socket ?: return
+        try {
+            current.getOutputStream().apply {
+                write(message)
+                flush()
+            }
+        } catch (e: IOException) {
+            Timber.w(e, "Could not write to the Game Boy link")
+            runCatching { current.close() }
+            socket = null
+        }
+    }
+
+    companion object {
+        // The ports Gambatte's link option offers.
+        val DEFAULT_PORTS = 56400..56420
+
+        const val MESSAGE_SIZE = 2
+
+        // What a Game Boy reads with nothing plugged in.
+        private val NO_PARTNER = byteArrayOf(0xFF.toByte(), 0)
+
+        fun roomPacket(
+            target: Int,
+            message: ByteArray,
+        ): ByteArray =
+            byteArrayOf(0, (target shr 8).toByte(), target.toByte()) + message
+
+        /** Core options that plug Gambatte into this bridge on [port]. */
+        fun coreVariables(port: Int): List<Pair<String, String>> {
+            // Gambatte reads the address as 12 digits, three per part: 127.000.000.001.
+            val digits = "127000000001"
+            return listOf(
+                "gambatte_gb_link_mode" to "Network Client",
+                "gambatte_gb_link_network_port" to port.toString(),
+            ) + digits.mapIndexed { index, digit -> "gambatte_gb_link_network_server_ip_${index + 1}" to digit.toString() }
+        }
+
+        val DISCONNECT_VARIABLES = listOf("gambatte_gb_link_mode" to "Not Connected")
+    }
+}

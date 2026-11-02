@@ -51,6 +51,7 @@ import com.swordfish.lemuroid.lib.saves.SavesManager
 import com.swordfish.lemuroid.lib.saves.StatesManager
 import com.swordfish.lemuroid.lib.saves.StatesPreviewManager
 import com.swordfish.libretrodroid.GLRetroView
+import com.swordfish.libretrodroid.Variable
 import com.swordfish.touchinput.radial.sensors.TiltConfiguration
 import dagger.Lazy
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -141,7 +142,14 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         val onlineConfig = intent.getSerializableExtra(EXTRA_ONLINE_CONFIG) as? OnlineConfig
         this.onlineConfig = onlineConfig
-        val session = onlineConfig?.let { OnlineSession(it, lifecycleScope) }
+        val session =
+            onlineConfig?.let { config ->
+                OnlineSession(config, lifecycleScope) { variables ->
+                    // Used to plug the Game Boy emulator's link cable into the room.
+                    val values = variables.map { (key, value) -> Variable(key, value) }.toTypedArray()
+                    baseGameScreenViewModel.retroGameView.retroGameView?.updateVariables(*values)
+                }
+            }
         onlineSession = session
         if (onlineConfig != null && onlineConfig.kind == RoomKind.NETPLAY && !onlineConfig.isHost) {
             baseGameScreenViewModel.disableSavePersistence()

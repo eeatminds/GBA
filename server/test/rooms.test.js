@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BROADCAST, RoomRegistry, cleanName, isValidCode } from '../src/rooms.js';
+import { BROADCAST, RoomRegistry, cleanName, describeGroups, isValidCode } from '../src/rooms.js';
 
 test('host gets client id 0 and joiners get the lowest free id', () => {
   const registry = new RoomRegistry();
@@ -18,20 +18,24 @@ test('host gets client id 0 and joiners get the lowest free id', () => {
   assert.equal(c.player.id, 1);
 });
 
-test('link cable rooms hold at most 4 players', () => {
+test('trade & battle rooms hold up to 8 players', () => {
   const registry = new RoomRegistry();
   const { room } = registry.createRoom('host', { mode: 'poke', maxPlayers: 99 });
-  assert.equal(room.maxPlayers, 4);
-  registry.joinRoom('1', { code: room.code });
-  registry.joinRoom('2', { code: room.code });
-  registry.joinRoom('3', { code: room.code });
-  assert.throws(() => registry.joinRoom('4', { code: room.code }), { code: 'room_full' });
+  assert.equal(room.maxPlayers, 8);
+  for (let i = 1; i < 8; i++) registry.joinRoom(String(i), { code: room.code });
+  assert.throws(() => registry.joinRoom('8', { code: room.code }), { code: 'room_full' });
 });
 
-test('wireless adapter rooms hold up to 5 players', () => {
+test('link sizes follow the link type', () => {
   const registry = new RoomRegistry();
-  const { room } = registry.createRoom('host', { mode: 'rfu' });
-  assert.equal(room.maxPlayers, 5);
+  assert.equal(registry.groupSize(registry.createRoom('h', { mode: 'poke' }).room), 4);
+  assert.equal(registry.groupSize(registry.createRoom('h', { mode: 'rfu' }).room), 5);
+  const { room: gb } = registry.createRoom('h', { system: 'gbc', mode: 'poke' });
+  assert.equal(gb.system, 'gb');
+  assert.equal(gb.mode, 'gb');
+  assert.equal(registry.groupSize(gb), 2);
+  // A GBA room can't pick the Game Boy cable.
+  assert.equal(registry.createRoom('h', { system: 'gba', mode: 'gb' }).room.mode, 'auto');
 });
 
 test('unknown code and protocol mismatch are rejected', () => {
@@ -42,24 +46,108 @@ test('unknown code and protocol mismatch are rejected', () => {
   assert.equal(registry.joinRoom('x', { code: room.code, protocol: 'gpSP v1.0' }).player.id, 1);
 });
 
-test('room closes when the host leaves', () => {
+test('play together rooms close when the host leaves', () => {
   const registry = new RoomRegistry();
-  const { room } = registry.createRoom('host', {});
+  const { room } = registry.createRoom('host', { kind: 'netplay', system: 'snes' });
   registry.joinRoom('a', { code: room.code });
-  assert.deepEqual(registry.leave(room, 1), { closed: false, removed: true });
-  assert.deepEqual(registry.leave(room, 0), { closed: true, removed: true });
+  assert.equal(registry.leave(room, 1).closed, false);
+  assert.equal(registry.leave(room, 0).closed, true);
   assert.equal(registry.rooms.size, 0);
 });
 
-test('broadcast goes to everyone except the sender, direct goes to one player', () => {
+test('trade & battle rooms stay open when the host leaves, and the next player owns them', () => {
   const registry = new RoomRegistry();
-  const { room } = registry.createRoom('host', { mode: 'rfu' });
+  const { room } = registry.createRoom('host', { name: 'Ash' });
+  registry.joinRoom('a', { code: room.code, name: 'Misty' });
+  registry.joinRoom('b', { code: room.code, name: 'Brock' });
+  const result = registry.leave(room, 0);
+  assert.equal(result.closed, false);
+  assert.equal(result.ownerChanged, true);
+  assert.equal(room.ownerId, 1);
+  assert.equal(registry.publicRooms().length, 0);
+  assert.equal(registry.joinRoom('c', { code: room.code }).player.id, 0);
+  registry.leave(room, 0);
+  registry.leave(room, 1);
+  assert.equal(registry.leave(room, 2).closed, true);
+  assert.equal(registry.rooms.size, 0);
+});
+
+test('play together rooms send to everyone except the sender', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { kind: 'netplay', system: 'n64' });
   registry.joinRoom('a', { code: room.code });
   registry.joinRoom('b', { code: room.code });
   assert.deepEqual(registry.recipients(room, 1, BROADCAST).map((p) => p.id).sort(), [0, 2]);
   assert.deepEqual(registry.recipients(room, 0, 2).map((p) => p.id), [2]);
   assert.deepEqual(registry.recipients(room, 0, 0), []);
   assert.deepEqual(registry.recipients(room, 0, 9), []);
+});
+
+test('two players are linked right away; a third joins unlinked', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { mode: 'poke' });
+  assert.equal(registry.joinRoom('a', { code: room.code }).groupsChanged, true);
+  assert.deepEqual(describeGroups(room), [[{ id: 0, slot: 0 }, { id: 1, slot: 1 }]]);
+  assert.equal(registry.joinRoom('b', { code: room.code }).groupsChanged, false);
+  // Data only reaches the sender's link.
+  assert.deepEqual(registry.recipients(room, 0, BROADCAST).map((p) => p.id), [1]);
+  assert.deepEqual(registry.recipients(room, 2, BROADCAST), []);
+  assert.deepEqual(registry.recipients(room, 0, 2), []);
+});
+
+test('link requests: ask, accept, join an existing link, unlink', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { mode: 'poke' });
+  registry.joinRoom('a', { code: room.code });
+  registry.joinRoom('b', { code: room.code });
+  registry.joinRoom('c', { code: room.code });
+
+  // Player 2 asks player 0, who is linked with 1: player 2 joins that link in the next slot.
+  registry.requestLink(room, 2, 0);
+  assert.throws(() => registry.acceptLink(room, 1, 2), { code: 'not_found' });
+  registry.acceptLink(room, 0, 2);
+  assert.deepEqual(describeGroups(room), [[{ id: 0, slot: 0 }, { id: 1, slot: 1 }, { id: 2, slot: 2 }]]);
+  assert.deepEqual(registry.recipients(room, 2, BROADCAST).map((p) => p.id).sort(), [0, 1]);
+
+  // A request can be declined, and then can't be accepted.
+  registry.requestLink(room, 3, 1);
+  assert.equal(registry.declineLink(room, 1, 3), true);
+  assert.throws(() => registry.acceptLink(room, 1, 3), { code: 'not_found' });
+
+  // Already in the same link.
+  assert.throws(() => registry.requestLink(room, 1, 0), { code: 'already_linked' });
+
+  // Unplugging the leader gives the others new slots, starting at 0.
+  assert.equal(registry.removeFromGroup(room, 0), true);
+  assert.deepEqual(describeGroups(room), [[{ id: 1, slot: 0 }, { id: 2, slot: 1 }]]);
+  assert.equal(registry.removeFromGroup(room, 1), true);
+  assert.deepEqual(describeGroups(room), []);
+  assert.equal(registry.removeFromGroup(room, 1), false);
+});
+
+test('a Game Boy link holds 2 players, and linked players are busy for others', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { system: 'gb' });
+  registry.joinRoom('a', { code: room.code });
+  registry.joinRoom('b', { code: room.code });
+  registry.joinRoom('c', { code: room.code });
+  assert.throws(() => registry.requestLink(room, 2, 0), { code: 'group_full' });
+  registry.requestLink(room, 2, 3);
+  registry.acceptLink(room, 3, 2);
+  assert.throws(() => registry.requestLink(room, 2, 0), { code: 'busy' });
+  assert.equal(room.groups.length, 2);
+});
+
+test('leaving drops a player from their link and their requests', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { mode: 'poke' });
+  registry.joinRoom('a', { code: room.code });
+  registry.joinRoom('b', { code: room.code });
+  registry.requestLink(room, 2, 1);
+  const result = registry.leave(room, 1);
+  assert.equal(result.groupsChanged, true);
+  assert.deepEqual(describeGroups(room), []);
+  assert.equal(room.requests.size, 0);
 });
 
 test('only public rooms with free slots are listed', () => {

@@ -3,7 +3,7 @@
     <string name="title_online">Online</string>
 
     <string name="online_intro_title">Play together online</string>
-    <string name="online_intro_message">Play multiplayer games with friends over the internet, or link Game Boy Advance games to trade and battle. Each player needs their own copy of the game.</string>
+    <string name="online_intro_message">Play multiplayer games with friends over the internet, or link Game Boy, Game Boy Color and Game Boy Advance games to trade and battle. Each player needs their own copy of the game.</string>
 
     <string name="online_server_missing_title">Online server not set up</string>
     <string name="online_server_missing_message">Add the address of your room server to start playing online.</string>
@@ -66,6 +66,31 @@
     <string name="online_mode_advance_wars">Advance Wars</string>
     <string name="online_mode_advance_wars_2">Advance Wars 2</string>
     <string name="online_mode_advance_wars_description">Multiplayer battles for up to 4 players.</string>
+    <string name="online_mode_game_boy">Link cable (Game Boy)</string>
+    <string name="online_mode_game_boy_description">Game Boy and Game Boy Color games link 2 at a time, like a real cable. Gold, Silver and Crystal trade with Red, Blue and Yellow through the Time Capsule.</string>
+    <string name="online_no_link_games">Add Game Boy, Game Boy Color or Game Boy Advance games to your library first.</string>
+    <string name="online_no_gb_games">Add Game Boy or Game Boy Color games to your library first.</string>
+
+    <!-- Players in a room, and link cables between them -->
+    <string name="online_status_players">Players</string>
+    <string name="online_status_linked_with">Linked with %1$s</string>
+    <string name="online_status_tap_to_link">Not linked · tap to link with a player</string>
+    <string name="online_room_sheet_title">Room %1$s</string>
+    <string name="online_room_sheet_players">%1$d/%2$d players</string>
+    <string name="online_room_sheet_hint">Link with a player to trade and battle, as if your games were joined by a link cable. Then use the link feature in your game (in Pokémon games: upstairs in any Pokémon Center).</string>
+    <string name="online_player_you">%1$s (you)</string>
+    <string name="online_player_linked_with_you">Linked with you</string>
+    <string name="online_player_linked">Linked with someone else</string>
+    <string name="online_player_not_linked">Not linked</string>
+    <string name="online_link">Link</string>
+    <string name="online_link_asked">Asked</string>
+    <string name="online_unlink">Unplug link cable</string>
+    <string name="online_invite">Invite</string>
+    <string name="online_link_request_title">%1$s wants to link</string>
+    <string name="online_link_request_message">Accept to join your games as if by a link cable, so you can trade and battle.</string>
+    <string name="online_link_accept">Accept</string>
+    <string name="online_link_decline">Not now</string>
+    <string name="online_link_declined">%1$s said not now.</string>
 
     <!-- In-game room status -->
     <string name="online_status_waiting_game">Starting game…</string>
@@ -89,7 +114,7 @@
     <string name="online_kind_netplay">Play together</string>
     <string name="online_kind_netplay_description">Multiplayer on one game, like sharing a console: NES, SNES, Sega, PC Engine, Atari, N64, PlayStation and arcade.</string>
     <string name="online_kind_link">Trade &amp; battle</string>
-    <string name="online_kind_link_description">Link separate Game Boy Advance games, as with a link cable.</string>
+    <string name="online_kind_link_description">Up to 8 players link their own Game Boy, Game Boy Color or Game Boy Advance games, as with link cables.</string>
     <string name="online_no_netplay_games">Add NES, SNES, Sega, N64, PlayStation or arcade games to your library first.</string>
     <string name="online_no_matching_games">You need a %1$s game for this room.</string>
     <string name="online_join_pick_game_netplay">Pick your copy of the same game. Everyone needs the same version and region of the game.</string>

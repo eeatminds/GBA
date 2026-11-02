@@ -20,6 +20,7 @@ import {
   RoomError,
   RoomRegistry,
   describePlayers,
+  describeGroups,
   describeRoom,
   isValidCode,
   normalizeCode,
@@ -131,17 +132,18 @@ function handleConnection(ws, registry, config) {
           state.room = room;
           state.player = player;
           clearTimeout(joinTimer);
-          sendJson(ws, { t: 'hosted', clientId: 0, room: describeRoom(room), players: describePlayers(room) });
+          sendJson(ws, { t: 'hosted', clientId: 0, ...roomSnapshot(room) });
           config.log(`room ${room.code} created (${room.mode}, ${room.isPublic ? 'public' : 'private'})`);
         } else if (message.t === 'join') {
-          const { room, player } = registry.joinRoom(ws, message);
+          const { room, player, groupsChanged } = registry.joinRoom(ws, message);
           state.room = room;
           state.player = player;
           clearTimeout(joinTimer);
-          sendJson(ws, { t: 'joined', clientId: player.id, room: describeRoom(room), players: describePlayers(room) });
+          sendJson(ws, { t: 'joined', clientId: player.id, ...roomSnapshot(room) });
           for (const other of room.players.values()) {
             if (other.id !== player.id) sendJson(other.connection, { t: 'peer_joined', id: player.id, name: player.name });
           }
+          if (groupsChanged) broadcastGroups(room);
         } else if (message.t === 'ping') {
           sendJson(ws, { t: 'pong' });
         }
@@ -158,10 +160,16 @@ function handleConnection(ws, registry, config) {
       case 'leave':
         ws.close(1000, 'left');
         break;
+      case 'link_request':
+      case 'link_accept':
+      case 'link_decline':
+      case 'unlink':
+        handleLinkMessage(registry, state, message);
+        break;
       case 'kick': {
-        // Only the host may remove players. The app does this when the emulator core
-        // refuses a player, for example when a link cable mode is already full.
-        if (state.player.id !== 0 || !Number.isInteger(message.id) || message.id === 0) break;
+        // Only the room's owner may remove players.
+        const room = state.room;
+        if (state.player.id !== room.ownerId || !Number.isInteger(message.id) || message.id === state.player.id) break;
         const target = state.room.players.get(message.id);
         if (target) {
           sendJson(target.connection, { t: 'kicked', reason: typeof message.reason === 'string' ? message.reason.slice(0, 40) : 'removed' });
@@ -189,10 +197,69 @@ function handleConnection(ws, registry, config) {
       }
     } else {
       for (const other of room.players.values()) sendJson(other.connection, { t: 'peer_left', id: player.id });
+      if (result.groupsChanged) broadcastGroups(room);
+      if (result.ownerChanged) broadcastToRoom(room, { t: 'owner', id: room.ownerId });
     }
   });
 
   ws.on('error', () => ws.terminate());
+}
+
+function roomSnapshot(room) {
+  return { room: describeRoom(room), players: describePlayers(room), groups: describeGroups(room), ownerId: room.ownerId };
+}
+
+function broadcastToRoom(room, message) {
+  for (const player of room.players.values()) sendJson(player.connection, message);
+}
+
+function broadcastGroups(room) {
+  broadcastToRoom(room, { t: 'groups', groups: describeGroups(room) });
+}
+
+// Link cables inside a room: ask a player, they accept or decline, either can unplug.
+// Problems go back to the sender as 'link_error' so the game keeps running.
+function handleLinkMessage(registry, state, message) {
+  const { room, player } = state;
+  const otherId = Number.isInteger(message.id) ? message.id : -1;
+  try {
+    switch (message.t) {
+      case 'link_request': {
+        registry.requestLink(room, player.id, otherId);
+        sendJson(room.players.get(otherId).connection, { t: 'link_request', from: player.id, name: player.name });
+        break;
+      }
+      case 'link_accept': {
+        registry.acceptLink(room, player.id, otherId);
+        broadcastGroups(room);
+        break;
+      }
+      case 'link_decline': {
+        if (registry.declineLink(room, player.id, otherId)) {
+          const requester = room.players.get(otherId);
+          if (requester) sendJson(requester.connection, { t: 'link_declined', id: player.id });
+        }
+        break;
+      }
+      case 'unlink': {
+        // A player unplugs themself. The leader of a link may also unplug another member,
+        // which the emulator asks for when that player cannot join the link.
+        let target = player.id;
+        if (otherId >= 0 && otherId !== player.id) {
+          const group = registry.groupOf(room, player.id);
+          const isLeader = group?.some((member) => member.id === player.id && member.slot === 0);
+          if (!isLeader || !group.some((member) => member.id === otherId)) break;
+          target = otherId;
+        }
+        if (registry.removeFromGroup(room, target)) broadcastGroups(room);
+        break;
+      }
+      default:
+        break;
+    }
+  } catch (error) {
+    if (error instanceof RoomError) sendJson(player.connection, { t: 'link_error', code: error.code, message: error.message });
+  }
 }
 
 function takeToken(state) {

@@ -5,8 +5,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -17,24 +20,34 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Connects a running game to an online room. Client id 0 is the host; joiners get 1, 2, 3...
+ * Connects a running game to an online room.
  *
- * - Trade & battle rooms: gpSP sends link cable packets through LibretroDroid's netpacket bridge.
- * - Play together rooms: LibretroDroid's netplay engine sends inputs and game states.
+ * - Trade & battle rooms hold up to 8 players, who link up in small groups like plugging in
+ *   link cables. GBA games link through gpSP's netpacket interface; Game Boy games through
+ *   Gambatte's network link and [GbLinkBridge].
+ * - Play together rooms: LibretroDroid's netplay engine sends inputs and game states. Client
+ *   id 0 is the host.
  *
  * Either way, this class moves the packets over a WebSocket to the relay server.
+ *
+ * [setCoreVariables] changes the running core's options (used to plug Gambatte into the bridge).
  */
 class OnlineSession(
     private val config: OnlineConfig,
     private val scope: CoroutineScope,
+    private val setCoreVariables: (List<Pair<String, String>>) -> Unit = { },
 ) {
     data class Player(val id: Int, val name: String)
+
+    /** A player's place in a link group. Slot 0 leads the link. */
+    data class LinkMember(val id: Int, val slot: Int)
 
     sealed interface State {
         data object WaitingForGame : State
@@ -47,14 +60,37 @@ class OnlineSession(
             val players: List<Player>,
             val maxPlayers: Int,
             val kind: RoomKind,
+            val ownerId: Int = 0,
+            val groups: List<List<LinkMember>> = emptyList(),
+            // Players asking to link with us, oldest first.
+            val incomingRequests: List<Player> = emptyList(),
+            // The player we asked, while waiting for their answer.
+            val outgoingRequest: Int? = null,
             val sync: Sync = Sync.OK,
         ) : State {
             val isHost: Boolean get() = clientId == 0
+
+            val myGroup: List<LinkMember>? get() = groups.firstOrNull { group -> group.any { it.id == clientId } }
+
+            fun groupOf(playerId: Int): List<LinkMember>? = groups.firstOrNull { group -> group.any { it.id == playerId } }
+
+            fun playerName(id: Int): String = players.firstOrNull { it.id == id }?.name.orEmpty()
+
+            /** Names of the players linked with us. */
+            val linkedNames: List<String>
+                get() = myGroup.orEmpty().filter { it.id != clientId }.map { playerName(it.id) }
         }
 
         data class Failed(val reason: Reason, val message: String? = null) : State
 
         data object Left : State
+    }
+
+    /** One-off things to tell the player. */
+    sealed interface Event {
+        data class LinkDeclined(val name: String) : Event
+
+        data class LinkError(val message: String) : Event
     }
 
     /** Play together rooms only: whether the game is waiting on the network. */
@@ -75,10 +111,20 @@ class OnlineSession(
     private val mutableState = MutableStateFlow<State>(State.WaitingForGame)
     val state: StateFlow<State> = mutableState.asStateFlow()
 
+    private val mutableEvents = MutableSharedFlow<Event>(extraBufferCapacity = 8)
+    val events: SharedFlow<Event> = mutableEvents.asSharedFlow()
+
     val serverUrl: String get() = config.serverUrl
 
+    /** Whether players in this room link up with each other (trade & battle rooms). */
+    val hasLinks: Boolean get() = config.kind == RoomKind.LINK
+
     private val transport: Transport =
-        if (config.kind == RoomKind.NETPLAY) NetplayTransport() else NetpacketTransport()
+        when {
+            config.kind == RoomKind.NETPLAY -> NetplayTransport()
+            config.isGameBoyLink -> GameBoyLinkTransport()
+            else -> NetpacketTransport()
+        }
 
     private val active = AtomicBoolean(false)
     private val transportStarted = AtomicBoolean(false)
@@ -92,15 +138,23 @@ class OnlineSession(
         if (!active.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
             val protocol =
-                if (config.kind == RoomKind.LINK) {
-                    // gpSP registers its link interface while the game loads.
-                    if (!waitForCoreSupport()) {
-                        if (active.get()) fail(Reason.NOT_SUPPORTED)
-                        return@launch
+                when {
+                    config.kind == RoomKind.NETPLAY -> config.protocol
+                    config.isGameBoyLink -> {
+                        if (!(transport as GameBoyLinkTransport).plugIn()) {
+                            fail(Reason.NOT_SUPPORTED)
+                            return@launch
+                        }
+                        config.protocol
                     }
-                    LibretroDroid.netpacketProtocolVersion().orEmpty()
-                } else {
-                    config.protocol
+                    else -> {
+                        // gpSP registers its link interface while the game loads.
+                        if (!waitForCoreSupport()) {
+                            if (active.get()) fail(Reason.NOT_SUPPORTED)
+                            return@launch
+                        }
+                        LibretroDroid.netpacketProtocolVersion().orEmpty()
+                    }
                 }
             if (active.get()) connect(protocol)
         }
@@ -113,6 +167,31 @@ class OnlineSession(
         webSocket = null
         stopTransport()
         if (mutableState.value !is State.Failed) mutableState.value = State.Left
+    }
+
+    /** Ask another player to link with us. */
+    fun requestLink(playerId: Int) {
+        sendControl(JSONObject().put("t", "link_request").put("id", playerId))
+        updateRoom { it.copy(outgoingRequest = playerId) }
+    }
+
+    fun acceptLink(playerId: Int) {
+        sendControl(JSONObject().put("t", "link_accept").put("id", playerId))
+        updateRoom { room -> room.copy(incomingRequests = room.incomingRequests.filter { it.id != playerId }) }
+    }
+
+    fun declineLink(playerId: Int) {
+        sendControl(JSONObject().put("t", "link_decline").put("id", playerId))
+        updateRoom { room -> room.copy(incomingRequests = room.incomingRequests.filter { it.id != playerId }) }
+    }
+
+    /** Unplug our link cable. */
+    fun unlink() {
+        sendControl(JSONObject().put("t", "unlink"))
+    }
+
+    private fun sendControl(message: JSONObject) {
+        runCatching { webSocket?.send(message.toString()) }
     }
 
     private suspend fun waitForCoreSupport(): Boolean {
@@ -204,16 +283,20 @@ class OnlineSession(
             "hosted", "joined" -> {
                 val clientId = message.getInt("clientId")
                 val room = message.getJSONObject("room")
-                mutableState.value =
+                val inRoom =
                     State.InRoom(
                         code = room.getString("code"),
                         clientId = clientId,
                         players = parsePlayers(message),
                         maxPlayers = room.optInt("maxPlayers", config.maxPlayers),
                         kind = RoomKind.fromServerKey(room.optString("kind")),
+                        ownerId = message.optInt("ownerId", 0),
+                        groups = parseGroups(message.optJSONArray("groups")),
                     )
+                mutableState.value = inRoom
                 val inputDelay = room.optInt("delay", config.inputDelayFrames)
                 startTransport(clientId, inputDelay)
+                transport.groupChanged(clientId, inRoom.myGroup)
             }
 
             "peer_joined" -> {
@@ -225,8 +308,48 @@ class OnlineSession(
 
             "peer_left" -> {
                 val id = message.getInt("id")
-                updateRoom { it.copy(players = it.players.filter { p -> p.id != id }) }
+                updateRoom { room ->
+                    room.copy(
+                        players = room.players.filter { p -> p.id != id },
+                        incomingRequests = room.incomingRequests.filter { p -> p.id != id },
+                        outgoingRequest = room.outgoingRequest.takeIf { it != id },
+                    )
+                }
                 if (isHost()) transport.peerLeft(id)
+            }
+
+            "groups" -> {
+                val groups = parseGroups(message.optJSONArray("groups"))
+                updateRoom { room ->
+                    val myGroup = groups.firstOrNull { group -> group.any { it.id == room.clientId } }
+                    room.copy(
+                        groups = groups,
+                        outgoingRequest = room.outgoingRequest.takeIf { id -> myGroup?.none { it.id == id } ?: true },
+                    )
+                }
+                val room = mutableState.value as? State.InRoom ?: return
+                transport.groupChanged(room.clientId, room.myGroup)
+            }
+
+            "owner" -> updateRoom { it.copy(ownerId = message.optInt("id", it.ownerId)) }
+
+            "link_request" -> {
+                val from = message.optInt("from", -1)
+                if (from < 0) return
+                val player = Player(from, message.optString("name"))
+                updateRoom { room -> room.copy(incomingRequests = room.incomingRequests.filter { it.id != from } + player) }
+            }
+
+            "link_declined" -> {
+                val id = message.optInt("id", -1)
+                val room = mutableState.value as? State.InRoom ?: return
+                updateRoom { it.copy(outgoingRequest = null) }
+                mutableEvents.tryEmit(Event.LinkDeclined(room.playerName(id)))
+            }
+
+            "link_error" -> {
+                updateRoom { it.copy(outgoingRequest = null) }
+                mutableEvents.tryEmit(Event.LinkError(message.optString("message")))
             }
 
             "closed" -> fail(Reason.HOST_LEFT)
@@ -257,8 +380,7 @@ class OnlineSession(
     private fun isHost(): Boolean = (mutableState.value as? State.InRoom)?.isHost == true
 
     private fun updateRoom(update: (State.InRoom) -> State.InRoom) {
-        val current = mutableState.value as? State.InRoom ?: return
-        mutableState.value = update(current)
+        mutableState.update { current -> if (current is State.InRoom) update(current) else current }
     }
 
     private fun handleSocketEnd(code: Int) {
@@ -311,10 +433,10 @@ class OnlineSession(
     }
 
     private fun stopTransport() {
-        if (!transportStarted.getAndSet(false)) return
+        val wasStarted = transportStarted.getAndSet(false)
         syncJob?.cancel()
         syncJob = null
-        runCatching { transport.stop() }
+        if (wasStarted || transport is GameBoyLinkTransport) runCatching { transport.stop() }
     }
 
     // Takes packets the emulator wants to send and forwards them to the server.
@@ -322,22 +444,35 @@ class OnlineSession(
         while (transportStarted.get()) {
             val message = transport.take(PUMP_TIMEOUT_MS) ?: continue
             if (message.size < 3) continue
-            val target = ((message[1].toInt() and 0xFF) shl 8) or (message[2].toInt() and 0xFF)
+            val localTarget = ((message[1].toInt() and 0xFF) shl 8) or (message[2].toInt() and 0xFF)
+            val target = transport.roomTarget(localTarget) ?: continue
             val socket = webSocket ?: continue
             when (message[0].toInt()) {
                 LibretroDroid.NETPACKET_OUTGOING_DATA -> {
-                    // [target][payload] is exactly what the server expects.
-                    if (message.size > 3) socket.send(message.toByteString(1, message.size - 1))
+                    if (message.size <= 3) continue
+                    val packet = ByteArray(message.size - 1)
+                    packet[0] = (target shr 8).toByte()
+                    packet[1] = target.toByte()
+                    message.copyInto(packet, destinationOffset = 2, startIndex = 3)
+                    socket.send(packet.toByteString())
                 }
 
                 LibretroDroid.NETPACKET_OUTGOING_REJECT_PEER -> {
-                    socket.send(JSONObject().put("t", "kick").put("id", target).put("reason", "full").toString())
+                    // The core refused a player: take them off our link (or out of a play
+                    // together room).
+                    val control =
+                        if (config.kind == RoomKind.LINK) {
+                            JSONObject().put("t", "unlink").put("id", target)
+                        } else {
+                            JSONObject().put("t", "kick").put("id", target).put("reason", "full")
+                        }
+                    socket.send(control.toString())
                 }
             }
         }
     }
 
-    /** The emulator side of a room: either gpSP's link cable or the netplay engine. */
+    /** The emulator side of a room. */
     private interface Transport {
         fun start(
             clientId: Int,
@@ -351,34 +486,84 @@ class OnlineSession(
             data: ByteArray,
         )
 
-        fun peerJoined(id: Int)
+        fun peerJoined(id: Int) {}
 
-        fun peerLeft(id: Int)
+        fun peerLeft(id: Int) {}
+
+        /** Our link group changed (trade & battle rooms). Null when we are not linked. */
+        fun groupChanged(
+            myId: Int,
+            group: List<LinkMember>?,
+        ) {}
+
+        /** Packet target as the emulator numbers players -> room player id (or broadcast). */
+        fun roomTarget(localTarget: Int): Int? = localTarget
 
         fun take(timeoutMs: Int): ByteArray?
     }
 
+    /** GBA link through gpSP; see [NetpacketLink]. */
     private class NetpacketTransport : Transport {
+        private val link = NetpacketLink(NetpacketLink.LibretroCore)
+
         override fun start(
             clientId: Int,
             inputDelay: Int,
-        ) = LibretroDroid.netpacketStart(clientId)
+        ) {
+            // The link starts once we are in a group.
+        }
+
+        override fun groupChanged(
+            myId: Int,
+            group: List<LinkMember>?,
+        ) = link.groupChanged(myId, group)
+
+        override fun stop() = link.stop()
+
+        override fun push(
+            from: Int,
+            data: ByteArray,
+        ) = link.push(from, data)
+
+        override fun roomTarget(localTarget: Int): Int? = link.roomTarget(localTarget)
+
+        override fun take(timeoutMs: Int): ByteArray? = LibretroDroid.netpacketTakeOutgoing(timeoutMs)
+    }
+
+    /** Game Boy link through Gambatte's network link and a local bridge. */
+    private inner class GameBoyLinkTransport : Transport {
+        private val bridge = GbLinkBridge()
+
+        /** Starts the bridge and points Gambatte at it. */
+        fun plugIn(): Boolean {
+            val port = bridge.start() ?: return false
+            setCoreVariables(GbLinkBridge.coreVariables(port))
+            return true
+        }
+
+        override fun start(
+            clientId: Int,
+            inputDelay: Int,
+        ) {}
 
         override fun stop() {
-            LibretroDroid.netpacketStop()
-            LibretroDroid.netpacketWakeTakers()
+            bridge.stop()
+            runCatching { setCoreVariables(GbLinkBridge.DISCONNECT_VARIABLES) }
+        }
+
+        override fun groupChanged(
+            myId: Int,
+            group: List<LinkMember>?,
+        ) {
+            bridge.setPeer(group?.takeIf { it.size == 2 }?.firstOrNull { it.id != myId }?.id)
         }
 
         override fun push(
             from: Int,
             data: ByteArray,
-        ) = LibretroDroid.netpacketPushIncoming(from, data)
+        ) = bridge.fromPeer(from, data)
 
-        override fun peerJoined(id: Int) = LibretroDroid.netpacketPeerConnected(id)
-
-        override fun peerLeft(id: Int) = LibretroDroid.netpacketPeerDisconnected(id)
-
-        override fun take(timeoutMs: Int): ByteArray? = LibretroDroid.netpacketTakeOutgoing(timeoutMs)
+        override fun take(timeoutMs: Int): ByteArray? = bridge.takeOutgoing(timeoutMs)
     }
 
     private class NetplayTransport : Transport {
@@ -420,5 +605,23 @@ class OnlineSession(
                 .pingInterval(15, TimeUnit.SECONDS)
                 .build()
         }
+
+        fun parseGroups(groups: JSONArray?): List<List<LinkMember>> {
+            if (groups == null) return emptyList()
+            return (0 until groups.length()).map { index ->
+                val group = groups.getJSONArray(index)
+                (0 until group.length())
+                    .map { group.getJSONObject(it) }
+                    .map { LinkMember(it.getInt("id"), it.getInt("slot")) }
+                    .sortedBy { it.slot }
+            }
+        }
+    }
+}
+
+private fun <T> MutableStateFlow<T>.update(function: (T) -> T) {
+    while (true) {
+        val current = value
+        if (compareAndSet(current, function(current))) return
     }
 }

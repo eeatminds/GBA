@@ -25,7 +25,7 @@ class OnlineGameLauncher(
     private val coresSelection: CoresSelection,
     private val gameLaunchTaskHandler: GameLaunchTaskHandler,
 ) {
-    /** Trade & battle room for a GBA game. */
+    /** Trade & battle room for a GBA, Game Boy or Game Boy Color game. */
     fun hostLink(
         activity: Activity,
         game: Game,
@@ -34,6 +34,14 @@ class OnlineGameLauncher(
         playerName: String,
         serverUrl: String,
     ) {
+        val isGameBoy = LinkSystems.isGameBoy(game.systemId)
+        val linkMode = if (isGameBoy) LinkMode.GAME_BOY else mode
+        val coreConfig =
+            if (isGameBoy) OnlineConfig.gbLinkCoreConfig(game.systemId) else OnlineConfig.gpspCoreConfig(linkMode)
+        if (coreConfig == null) {
+            activity.displayToast(R.string.online_error_core_missing)
+            return
+        }
         val config =
             OnlineConfig(
                 serverUrl = serverUrl,
@@ -41,15 +49,15 @@ class OnlineGameLauncher(
                 isHost = true,
                 roomCode = null,
                 kind = RoomKind.LINK,
-                mode = mode,
+                mode = linkMode,
                 isPublic = isPublic,
                 gameTitle = game.displayName(),
-                systemId = SystemID.GBA.dbname,
-                coreName = OnlineConfig.gpspCoreConfig(mode).coreID.coreName,
+                systemId = if (isGameBoy) game.systemId else SystemID.GBA.dbname,
+                coreName = coreConfig.coreID.coreName,
                 inputDelayFrames = 0,
-                maxPlayers = mode.maxPlayers,
+                maxPlayers = LinkSystems.ROOM_CAPACITY,
             )
-        launch(activity, game, config) { OnlineConfig.gpspCoreConfig(mode) }
+        launch(activity, game, config) { coreConfig }
     }
 
     /** Play together room: everyone plays the host's game. */
@@ -92,9 +100,11 @@ class OnlineGameLauncher(
         serverUrl: String,
     ) {
         val coreConfig =
-            when (room.kind) {
-                RoomKind.LINK -> OnlineConfig.gpspCoreConfig(room.mode)
-                RoomKind.NETPLAY -> OnlineConfig.netplayCoreConfig(room.system, room.core)
+            when {
+                room.kind == RoomKind.NETPLAY -> OnlineConfig.netplayCoreConfig(room.system, room.core)
+                // Each player runs their own Game Boy or Game Boy Color game.
+                room.mode == LinkMode.GAME_BOY -> OnlineConfig.gbLinkCoreConfig(game.systemId)
+                else -> OnlineConfig.gpspCoreConfig(room.mode)
             }
         if (coreConfig == null) {
             activity.displayToast(R.string.online_error_core_missing)
@@ -110,7 +120,7 @@ class OnlineGameLauncher(
                 mode = room.mode,
                 isPublic = room.isPublic,
                 gameTitle = game.displayName(),
-                systemId = room.system,
+                systemId = if (room.mode == LinkMode.GAME_BOY) game.systemId else room.system,
                 coreName = coreConfig.coreID.coreName,
                 inputDelayFrames = room.delay,
                 maxPlayers = room.maxPlayers,

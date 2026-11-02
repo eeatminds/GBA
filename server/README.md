@@ -3,7 +3,9 @@
 A small Node.js server that lets players meet in online rooms. It passes link-cable and
 controller data between phones. It never receives games (ROMs) or save files.
 
-- **Trade & battle rooms** connect separate Game Boy Advance games (up to 4 players, 5 with the wireless adapter).
+- **Trade & battle rooms** hold up to 8 players with their own Game Boy, Game Boy Color or Game Boy Advance games.
+  Players link up in small groups, like plugging in link cables: 2 for Game Boy games, up to 4 for GBA
+  (5 with the wireless adapter). Only linked players exchange link data.
 - **Play together rooms** let 2 to 4 players share one multiplayer game.
 
 ## Put it on your own Ubuntu server (VPS)

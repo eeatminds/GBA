@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.shared.online.InputDelay
 import com.swordfish.lemuroid.app.shared.online.LinkMode
+import com.swordfish.lemuroid.app.shared.online.LinkSystems
 import com.swordfish.lemuroid.app.shared.online.RoomInfo
 import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.lib.library.GameSystem
@@ -185,7 +186,7 @@ fun OnlineScreen(
         null -> Unit
         is OnlineViewModel.Dialog.Host ->
             HostDialog(
-                gbaGames = state.gbaGames,
+                linkGames = state.linkGames,
                 netplayGames = state.netplayGames,
                 onDismiss = { viewModel.showDialog(null) },
                 onStartLink = { game, mode, isPublic ->
@@ -386,7 +387,7 @@ private fun OptionRow(
 
 @Composable
 private fun HostDialog(
-    gbaGames: List<Game>,
+    linkGames: List<Game>,
     netplayGames: List<Game>,
     onDismiss: () -> Unit,
     onStartLink: (Game, LinkMode, Boolean) -> Unit,
@@ -397,7 +398,7 @@ private fun HostDialog(
     var mode by rememberSaveable { mutableStateOf(LinkMode.LINK_CABLE) }
     var delay by rememberSaveable { mutableStateOf(InputDelay.NORMAL) }
     var isPublic by rememberSaveable { mutableStateOf(true) }
-    val games = if (kind == RoomKind.LINK) gbaGames else netplayGames
+    val games = if (kind == RoomKind.LINK) linkGames else netplayGames
     val selectedGame = games.firstOrNull { it.id == selectedGameId } ?: games.singleOrNull()
 
     AlertDialog(
@@ -437,12 +438,19 @@ private fun HostDialog(
                     selected = selectedGame,
                     emptyMessage =
                         stringResource(
-                            if (kind == RoomKind.LINK) R.string.online_no_gba_games else R.string.online_no_netplay_games,
+                            if (kind == RoomKind.LINK) R.string.online_no_link_games else R.string.online_no_netplay_games,
                         ),
-                    showSystem = kind == RoomKind.NETPLAY,
+                    showSystem = true,
                 ) { selectedGameId = it.id }
                 HorizontalDivider()
-                if (kind == RoomKind.LINK) {
+                if (kind == RoomKind.LINK && selectedGame != null && LinkSystems.isGameBoy(selectedGame.systemId)) {
+                    Text(stringResource(R.string.online_link_type), style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        stringResource(R.string.online_mode_game_boy_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (kind == RoomKind.LINK) {
                     Text(stringResource(R.string.online_link_type), style = MaterialTheme.typography.titleSmall)
                     OnlineViewModel.HOST_MODES.forEach { option ->
                         OptionRow(selected = mode == option, onClick = { mode = option }) {
@@ -586,7 +594,9 @@ private fun PickGameDialog(
                     selected = selectedGame,
                     emptyMessage =
                         if (room.kind == RoomKind.LINK) {
-                            stringResource(R.string.online_no_gba_games)
+                            stringResource(
+                                if (room.system == "gb") R.string.online_no_gb_games else R.string.online_no_gba_games,
+                            )
                         } else {
                             stringResource(R.string.online_no_matching_games, systemShortName(room.system))
                         },

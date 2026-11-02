@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.swordfish.lemuroid.app.shared.online.LinkMode
+import com.swordfish.lemuroid.app.shared.online.LinkSystems
 import com.swordfish.lemuroid.app.shared.online.NetplaySystems
 import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.online.RoomInfo
@@ -60,7 +61,8 @@ class OnlineViewModel(
         val serverUrl: String = "",
         val publicRooms: List<RoomInfo> = emptyList(),
         val roomsStatus: RoomsStatus = RoomsStatus.IDLE,
-        val gbaGames: List<Game> = emptyList(),
+        // GBA, Game Boy and Game Boy Color games, for trade & battle rooms.
+        val linkGames: List<Game> = emptyList(),
         // Games on systems that support "play together" rooms.
         val netplayGames: List<Game> = emptyList(),
         val dialog: Dialog? = null,
@@ -89,15 +91,15 @@ class OnlineViewModel(
     fun loadGames() {
         viewModelScope.launch {
             val dao = retrogradeDb.gameDao()
-            val gba =
-                runCatching { dao.asyncSelectBySystem(SystemID.GBA.dbname) }
-                    .onFailure { Timber.e(it, "Could not load GBA games") }
+            val link =
+                runCatching { dao.asyncSelectBySystems(LinkSystems.systemIds) }
+                    .onFailure { Timber.e(it, "Could not load link games") }
                     .getOrDefault(emptyList())
             val netplay =
                 runCatching { dao.asyncSelectBySystems(NetplaySystems.systemIds) }
                     .onFailure { Timber.e(it, "Could not load multiplayer games") }
                     .getOrDefault(emptyList())
-            mutableState.update { it.copy(gbaGames = gba, netplayGames = netplay) }
+            mutableState.update { it.copy(linkGames = link, netplayGames = netplay) }
         }
     }
 
@@ -195,10 +197,14 @@ class OnlineViewModel(
     }
 }
 
-/** Games a player can use for a room: GBA games for trade & battle, same-system games otherwise. */
+/**
+ * Games a player can use for a room: for trade & battle, games from the same family (GBA, or
+ * Game Boy and Game Boy Color); otherwise games for the same system.
+ */
 fun OnlineViewModel.UiState.gamesFor(room: RoomInfo): List<Game> {
     return when (room.kind) {
-        com.swordfish.lemuroid.app.shared.online.RoomKind.LINK -> gbaGames
+        com.swordfish.lemuroid.app.shared.online.RoomKind.LINK ->
+            linkGames.filter { LinkSystems.family(it.systemId) == room.system }
         com.swordfish.lemuroid.app.shared.online.RoomKind.NETPLAY -> netplayGames.filter { it.systemId == room.system }
     }
 }

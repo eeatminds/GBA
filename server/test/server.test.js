@@ -76,6 +76,10 @@ test('host, join, relay packets and close room', async () => {
   assert.deepEqual(joined.players.map((p) => p.name), ['Ash', 'Misty']);
   const peer = await host.next(ofType('peer_joined'));
   assert.deepEqual(peer, { t: 'peer_joined', id: 1, name: 'Misty' });
+  // Two players are linked right away.
+  const groups = await host.next(ofType('groups'));
+  assert.deepEqual(groups.groups, [[{ id: 0, slot: 0 }, { id: 1, slot: 1 }]]);
+  await guest.next(ofType('groups'));
 
   guest.sendPacket(0xffff, [1, 2, 3]);
   const atHost = await host.next(binary);
@@ -87,13 +91,77 @@ test('host, join, relay packets and close room', async () => {
   assert.equal(atGuest.from, 0);
   assert.deepEqual([...atGuest.payload], [9, 8]);
 
+  // A trade & battle room stays open for the others when the host leaves.
   host.ws.close();
-  const closedMessage = await guest.next(ofType('closed'));
-  assert.equal(closedMessage.reason, 'host_left');
+  assert.equal((await guest.next(ofType('peer_left'))).id, 0);
+  assert.deepEqual((await guest.next(ofType('groups'))).groups, []);
+  assert.equal((await guest.next(ofType('owner'))).id, 1);
+  guest.ws.close();
+});
+
+test('play together room closes when the host leaves', async () => {
+  const host = connect();
+  await host.opened;
+  host.sendJson({ t: 'host', kind: 'netplay', system: 'snes', core: 'snes9x' });
+  const { room } = await host.next(ofType('hosted'));
+  const guest = connect();
+  await guest.opened;
+  guest.sendJson({ t: 'join', code: room.code });
+  await guest.next(ofType('joined'));
+  host.ws.close();
+  assert.equal((await guest.next(ofType('closed'))).reason, 'host_left');
   assert.equal(await guest.closed, 4000);
 });
 
-test('host can kick a player the emulator refused', async () => {
+test('players ask to link, accept, decline and unlink', async () => {
+  const players = [connect(), connect(), connect()];
+  await Promise.all(players.map((p) => p.opened));
+  const [a, b, c] = players;
+  a.sendJson({ t: 'host', system: 'gbc', name: 'Gold' });
+  const { room } = await a.next(ofType('hosted'));
+  assert.equal(room.system, 'gb');
+  assert.equal(room.maxPlayers, 8);
+  b.sendJson({ t: 'join', code: room.code, name: 'Silver' });
+  await b.next(ofType('joined'));
+  await a.next(ofType('groups'));
+  await b.next(ofType('groups'));
+  c.sendJson({ t: 'join', code: room.code, name: 'Kris' });
+  const joined = await c.next(ofType('joined'));
+  assert.deepEqual(joined.groups, [[{ id: 0, slot: 0 }, { id: 1, slot: 1 }]]);
+  assert.equal(joined.ownerId, 0);
+
+  // Kris isn't linked, so Gold's data doesn't reach Kris.
+  a.sendPacket(0xffff, [7]);
+  assert.equal((await b.next(binary)).from, 0);
+
+  // Asking a player who is already on a full Game Boy link fails without ending the game.
+  c.sendJson({ t: 'link_request', id: 0 });
+  assert.equal((await c.next(ofType('link_error'))).code, 'group_full');
+
+  // Silver unplugs, Kris asks Gold, Gold says yes.
+  b.sendJson({ t: 'unlink' });
+  assert.deepEqual((await a.next(ofType('groups'))).groups, []);
+  assert.deepEqual((await c.next(ofType('groups'))).groups, []);
+  c.sendJson({ t: 'link_request', id: 0 });
+  const request = await a.next(ofType('link_request'));
+  assert.deepEqual(request, { t: 'link_request', from: 2, name: 'Kris' });
+  a.sendJson({ t: 'link_accept', id: 2 });
+  assert.deepEqual((await c.next(ofType('groups'))).groups, [[{ id: 0, slot: 0 }, { id: 2, slot: 1 }]]);
+  c.sendPacket(0, [5, 6]);
+  const atGold = await a.next(binary);
+  assert.equal(atGold.from, 2);
+  assert.deepEqual([...atGold.payload], [5, 6]);
+
+  // Silver asks Kris, Kris says no.
+  b.sendJson({ t: 'link_request', id: 2 });
+  assert.equal((await b.next(ofType('link_error'))).code, 'group_full');
+  b.sendJson({ t: 'link_request', id: 0 });
+  await b.next(ofType('link_error'));
+
+  players.forEach((p) => p.ws.close());
+});
+
+test('the room owner can remove a player', async () => {
   const host = connect();
   await host.opened;
   host.sendJson({ t: 'host', mode: 'poke' });
