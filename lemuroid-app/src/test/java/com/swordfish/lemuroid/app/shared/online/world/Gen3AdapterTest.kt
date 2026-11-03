@@ -147,20 +147,30 @@ class Gen3AdapterTest {
         assertEquals(Place("Route 101", false), real.place("0.16"))
     }
 
-    // Real FireRed memory just outside the player's house in Pallet Town (WORLD_E2E:
-    // firered.ewram and firered.iwram) with the player's own ROM (FIRERED_ROM).
+    // Real FireRed and LeafGreen memory just outside the player's house in Pallet Town
+    // (WORLD_E2E: firered.* and leafgreen.* dumps) with the player's own ROMs (FIRERED_ROM,
+    // LEAFGREEN_ROM).
     @Test
-    fun `real FireRed memory - Pallet Town, Route 1 and Route 21, place names, sprite`() {
-        val romFile = System.getenv("FIRERED_ROM")?.let(::File)
+    fun `real FireRed memory - Pallet Town, Route 1 and Route 21, place names, sprite`() = palletTown("FIRERED_ROM", "firered")
+
+    @Test
+    fun `real LeafGreen memory - Pallet Town, Route 1 and Route 21, place names, sprite`() = palletTown("LEAFGREEN_ROM", "leafgreen")
+
+    private fun palletTown(
+        romVariable: String,
+        dump: String,
+    ) {
+        val romFile = System.getenv(romVariable)?.let(::File)
         val folder = System.getenv("WORLD_E2E")?.let(::File)
-        assumeTrue(romFile != null && romFile.exists() && folder != null && File(folder, "firered.ewram").exists())
+        assumeTrue(romFile != null && romFile.exists() && folder != null && File(folder, "$dump.ewram").exists())
         val real = WorldAdapters.forRom("gba", romFile!!.readBytes())!!
+        // FireRed and LeafGreen players share one world.
         assertEquals("kanto-frlg", real.world)
         val memory =
             GameMemory(
                 listOf(
-                    GameMemory.Region(0x02000000, ByteBuffer.wrap(File(folder, "firered.ewram").readBytes())),
-                    GameMemory.Region(0x03000000, ByteBuffer.wrap(File(folder, "firered.iwram").readBytes())),
+                    GameMemory.Region(0x02000000, ByteBuffer.wrap(File(folder, "$dump.ewram").readBytes())),
+                    GameMemory.Region(0x03000000, ByteBuffer.wrap(File(folder, "$dump.iwram").readBytes())),
                 ),
             )
         val avatar = real.read(memory)!!

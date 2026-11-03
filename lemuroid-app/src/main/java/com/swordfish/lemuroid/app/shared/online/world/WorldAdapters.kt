@@ -6,6 +6,7 @@ import com.swordfish.lemuroid.lib.library.db.entity.Game
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.InputStream
 import java.util.zip.ZipInputStream
@@ -14,6 +15,7 @@ import java.util.zip.ZipInputStream
 object WorldAdapters {
     private const val MAX_ROM_SIZE = 33 * 1024 * 1024
     private val ROM_EXTENSIONS = setOf("gba", "gb", "gbc")
+    private val ZIP_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
 
     /** The adapter for this ROM, or null when its world can't be shared (yet). */
     fun forRom(
@@ -51,22 +53,44 @@ object WorldAdapters {
                     } else {
                         context.contentResolver.openInputStream(uri) ?: error("Cannot open ${game.fileName}")
                     }
-                input.use { stream ->
-                    if (game.fileName.endsWith(".zip", ignoreCase = true)) {
-                        ZipInputStream(stream).use { zip ->
-                            while (true) {
-                                val entry = zip.nextEntry ?: break
-                                val extension = entry.name.substringAfterLast('.', "").lowercase()
-                                if (!entry.isDirectory && extension in ROM_EXTENSIONS) return@runCatching zip.readLimited()
-                            }
-                            null
-                        }
-                    } else {
-                        stream.readLimited()
-                    }
-                }
+                BufferedInputStream(input).use { stream -> readRom(stream, game.fileName) }
             }.onFailure { Timber.w(it, "Could not read the ROM of ${game.title}") }.getOrNull()
         }
+
+    /**
+     * The ROM in [stream]: the file itself, or the game inside it when it is a zip. A zipped game
+     * keeps the name of the file inside ([fileName]), so zips are told apart by their first bytes.
+     */
+    fun readRom(
+        stream: InputStream,
+        fileName: String,
+    ): ByteArray? {
+        val input = if (stream.markSupported()) stream else BufferedInputStream(stream)
+        input.mark(ZIP_MAGIC.size)
+        val start = ByteArray(ZIP_MAGIC.size)
+        var read = 0
+        while (read < start.size) {
+            val count = input.read(start, read, start.size - read)
+            if (count < 0) break
+            read += count
+        }
+        input.reset()
+        if (read < ZIP_MAGIC.size || !start.contentEquals(ZIP_MAGIC)) return input.readLimited()
+        ZipInputStream(input).use { zip ->
+            var fallback: ByteArray? = null
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (entry.isDirectory) continue
+                val name = entry.name.substringAfterLast('/')
+                val extension = name.substringAfterLast('.', "").lowercase()
+                when {
+                    name == fileName -> return zip.readLimited()
+                    extension in ROM_EXTENSIONS && fallback == null -> fallback = zip.readLimited()
+                }
+            }
+            return fallback
+        }
+    }
 
     private fun InputStream.readLimited(): ByteArray? {
         val bytes = readBytes()
