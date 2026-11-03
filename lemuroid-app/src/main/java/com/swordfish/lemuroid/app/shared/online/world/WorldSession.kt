@@ -145,8 +145,26 @@ class WorldSession(
     private val remotes = ConcurrentHashMap<Int, Remote>()
     private val presences = ConcurrentHashMap<Int, Presence>()
 
-    // An in-place trade or battle we started: when, and whether its script has been seen running.
-    private class InPlace(val startedAt: Long, var seenRunning: Boolean = false)
+    // An in-place trade or battle we started: when, whether its script has been seen running,
+    // and whether the game's link session (its trade or battle screens) has begun.
+    private class InPlace(val startedAt: Long, var seenRunning: Boolean = false, var linked: Boolean = false)
+
+    /** How an in-place trade or battle we started is going. */
+    sealed interface LinkStatus {
+        data object Idle : LinkStatus
+
+        /** Waiting for the other game, saving, checking the link. */
+        data object Connecting : LinkStatus
+
+        /** The game's own trade or battle screens are on. */
+        data object Started : LinkStatus
+
+        /** It never got going (the other game didn't come, or the link failed). */
+        data object Failed : LinkStatus
+    }
+
+    private val mutableLinkStatus = MutableStateFlow<LinkStatus>(LinkStatus.Idle)
+    val linkStatus: StateFlow<LinkStatus> = mutableLinkStatus.asStateFlow()
 
     @Volatile private var inPlace: InPlace? = null
     @Volatile private var gameMemory: GameMemory? = null
@@ -217,7 +235,13 @@ class WorldSession(
         val patch = adapter.inPlaceLink(kind) ?: return false
         onEmulator { patch.applyTo(memory) }
         inPlace = InPlace(SystemClock.uptimeMillis())
+        mutableLinkStatus.value = LinkStatus.Connecting
         return true
+    }
+
+    /** The player saw how it ended (closed the message). */
+    fun clearLinkStatus() {
+        if (inPlace == null) mutableLinkStatus.value = LinkStatus.Idle
     }
 
     // Once the session ends (back on the map), close the link the way the game does when leaving
@@ -225,17 +249,25 @@ class WorldSession(
     private fun watchInPlace(memory: GameMemory) {
         val session = inPlace ?: return
         val running = runCatching { adapter.inPlaceLinkRunning(memory) }.getOrDefault(false)
+        // The game's link is on once its trade or battle begins.
+        if (running && !session.linked && runCatching { adapter.linkActive(memory) }.getOrDefault(false)) {
+            session.linked = true
+            mutableLinkStatus.value = LinkStatus.Started
+        }
         when {
             running -> session.seenRunning = true
-            session.seenRunning -> {
-                inPlace = null
-                adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
-            }
-            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> {
-                inPlace = null
-                adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
-            }
+            session.seenRunning -> finishInPlace(memory, if (session.linked) LinkStatus.Idle else LinkStatus.Failed)
+            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> finishInPlace(memory, LinkStatus.Failed)
         }
+    }
+
+    private fun finishInPlace(
+        memory: GameMemory,
+        status: LinkStatus,
+    ) {
+        inPlace = null
+        adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
+        mutableLinkStatus.value = status
     }
 
     /**

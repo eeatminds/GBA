@@ -170,9 +170,9 @@
     <string name="talk_yes">ACCEPT</string>
     <string name="talk_no">DECLINE</string>
     <string name="talk_ok">OK</string>
-    <string name="talk_starting_trade">Linking with %1$s… Your game saves, then the trade opens right here. Don\'t close the game.</string>
-    <string name="talk_starting_battle">Linking with %1$s… Your game saves, then the battle starts right here. Don\'t close the game.</string>
     <string name="talk_server_outdated">To talk to other players, the room server needs its latest update.</string>
+    <string name="talk_connecting">Linking up with %1$s for a %2$s… Please wait.</string>
+    <string name="talk_link_failed">Couldn\'t link up with %1$s. Make sure you\'re both still in the room, then try again.</string>
     <string name="talk_kind_trade">trade</string>
     <string name="talk_kind_battle">battle</string>
     <string name="talk_waiting">Asking %1$s to %2$s…</string>

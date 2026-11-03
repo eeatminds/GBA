@@ -3,7 +3,6 @@ package com.swordfish.lemuroid.app.shared.online.world
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +53,12 @@ sealed interface Talk {
     /** How it went, and what to do next. [answered]: false when no answer came. */
     data class Result(val name: String, val kind: String, val accepted: Boolean, val answered: Boolean = true) : Talk
 
+    /** Both said yes: the games are linking up for the trade or battle right here. */
+    data class Connecting(val name: String, val kind: String) : Talk
+
+    /** The link didn't come up. */
+    data class LinkFailed(val name: String, val kind: String) : Talk
+
     companion object {
         const val TRADE = "trade"
         const val BATTLE = "battle"
@@ -63,7 +68,8 @@ sealed interface Talk {
 /**
  * The conversation as a text box at the bottom of the game picture, in the spirit of the games'
  * own boxes: a light box with a dark frame, game-like lettering, and choices with an arrow.
- * The control pad moves the arrow, A picks and B backs out ([keys]); tapping a choice works too.
+ * Only the game's own buttons work it ([keys]), like the game's boxes: left and right move the
+ * arrow one choice per press, A picks, B backs out. It takes no taps.
  */
 @Composable
 fun TalkBox(
@@ -115,6 +121,16 @@ fun TalkBox(
                 )
             back = { onAnswer(talk.playerId, false) }
         }
+        is Talk.Connecting -> {
+            message = stringResource(R.string.talk_connecting, name, kindWord(talk.kind))
+            choices = emptyList()
+            back = {}
+        }
+        is Talk.LinkFailed -> {
+            message = stringResource(R.string.talk_link_failed, name, kindWord(talk.kind))
+            choices = listOf(stringResource(R.string.talk_ok) to onClose)
+            back = onClose
+        }
         is Talk.Result -> {
             message =
                 when {
@@ -136,18 +152,19 @@ fun TalkBox(
         keys?.collect { key ->
             val count = currentChoices.size
             when (key) {
-                BaseGameScreenViewModel.MenuKey.LEFT, BaseGameScreenViewModel.MenuKey.UP -> selected = (selected - 1).coerceAtLeast(0)
-                BaseGameScreenViewModel.MenuKey.RIGHT, BaseGameScreenViewModel.MenuKey.DOWN -> selected = (selected + 1).coerceAtMost(count - 1)
+                // The choices sit side by side: only left and right move between them.
+                BaseGameScreenViewModel.MenuKey.LEFT -> selected = (selected - 1).coerceAtLeast(0)
+                BaseGameScreenViewModel.MenuKey.RIGHT -> selected = (selected + 1).coerceIn(0, (count - 1).coerceAtLeast(0))
                 BaseGameScreenViewModel.MenuKey.A -> currentChoices.getOrNull(selected)?.second?.invoke()
                 BaseGameScreenViewModel.MenuKey.B -> currentBack()
+                else -> Unit
             }
         }
     }
 
     with(density) {
         val arrow = letter.toDp() * 0.7f
-        // Over the game picture, at its bottom like the game's own text boxes. Only the box
-        // itself takes taps; the rest of the game stays playable.
+        // Over the game picture, at its bottom like the game's own text boxes.
         Box(
             modifier =
                 Modifier
@@ -168,17 +185,11 @@ fun TalkBox(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                     Text(message, style = style)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        choices.forEachIndexed { index, (label, action) ->
+                    if (choices.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        choices.forEachIndexed { index, (label, _) ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier =
-                                    Modifier
-                                        .clickable {
-                                            selected = index
-                                            action()
-                                        }
-                                        .padding(vertical = 2.dp),
+                                modifier = Modifier.padding(vertical = 2.dp),
                             ) {
                                 // The arrow has its own fixed space, so every choice lines up.
                                 Canvas(Modifier.size(arrow)) {
@@ -210,6 +221,8 @@ private fun Talk.nameOf(): String =
         is Talk.Waiting -> name
         is Talk.Invited -> name
         is Talk.Result -> name
+        is Talk.Connecting -> name
+        is Talk.LinkFailed -> name
     }
 
 private val INK = Color(0xFF202028)

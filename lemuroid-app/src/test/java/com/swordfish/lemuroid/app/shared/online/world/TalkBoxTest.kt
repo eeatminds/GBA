@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel.MenuKey
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -76,6 +78,25 @@ class TalkBoxTest {
         assertEquals(listOf("ask battle"), picked)
         press(MenuKey.B)
         assertEquals(listOf("ask battle", "close"), picked)
+    }
+
+    @Test
+    fun `up and down don't move the arrow, and taps do nothing`() {
+        show(Talk.Ask(1, "Gold"))
+        compose.onNodeWithText("BATTLE").performClick()
+        compose.waitForIdle()
+        assertEquals(emptyList<String>(), picked)
+        press(MenuKey.DOWN, MenuKey.DOWN, MenuKey.UP, MenuKey.A)
+        assertEquals(listOf("ask trade"), picked)
+    }
+
+    @Test
+    fun `connecting shows no choices and ignores the buttons`() {
+        show(Talk.Connecting("Silver", Talk.TRADE))
+        capture("talk-connecting.png")
+        compose.onNodeWithText("Linking up with SILVER", substring = true).assertExists()
+        press(MenuKey.A, MenuKey.B, MenuKey.RIGHT, MenuKey.A)
+        assertEquals(emptyList<String>(), picked)
     }
 
     @Test

@@ -204,11 +204,14 @@ class Gen2Adapter(
         if (!found.contentEquals(expected)) return null
         // Failed steps end at the console script's "end", like a receptionist saying no.
         val fail = console + 5
+        // The game saves before linking (as its receptionist does), but without asking: the game's
+        // own "save everything" routine, as for coming home from a visit.
+        val save = saveRoutine() ?: return null
         val script =
             byteArrayOf(
                 SPECIAL, (if (battle) link.setBattleRequest else link.setTradeRequest).toByte(), 0,
                 SPECIAL, link.waitForFriend.toByte(), 0, IFFALSE, fail.toByte(), (fail shr 8).toByte(),
-                SPECIAL, link.quickSave.toByte(), 0, IFFALSE, fail.toByte(), (fail shr 8).toByte(),
+                CALLASM, save.first.toByte(), save.second.toByte(), (save.second shr 8).toByte(),
                 SPECIAL, link.checkLinkTimeout.toByte(), 0, IFFALSE, fail.toByte(), (fail shr 8).toByte(),
                 SJUMP, console.toByte(), (console shr 8).toByte(),
             )
@@ -302,12 +305,18 @@ class Gen2Adapter(
 
     override fun saveGame(): MemoryPatch? {
         val link = layout.inPlace ?: return null
+        val (bank, address) = saveRoutine() ?: return null
+        val script = byteArrayOf(CALLASM, bank.toByte(), address.toByte(), (address shr 8).toByte(), link.end.toByte())
+        return queueScript(link, script)
+    }
+
+    // The game's "save everything" routine (bank, address), when it is in this ROM as expected:
+    // a call to the real save, then return.
+    private fun saveRoutine(): Pair<Int, Int>? {
         val visit = layout.visit ?: return null
-        // The routine must be in this ROM as expected: call the real save, then return.
         val start = romOffset(visit.saveBank, visit.saveAddress).toLong()
         if (rom.u8(start) != CALL || rom.u8(start + 3) != RET) return null
-        val script = byteArrayOf(CALLASM, visit.saveBank.toByte(), visit.saveAddress.toByte(), (visit.saveAddress shr 8).toByte(), link.end.toByte())
-        return queueScript(link, script)
+        return visit.saveBank to visit.saveAddress
     }
 
     override fun linkActive(memory: GameMemory): Boolean {

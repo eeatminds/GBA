@@ -2,6 +2,7 @@ package com.swordfish.lemuroid.app.shared.online
 
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import java.io.DataInputStream
@@ -114,5 +115,53 @@ class GbLinkBridgeTest {
         a.setPeer(null)
         assertArrayEquals(bytes(0xFF, 0), gameA.receive())
         b.stop()
+    }
+
+    private fun Socket.receive(count: Int): ByteArray = ByteArray(count).also { DataInputStream(getInputStream()).readFully(it) }
+
+    // A block as our Gambatte frames it: [0, 0xB5, length low, length high, bytes] padded to even.
+    private fun block(vararg body: Int): IntArray {
+        val frame = intArrayOf(0, 0xB5, body.size and 0xFF, body.size shr 8) + body
+        return if (frame.size % 2 == 0) frame else frame + 0
+    }
+
+    @Test
+    fun `a whole block crosses as one packet and arrives intact`() {
+        val (a, portA) = bridge(56551..56560)
+        val (b, portB) = bridge(56561..56570)
+        val gameA = emulator(portA)
+        val gameB = emulator(portB)
+        Thread.sleep(200)
+        a.setPeer(1)
+        b.setPeer(0)
+        val body = IntArray(451) { (it * 7) and 0xFF }
+        gameA.send(*block(*body))
+        val packet = a.takeOutgoing(1000)!!
+        // [type 0][target 1][the block, unpadded]
+        assertArrayEquals(bytes(0, 0, 1, 0, 0xB5, 451 and 0xFF, 451 shr 8), packet.copyOfRange(0, 7))
+        assertEquals(3 + 4 + 451, packet.size)
+        b.fromPeer(0, packet.copyOfRange(3, packet.size))
+        assertArrayEquals(bytes(*block(*body)), gameB.receive(block(*body).size))
+    }
+
+    @Test
+    fun `a block with nobody linked gets no partner at once`() {
+        val (_, port) = bridge(56571..56580)
+        val game = emulator(port)
+        Thread.sleep(200)
+        game.send(*block(2, 5))
+        assertArrayEquals(bytes(0, 0xB6), game.receive())
+    }
+
+    @Test
+    fun `unplugging while a block waits for the partner lets the game go`() {
+        val (a, portA) = bridge(56581..56590)
+        val gameA = emulator(portA)
+        Thread.sleep(200)
+        a.setPeer(1)
+        gameA.send(*block(1, 2, 3))
+        assertNotNull(a.takeOutgoing(1000))
+        a.setPeer(null)
+        assertArrayEquals(bytes(0, 0xB6), gameA.receive())
     }
 }

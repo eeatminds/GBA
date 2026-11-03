@@ -45,6 +45,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +94,9 @@ fun OnlineStatusBar(
     // A conversation with another player, shown as a text box in the game.
     var talk by remember { mutableStateOf<Talk?>(null) }
 
+    // The world appears once the game runs (after this starts listening): always use the latest.
+    val currentWorld by rememberUpdatedState(world)
+
     // Who joined, left or dropped out, and answers to our link requests, as short notices.
     // Invitations to trade or battle become a conversation instead.
     LaunchedEffect(session) {
@@ -107,8 +111,9 @@ fun OnlineStatusBar(
                     val current = talk
                     if (current is Talk.Waiting && current.playerId == event.from) {
                         talk =
-                            if (event.accepted && startInPlace(context, world, current.name, current.kind)) {
-                                null
+                            if (event.accepted && currentWorld?.startInPlace(current.kind) == true) {
+                                // They said yes: the trade or battle starts right away.
+                                Talk.Connecting(current.name, current.kind)
                             } else {
                                 Talk.Result(current.name, current.kind, event.accepted)
                             }
@@ -137,8 +142,20 @@ fun OnlineStatusBar(
         }
     }
 
-    // While a conversation is open, the pad and A/B answer it instead of moving the player.
-    val talking = talk != null
+    // The link coming up (or not) closes the "connecting" box.
+    val linkStatus = world?.linkStatus?.collectAsState()?.value
+    LaunchedEffect(linkStatus) {
+        val connecting = talk as? Talk.Connecting ?: return@LaunchedEffect
+        when (linkStatus) {
+            WorldSession.LinkStatus.Started -> talk = null
+            WorldSession.LinkStatus.Failed -> talk = Talk.LinkFailed(connecting.name, connecting.kind)
+            else -> Unit
+        }
+    }
+
+    // While a conversation is open, the pad and A/B answer it instead of moving the player
+    // (not while connecting: the game takes over right after).
+    val talking = talk != null && talk !is Talk.Connecting
     LaunchedEffect(talking) { onCaptureInput(talking) }
     DisposableEffect(Unit) { onDispose { onCaptureInput(false) } }
 
@@ -197,11 +214,14 @@ fun OnlineStatusBar(
                     when {
                         !accept || invited == null -> null
                         // Trade or battle right here; the game's own screens take over.
-                        startInPlace(context, world, invited.name, invited.kind) -> null
+                        currentWorld?.startInPlace(invited.kind) == true -> Talk.Connecting(invited.name, invited.kind)
                         else -> Talk.Result(invited.name, invited.kind, accepted = true)
                     }
             },
-            onClose = { talk = null },
+            onClose = {
+                talk = null
+                world?.clearLinkStatus()
+            },
             keys = menuKeys,
         )
     }
@@ -228,19 +248,6 @@ private fun buzz(context: Context) {
 }
 
 private const val INVITE_TIMEOUT_MS = 30_000L
-
-// Both players start the game's own link right where they stand (when their game can).
-private fun startInPlace(
-    context: Context,
-    world: WorldSession?,
-    name: String,
-    kind: String,
-): Boolean {
-    if (world == null || !world.startInPlace(kind)) return false
-    val text = context.getString(if (kind == Talk.BATTLE) R.string.talk_starting_battle else R.string.talk_starting_trade, name)
-    Toast.makeText(context, text, Toast.LENGTH_LONG).show()
-    return true
-}
 
 /** The loading card, then the room status in free space. Drawn from [state] alone. */
 @Composable

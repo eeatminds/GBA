@@ -20,6 +20,11 @@ import java.util.concurrent.TimeUnit
  *
  * While nobody is linked, it answers like an unplugged cable (0xFF), so the game never
  * waits forever.
+ *
+ * Our Gambatte also sends whole blocks ([0, BLOCK_MARK, length low, length high, bytes...]) for
+ * the big exchanges of Gold, Silver and Crystal, and for their "both ready?" checks: one packet
+ * each instead of one round trip per byte. With nobody to answer a block it gets
+ * [0, NO_PARTNER_MARK] back, so the game gives up at once instead of waiting.
  */
 class GbLinkBridge(
     private val ports: IntRange = DEFAULT_PORTS,
@@ -36,6 +41,9 @@ class GbLinkBridge(
     // If the link breaks while our game still waits for answers, we answer for the peer.
     private var sent = 0
     private var received = 0
+
+    // Our blocks still waiting for the peer's.
+    private var blocksOwed = 0
 
     /** Starts listening and returns the port Gambatte should connect to, or null. */
     fun start(): Int? {
@@ -77,8 +85,10 @@ class GbLinkBridge(
             if (id == peer) return
             val owed = sent - received
             repeat(owed.coerceAtLeast(0)) { writeToGame(NO_PARTNER) }
+            repeat(blocksOwed.coerceAtLeast(0)) { writeToGame(NO_PARTNER_BLOCK) }
             sent = 0
             received = 0
+            blocksOwed = 0
             peer = id
         }
     }
@@ -88,6 +98,15 @@ class GbLinkBridge(
         from: Int,
         data: ByteArray,
     ) {
+        if (isBlock(data)) {
+            synchronized(lock) {
+                if (from != peer) return
+                blocksOwed--
+                // Padded to whole 2-byte messages, as Gambatte reads them.
+                writeToGame(if (data.size % 2 == 0) data else data + 0)
+            }
+            return
+        }
         if (data.size != MESSAGE_SIZE) return
         synchronized(lock) {
             if (from != peer) return
@@ -139,6 +158,24 @@ class GbLinkBridge(
         try {
             while (running) {
                 input.readFully(message)
+                if (message[1] == BLOCK_MARK) {
+                    val header = ByteArray(2)
+                    input.readFully(header)
+                    val length = (header[0].toInt() and 0xFF) or ((header[1].toInt() and 0xFF) shl 8)
+                    val body = ByteArray(length + (length and 1))
+                    input.readFully(body)
+                    val block = message + header + body.copyOf(length)
+                    synchronized(lock) {
+                        val target = peer
+                        if (target == null) {
+                            writeToGame(NO_PARTNER_BLOCK)
+                        } else {
+                            blocksOwed++
+                            outgoing.offer(roomPacket(target, block))
+                        }
+                    }
+                    continue
+                }
                 synchronized(lock) {
                     val target = peer
                     if (target == null) {
@@ -182,6 +219,12 @@ class GbLinkBridge(
 
         // What a Game Boy reads with nothing plugged in.
         private val NO_PARTNER = byteArrayOf(0xFF.toByte(), 0)
+
+        // Block messages (see the class comment); the marks match our Gambatte's.
+        const val BLOCK_MARK: Byte = 0xB5.toByte()
+        private val NO_PARTNER_BLOCK = byteArrayOf(0, 0xB6.toByte())
+
+        fun isBlock(data: ByteArray): Boolean = data.size >= 4 && data[1] == BLOCK_MARK
 
         fun roomPacket(
             target: Int,

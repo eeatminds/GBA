@@ -360,14 +360,13 @@ class BaseGameScreenViewModel(
      */
     @Volatile var capturingInput = false
     val menuKeys = MutableSharedFlow<MenuKey>(extraBufferCapacity = 8)
-    private var heldDirection: MenuKey? = null
 
     fun handleVirtualInputEvent(events: List<InputEvent>) {
         if (capturingInput) {
             touchControls.handleVirtualInputEvent(events.mapNotNull(::captureVirtual))
             return
         }
-        heldDirection = null
+        menuSteps.reset()
         if (events.any { it is InputEvent.Button && it.id == KeyEvent.KEYCODE_BUTTON_A && it.pressed }) {
             aButtonPresses.tryEmit(Unit)
         }
@@ -418,19 +417,13 @@ class BaseGameScreenViewModel(
         y: Float,
     ) = captureDirection(x, -y)
 
-    // One step each time the pad leaves the centre (pad coordinates: y grows upwards).
+    private val menuSteps = MenuSteps()
+
     private fun captureDirection(
         x: Float,
         y: Float,
     ) {
-        val direction =
-            when {
-                kotlin.math.abs(x) < DIRECTION_DEAD_ZONE && kotlin.math.abs(y) < DIRECTION_DEAD_ZONE -> null
-                kotlin.math.abs(x) >= kotlin.math.abs(y) -> if (x > 0) MenuKey.RIGHT else MenuKey.LEFT
-                else -> if (y > 0) MenuKey.UP else MenuKey.DOWN
-            }
-        if (direction != null && direction != heldDirection) menuKeys.tryEmit(direction)
-        heldDirection = direction
+        menuSteps.step(x, y, android.os.SystemClock.uptimeMillis())?.let { menuKeys.tryEmit(it) }
     }
 
     override fun onCreate(owner: LifecycleOwner) {
@@ -454,5 +447,48 @@ class BaseGameScreenViewModel(
     }
 }
 
-// How far the pad must move to count as a direction for the app's boxes.
-private const val DIRECTION_DEAD_ZONE = 0.5f
+/**
+ * The control pad as steps for the app's boxes, one per press like the game's own menus (pad
+ * coordinates: y grows upwards). The pad has to come back near the centre before the next
+ * step, so a finger that wobbles on the pad doesn't skip choices, and steps are never closer
+ * than [STEP_MS].
+ */
+class MenuSteps {
+    private var held = false
+    private var lastStep = Long.MIN_VALUE / 2
+
+    fun reset() {
+        held = false
+    }
+
+    /** The step for the pad at ([x], [y]) at time [now] (ms), or null. */
+    fun step(
+        x: Float,
+        y: Float,
+        now: Long,
+    ): BaseGameScreenViewModel.MenuKey? {
+        val ax = kotlin.math.abs(x)
+        val ay = kotlin.math.abs(y)
+        if (ax < RELEASE_ZONE && ay < RELEASE_ZONE) {
+            held = false
+            return null
+        }
+        if (held || (ax < PRESS_ZONE && ay < PRESS_ZONE)) return null
+        held = true
+        if (now - lastStep < STEP_MS) return null
+        lastStep = now
+        return when {
+            ax >= ay && x > 0 -> BaseGameScreenViewModel.MenuKey.RIGHT
+            ax >= ay -> BaseGameScreenViewModel.MenuKey.LEFT
+            y > 0 -> BaseGameScreenViewModel.MenuKey.UP
+            else -> BaseGameScreenViewModel.MenuKey.DOWN
+        }
+    }
+
+    companion object {
+        // How far the pad must move to count, and how close to the centre it must come back.
+        private const val PRESS_ZONE = 0.5f
+        private const val RELEASE_ZONE = 0.3f
+        const val STEP_MS = 150L
+    }
+}

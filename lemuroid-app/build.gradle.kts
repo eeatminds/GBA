@@ -91,6 +91,10 @@ android {
         }
     }
 
+    // Our own Game Boy core (gambatte with a network friendly link cable, see
+    // extra-cores/gambatte-link) replaces the stock one in builds that bundle the cores.
+    sourceSets["bundle"].jniLibs.srcDir("../extra-cores/gambatte-link/jniLibs")
+
     packagingOptions {
         jniLibs {
             // Stripping created some issues with some libretro cores such as ppsspp

@@ -123,11 +123,11 @@ class Gen2AdapterTest {
             val ram = GameMemory.SYSTEM_RAM_BASE - 0xC000
             val trade = real.inPlaceLink(Talk.TRADE)!!.writes
             assertEquals(ram + 0xC6E8, trade[0].first)
-            assertEquals("0f0100 0f0200 08b454 0f0400 08b454 0f0300 08b454 03af54".replace(" ", ""), trade[0].second.hex())
+            assertEquals("0f0100 0f0200 08b454 0e05234c 0f0300 08b454 03af54".replace(" ", ""), trade[0].second.hex())
             assertEquals(ram + 0xD184, trade[1].first)
             assertEquals("5ce8c6", trade[1].second.hex())
             assertEquals(ram + 0xD183, trade[2].first)
-            assertEquals("0f0900 0f0200 083555 0f0400 083555 0f0300 083555 033055".replace(" ", ""), real.inPlaceLink(Talk.BATTLE)!!.writes[0].second.hex())
+            assertEquals("0f0900 0f0200 083555 0e05234c 0f0300 083555 033055".replace(" ", ""), real.inPlaceLink(Talk.BATTLE)!!.writes[0].second.hex())
             assertEquals("0f080090", real.inPlaceLinkCleanup()!!.writes[0].second.hex())
         }
     }
@@ -142,7 +142,8 @@ class Gen2AdapterTest {
         }
 
     // The exact bytes that started a trade and a battle between two linked Crystal games in a
-    // desktop emulator (both sides reached the trade menu / the battle, and came back in place).
+    // desktop emulator (both sides reached the trade menu / the battle, and came back in place),
+    // also with 100 ms of network delay each way.
     @Test
     fun `in-place trade and battle scripts for Crystal`() {
         val file = System.getenv("CRYSTAL_ROM")?.let(::File)
@@ -159,7 +160,7 @@ class Gen2AdapterTest {
         val trade = real.inPlaceLink(Talk.TRADE)!!.writes
         assertEquals(ram + 0xC7E8, trade[0].first)
         assertEquals(
-            "0f0100 0f0200 080a74 0f0400 080a74 0f0300 080a74 030574".replace(" ", ""),
+            "0f0100 0f0200 080a74 0e05854b 0f0300 080a74 030574".replace(" ", ""),
             trade[0].second.joinToString("") { "%02x".format(it) },
         )
         assertEquals(ram + 0xD45D, trade[1].first)
@@ -170,7 +171,7 @@ class Gen2AdapterTest {
 
         val battle = real.inPlaceLink(Talk.BATTLE)!!.writes
         assertEquals(
-            "0f0900 0f0200 089874 0f0400 089874 0f0300 089874 039374".replace(" ", ""),
+            "0f0900 0f0200 089874 0e05854b 0f0300 089874 039374".replace(" ", ""),
             battle[0].second.joinToString("") { "%02x".format(it) },
         )
         assertEquals("0f080091", real.inPlaceLinkCleanup()!!.writes[0].second.joinToString("") { "%02x".format(it) })
@@ -180,7 +181,7 @@ class Gen2AdapterTest {
         assertTrue(real.inPlaceLink(Talk.TRADE)!!.applyTo(memory))
         assertEquals(1, memory.u8(ram + 0xD45C))
         assertEquals(0x0F, memory.u8(ram + 0xC7E8))
-        assertEquals(0x74, memory.u8(ram + 0xC7E8 + 23))
+        assertEquals(0x74, memory.u8(ram + 0xC7E8 + 21))
     }
 
     // Uses a real Crystal ROM (or a zip with one) when CRYSTAL_ROM points to it.
