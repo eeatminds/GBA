@@ -17,7 +17,52 @@ interface WorldAdapter {
 
     /** The picture for [look] in this game, or null when this game can't draw it. */
     fun sprite(look: Look): SpriteImage?
+
+    /**
+     * The maps joined to the one we're on now (walk off its edge and you're there), with where
+     * each sits on ours: add the offset to a position on that map to get one on ours.
+     */
+    fun neighbors(memory: GameMemory): Map<String, MapOffset> = emptyMap()
+
+    /** Where [map] is, as the game's own town map names it, or null when unknown. */
+    fun place(map: String): Place? = null
 }
+
+/** Pixels to add to a position on a neighbouring map to place it on ours. */
+data class MapOffset(val dx: Int, val dy: Int)
+
+/** A map's town or route name ("New Bark Town"), and whether the map is inside a building. */
+data class Place(val name: String, val indoors: Boolean)
+
+/** Which way a character looks. */
+enum class Facing(val dx: Int, val dy: Int) {
+    DOWN(0, 1),
+    UP(0, -1),
+    LEFT(-1, 0),
+    RIGHT(1, 0),
+}
+
+/** The name of each shared world, as players know their games. */
+object Worlds {
+    // A player whose game can't be shown on the map still says so, for the Players panel.
+    const val NONE = "none"
+
+    fun gameName(world: String): String? =
+        when (world) {
+            "johto-c" -> "Pokémon Crystal"
+            "johto-gs" -> "Pokémon Gold / Silver"
+            "hoenn-e" -> "Pokémon Emerald"
+            "hoenn-rs" -> "Pokémon Ruby / Sapphire"
+            "kanto-frlg" -> "Pokémon FireRed / LeafGreen"
+            else -> null
+        }
+}
+
+/** "NEW BARK TOWN" -> "New Bark Town", "MT. MOON" -> "Mt. Moon", "ROUTE 29" stays readable. */
+fun titleCase(text: String): String =
+    text.trim().split(Regex("\\s+")).joinToString(" ") { word ->
+        if (word.any { it.isLowerCase() }) word else word.lowercase().replaceFirstChar { it.uppercase() }
+    }
 
 /** How a character looks on one frame: which sprite sheet, which frame, mirrored or not. */
 data class Look(val sprite: Int, val frame: Int, val flip: Boolean)
@@ -38,6 +83,8 @@ data class Avatar(
     val screenX: Int = 0,
     val screenY: Int = 0,
     val covered: Boolean = false,
+    // Which way our own character looks (to know who we're talking to); not shared.
+    val facing: Facing? = null,
 )
 
 /** A small ARGB picture; transparent pixels are 0. */

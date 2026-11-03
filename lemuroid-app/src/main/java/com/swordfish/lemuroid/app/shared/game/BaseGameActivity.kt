@@ -36,6 +36,7 @@ import com.swordfish.lemuroid.app.shared.online.OnlineConfig
 import com.swordfish.lemuroid.app.shared.online.OnlineSession
 import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
+import com.swordfish.lemuroid.app.shared.online.world.NoWorld
 import com.swordfish.lemuroid.app.shared.online.world.WorldSession
 import com.swordfish.lemuroid.app.shared.online.world.WorldOverlay
 import com.swordfish.lemuroid.app.shared.online.world.WorldAdapters
@@ -177,7 +178,12 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                             val room = session.state.collectAsState().value as? OnlineSession.State.InRoom
                             WorldOverlay(world, room?.players?.associate { it.id to it.name }.orEmpty())
                         }
-                        OnlineStatusBar(session = session, gameTitle = game.customName ?: game.title)
+                        OnlineStatusBar(
+                            session = session,
+                            gameTitle = game.customName ?: game.title,
+                            world = worldSession.value,
+                            aPresses = baseGameScreenViewModel.aButtonPresses,
+                        )
                     }
                 }
             }
@@ -357,6 +363,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         keyCode: Int,
         event: KeyEvent,
     ): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_A && event.repeatCount == 0) baseGameScreenViewModel.aButtonPresses.tryEmit(Unit)
         val handled = baseGameScreenViewModel.sendKeyEvent(keyCode, event)
         if (handled) {
             return true
@@ -476,8 +483,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     /** See the other players in our game: their characters are drawn over the game picture. */
     private fun startWorld(session: OnlineSession) {
         lifecycleScope.launch {
-            val rom = WorldAdapters.loadRom(applicationContext, game) ?: return@launch
-            val adapter = WorldAdapters.forRom(game.systemId, rom) ?: return@launch
+            // Games we can't show on maps still tell the others so (for the Players panel).
+            val rom = WorldAdapters.loadRom(applicationContext, game)
+            val adapter = rom?.let { WorldAdapters.forRom(game.systemId, it) } ?: NoWorld
+            if (adapter == NoWorld) Timber.i("Same world: ${game.title} can't be shown on maps")
             val world = WorldSession(adapter, { GameMemory.ofRunningGame() }, session::sendPresence, lifecycleScope)
             session.onPresence = world::onPresence
             session.onPlayerLeft = world::onPlayerLeft

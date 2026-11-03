@@ -157,6 +157,8 @@ export class RoomRegistry {
       groups: [],
       // Pending link requests, as "from>to".
       requests: new Set(),
+      // Pending invitations to trade or battle, "from>to" -> kind.
+      invites: new Map(),
       // When the last player left (trade & battle rooms stay open a while after that).
       emptySince: null,
     };
@@ -246,6 +248,10 @@ export class RoomRegistry {
       const [from, to] = request.split('>').map(Number);
       if (from === playerId || to === playerId) room.requests.delete(request);
     }
+    for (const invite of [...room.invites.keys()]) {
+      const [from, to] = invite.split('>').map(Number);
+      if (from === playerId || to === playerId) room.invites.delete(invite);
+    }
     const groupsChanged = this.removeFromGroup(room, playerId);
 
     if (room.kind !== 'link' && (playerId === 0 || room.players.size === 0)) {
@@ -327,6 +333,59 @@ export class RoomRegistry {
         { id: requesterId, slot: 1 },
       ]);
     }
+  }
+
+  // Player `fromId` asks `toId` to trade or battle (like talking to them in the game).
+  invite(room, fromId, toId, kind) {
+    if (room.kind !== 'link') throw new RoomError('bad_request', 'Players in this room are always connected.');
+    if (fromId === toId || !room.players.has(toId)) throw new RoomError('not_found', 'That player is not in the room any more.');
+    const cleanKind = kind === 'battle' ? 'battle' : 'trade';
+    room.invites.set(`${fromId}>${toId}`, cleanKind);
+    return cleanKind;
+  }
+
+  // The invited player answers. Returns { kind, groupsChanged }, or null when there was no
+  // such invitation. Saying yes links the two of them.
+  answerInvite(room, accepterId, inviterId, accept) {
+    const key = `${inviterId}>${accepterId}`;
+    const kind = room.invites.get(key);
+    if (!kind) return null;
+    room.invites.delete(key);
+    let groupsChanged = false;
+    if (accept && room.players.has(inviterId)) groupsChanged = this.linkTogether(room, inviterId, accepterId);
+    return { kind, groupsChanged };
+  }
+
+  // Links two players who agreed to play together. If one of them is on a link with room, the
+  // other joins it; if that can't be, both unplug from what they had and link with each other.
+  // Returns true when the groups changed.
+  linkTogether(room, firstId, secondId) {
+    let fromGroup;
+    let toGroup;
+    try {
+      ({ fromGroup, toGroup } = this.checkLink(room, firstId, secondId));
+    } catch (error) {
+      if (error.code === 'already_linked') return false;
+      if (error.code !== 'busy' && error.code !== 'group_full') throw error;
+      this.removeFromGroup(room, firstId);
+      this.removeFromGroup(room, secondId);
+      room.groups.push([
+        { id: firstId, slot: 0 },
+        { id: secondId, slot: 1 },
+      ]);
+      return true;
+    }
+    if (toGroup) {
+      toGroup.push({ id: firstId, slot: freeSlot(toGroup) });
+    } else if (fromGroup) {
+      fromGroup.push({ id: secondId, slot: freeSlot(fromGroup) });
+    } else {
+      room.groups.push([
+        { id: firstId, slot: 0 },
+        { id: secondId, slot: 1 },
+      ]);
+    }
+    return true;
   }
 
   // Returns true when there was such a request.

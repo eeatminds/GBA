@@ -13,7 +13,8 @@
 //   3. Packets are binary frames. Client to server: [target id u16 BE][payload].
 //      Server to client: [sender id u16 BE][payload]. Target 0xFFFF means everyone else.
 //   4. Other JSON messages: peer_joined, peer_left, peer_away, peer_back, closed, kicked, kick (owner only),
-//      leave, ping/pong.
+//      leave, ping/pong, pos (where a player is in their game), link_* (link cables),
+//      invite / invite_reply (asking another player to trade or battle).
 //
 // In trade & battle rooms a player whose connection drops keeps their seat (and link) for
 // RESUME_GRACE_MS, and an empty room stays open for EMPTY_ROOM_MS, so a phone that briefly
@@ -210,6 +211,10 @@ function handleConnection(ws, registry, config, awayTimers) {
       case 'unlink':
         handleLinkMessage(registry, state, message);
         break;
+      case 'invite':
+      case 'invite_reply':
+        handleInvite(registry, state, message);
+        break;
       case 'kick': {
         // Only the room's owner may remove players.
         const room = state.room;
@@ -328,6 +333,29 @@ function handleLinkMessage(registry, state, message) {
       }
       default:
         break;
+    }
+  } catch (error) {
+    if (error instanceof RoomError) sendJson(player.connection, { t: 'link_error', code: error.code, message: error.message });
+  }
+}
+
+// Talking to another player in the game: "trade or battle?", and their answer. Saying yes
+// links the two of them so they can meet at the Cable Club.
+function handleInvite(registry, state, message) {
+  const { room, player } = state;
+  const otherId = Number.isInteger(message.id) ? message.id : -1;
+  const other = room.players.get(otherId);
+  if (!other || otherId === player.id) return;
+  try {
+    if (message.t === 'invite') {
+      const kind = registry.invite(room, player.id, otherId, message.kind);
+      sendJson(other.connection, { t: 'invite', from: player.id, name: player.name, kind });
+    } else {
+      const accept = message.accept === true;
+      const answer = registry.answerInvite(room, player.id, otherId, accept);
+      if (!answer) return;
+      if (answer.groupsChanged) broadcastGroups(room);
+      sendJson(other.connection, { t: 'invite_reply', from: player.id, accept, kind: answer.kind });
     }
   } catch (error) {
     if (error instanceof RoomError) sendJson(player.connection, { t: 'link_error', code: error.code, message: error.message });

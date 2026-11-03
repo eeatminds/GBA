@@ -57,6 +57,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.world.Talk
+import com.swordfish.lemuroid.app.shared.online.world.TalkBox
+import com.swordfish.lemuroid.app.shared.online.world.WorldSession
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -70,18 +74,56 @@ import kotlin.math.roundToInt
 fun OnlineStatusBar(
     session: OnlineSession,
     gameTitle: String,
+    world: WorldSession? = null,
+    aPresses: Flow<Unit>? = null,
 ) {
     val state by session.state.collectAsState()
     val context = LocalContext.current
     var showRoom by remember { mutableStateOf(false) }
     val isPokemon = remember(gameTitle) { POKEMON.containsMatchIn(gameTitle) }
+    // A conversation with another player, shown as a text box in the game.
+    var talk by remember { mutableStateOf<Talk?>(null) }
 
     // Who joined, left or dropped out, and answers to our link requests, as short notices.
+    // Invitations to trade or battle become a conversation instead.
     LaunchedEffect(session) {
         session.events.collect { event ->
-            val text = noticeText(context, event, isPokemon)
-            Toast.makeText(context, text, if (event is OnlineSession.Event.PlayerJoined) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+            when (event) {
+                is OnlineSession.Event.Invited -> talk = Talk.Invited(event.from, event.name, event.kind)
+                is OnlineSession.Event.InviteAnswered -> {
+                    val current = talk
+                    if (current is Talk.Waiting && current.playerId == event.from) {
+                        talk = Talk.Result(current.name, current.kind, event.accepted)
+                    }
+                }
+                else -> {
+                    val text = noticeText(context, event, isPokemon)
+                    Toast.makeText(context, text, if (event is OnlineSession.Event.PlayerJoined) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+                }
+            }
         }
+    }
+
+    // A pressed while facing another player: talk to them.
+    LaunchedEffect(world, aPresses) {
+        if (world == null || aPresses == null) return@LaunchedEffect
+        aPresses.collect {
+            if (talk != null) return@collect
+            val room = session.state.value as? OnlineSession.State.InRoom ?: return@collect
+            val id = world.playerInFront() ?: return@collect
+            if (!session.serverIsCurrent) {
+                Toast.makeText(context, R.string.talk_server_outdated, Toast.LENGTH_LONG).show()
+                return@collect
+            }
+            talk = Talk.Ask(id, room.playerName(id).ifBlank { context.getString(R.string.online_player_fallback, id + 1) })
+        }
+    }
+
+    // Nobody answers forever.
+    LaunchedEffect(talk) {
+        val waiting = talk as? Talk.Waiting ?: return@LaunchedEffect
+        delay(INVITE_TIMEOUT_MS)
+        if (talk == waiting) talk = Talk.Result(waiting.name, waiting.kind, accepted = false, answered = false)
     }
 
     val room = state as? OnlineSession.State.InRoom
@@ -102,6 +144,7 @@ fun OnlineStatusBar(
                 onUnlink = { session.unlink() },
                 onInvite = { shareRoom(context, session.serverUrl, room.code, gameTitle) },
                 onDismiss = { showRoom = false },
+                world = world,
             )
         }
     }
@@ -114,7 +157,26 @@ fun OnlineStatusBar(
         isPokemon = isPokemon,
         onOpenRoom = { showRoom = true },
     )
+
+    talk?.let { current ->
+        TalkBox(
+            talk = current,
+            isPokemon = isPokemon,
+            onAsk = { id, kind ->
+                session.invite(id, kind)
+                talk = Talk.Waiting(id, (current as? Talk.Ask)?.name.orEmpty(), kind)
+            },
+            onAnswer = { id, accept ->
+                session.answerInvite(id, accept)
+                val invited = current as? Talk.Invited
+                talk = if (accept && invited != null) Talk.Result(invited.name, invited.kind, accepted = true) else null
+            },
+            onClose = { talk = null },
+        )
+    }
 }
+
+private const val INVITE_TIMEOUT_MS = 30_000L
 
 /** The loading card, then the room status in free space. Drawn from [state] alone. */
 @Composable
@@ -465,6 +527,8 @@ private fun noticeText(
         is OnlineSession.Event.PlayerAway -> context.getString(R.string.online_notice_away, event.name)
         is OnlineSession.Event.PlayerBack -> context.getString(R.string.online_notice_back, event.name)
         OnlineSession.Event.Reconnected -> context.getString(R.string.online_notice_reconnected)
+        // Shown as a conversation in the game, not as a notice.
+        is OnlineSession.Event.Invited, is OnlineSession.Event.InviteAnswered -> ""
     }
 
 private fun errorMessage(reason: OnlineSession.Reason): Int =

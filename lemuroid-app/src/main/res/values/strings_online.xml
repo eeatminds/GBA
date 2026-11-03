@@ -152,6 +152,41 @@
     <string name="online_notice_back">%1$s is back.</string>
     <string name="online_notice_reconnected">Reconnected to the room.</string>
 
+    <!-- Talking to another player in the game -->
+    <string name="talk_ask">%1$s is here! What would you like to do?</string>
+    <string name="talk_trade">TRADE</string>
+    <string name="talk_battle">BATTLE</string>
+    <string name="talk_cancel">CANCEL</string>
+    <string name="talk_yes">YES</string>
+    <string name="talk_no">NO</string>
+    <string name="talk_ok">OK</string>
+    <string name="talk_server_outdated">To talk to other players, the room server needs its latest update.</string>
+    <string name="talk_kind_trade">trade</string>
+    <string name="talk_kind_battle">battle</string>
+    <string name="talk_waiting">Asking %1$s to %2$s…</string>
+    <string name="talk_invited">%1$s would like to %2$s with you!</string>
+    <string name="talk_declined">%1$s can\'t right now.</string>
+    <string name="talk_no_answer">%1$s didn\'t answer.</string>
+    <string name="talk_go_trade">%1$s said yes! You\'re linked. Both of you: go upstairs in a Pokémon Center and talk to the Trade Center receptionist.</string>
+    <string name="talk_go_battle">%1$s said yes! You\'re linked. Both of you: go upstairs in a Pokémon Center and talk to the Colosseum receptionist.</string>
+    <string name="talk_go_other">%1$s said yes! You\'re linked. Both of you: open the link or multiplayer option in your game.</string>
+
+    <!-- Where players are (Players panel) -->
+    <string name="online_world_hint">On the map you see players of the same game on your map or the one next to it. Walk up to someone and press A to trade or battle.</string>
+    <string name="online_place_you">%1$s · %2$s</string>
+    <string name="online_place_here">Here with you · %1$s</string>
+    <string name="online_place_nearby">Just next door · %1$s</string>
+    <string name="online_place_elsewhere">In %1$s</string>
+    <string name="online_place_somewhere">On another map</string>
+    <string name="online_place_busy">In a menu or a battle</string>
+    <string name="online_place_other_game">Plays %1$s · not on your map (trading and battles still work)</string>
+    <string name="online_place_other_game_unknown">Plays another game · not on your map</string>
+    <string name="online_place_not_shown">Their game can\'t be shown on maps</string>
+    <string name="online_place_unknown">Location not known yet</string>
+    <string name="online_place_this_map">this map</string>
+    <string name="online_player_fallback">Player %1$d</string>
+    <string name="online_game_not_shown">This game can\'t be shown on maps</string>
+
     <!-- Going back to a room -->
     <string name="online_recent_room_title">Back to room %1$s</string>
     <string name="online_recent_room_message">Rooms stay open while anyone is in them, and for 5 minutes after the last player leaves.</string>

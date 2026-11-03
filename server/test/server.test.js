@@ -179,6 +179,40 @@ test('a seat is given up when its player does not come back in time', async () =
   await quick.close();
 });
 
+test('talking to a player: trade or battle, yes links the two, no just answers', async () => {
+  const players = [connect(), connect(), connect()];
+  await Promise.all(players.map((p) => p.opened));
+  const [a, b, c] = players;
+  a.sendJson({ t: 'host', system: 'gbc', name: 'Gold' });
+  const { room } = await a.next(ofType('hosted'));
+  b.sendJson({ t: 'join', code: room.code, name: 'Silver' });
+  await b.next(ofType('joined'));
+  await a.next(ofType('groups'));
+  await b.next(ofType('groups'));
+  c.sendJson({ t: 'join', code: room.code, name: 'Kris' });
+  await c.next(ofType('joined'));
+
+  // Kris talks to Gold, who is on a full Game Boy link with Silver.
+  c.sendJson({ t: 'invite', id: 0, kind: 'battle' });
+  assert.deepEqual(await a.next(ofType('invite')), { t: 'invite', from: 2, name: 'Kris', kind: 'battle' });
+  a.sendJson({ t: 'invite_reply', id: 2, accept: true });
+  assert.deepEqual(await c.next(ofType('invite_reply')), { t: 'invite_reply', from: 0, accept: true, kind: 'battle' });
+  // Gold and Kris are linked now; Silver was unplugged.
+  assert.deepEqual((await b.next(ofType('groups'))).groups, [[{ id: 2, slot: 0 }, { id: 0, slot: 1 }]]);
+
+  // Silver asks Kris to trade; Kris says no. Nothing changes.
+  b.sendJson({ t: 'invite', id: 2, kind: 'anything' });
+  assert.equal((await c.next(ofType('invite'))).kind, 'trade');
+  c.sendJson({ t: 'invite_reply', id: 1, accept: false });
+  assert.deepEqual(await b.next(ofType('invite_reply')), { t: 'invite_reply', from: 2, accept: false, kind: 'trade' });
+
+  // An answer without a question does nothing.
+  b.sendJson({ t: 'invite_reply', id: 0, accept: true });
+  b.sendJson({ t: 'ping' });
+  await b.next(ofType('pong'));
+  players.forEach((p) => p.ws.close());
+});
+
 test('play together room closes when the host leaves', async () => {
   const host = connect();
   await host.opened;

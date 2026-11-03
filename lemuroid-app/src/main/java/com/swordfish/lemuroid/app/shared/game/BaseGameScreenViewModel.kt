@@ -41,6 +41,7 @@ import gg.padkit.inputstate.InputState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -322,7 +323,13 @@ class BaseGameScreenViewModel(
         }
     }
 
+    /** Each press of the game's A button (touch or controller), for talking to other players. */
+    val aButtonPresses = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+
     fun handleVirtualInputEvent(events: List<InputEvent>) {
+        if (events.any { it is InputEvent.Button && it.id == KeyEvent.KEYCODE_BUTTON_A && it.pressed }) {
+            aButtonPresses.tryEmit(Unit)
+        }
         touchControls.handleVirtualInputEvent(events)
     }
 

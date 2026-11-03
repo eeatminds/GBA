@@ -34,10 +34,18 @@ class Gen2Adapter(
         // Open menus (the start menu is 1), and the player event a script runs for.
         val windowStackSize: Int,
         val scriptRunning: Int,
+        // The current map's size in blocks (2x2 steps), and its 4 connections (north, south,
+        // west, east; 12 bytes each, one after the other) with the flags saying which are set.
+        val mapHeight: Int,
+        val mapWidth: Int,
+        val connectionFlags: Int,
+        val northConnection: Int,
         // ROM offsets.
         val facings: Int,
         val overworldSprites: Int,
         val objectPalettes: Int,
+        val mapGroupPointers: Int,
+        val landmarks: Int,
     )
 
     override val world: String get() = layout.world
@@ -97,7 +105,82 @@ class Gen2Adapter(
             screenX = signed(screenX),
             screenY = signed(screenY),
             covered = covered,
+            facing = FACINGS[facing / 4],
         )
+    }
+
+    /**
+     * The game keeps the current map's connections in RAM. Each says which map is joined on that
+     * side and how coordinates shift on the way (yalign/xalign: where the player lands there).
+     */
+    override fun neighbors(memory: GameMemory): Map<String, MapOffset> {
+        val flags = memory.u8(ram(layout.connectionFlags)) ?: return emptyMap()
+        val width = (memory.u8(ram(layout.mapWidth)) ?: return emptyMap()) * 2
+        val height = (memory.u8(ram(layout.mapHeight)) ?: return emptyMap()) * 2
+        val result = HashMap<String, MapOffset>()
+        // North, south, west, east; flag bits 3, 2, 1, 0.
+        for (side in 0 until 4) {
+            if (flags and (8 shr side) == 0) continue
+            val base = layout.northConnection + side * CONNECTION_SIZE
+            val group = memory.u8(ram(base)) ?: continue
+            val number = memory.u8(ram(base + 1)) ?: continue
+            if (group == 0 || group == 0xFF) continue
+            val yAlign = memory.s8(ram(base + CONNECTION_Y_ALIGN)) ?: continue
+            val xAlign = memory.s8(ram(base + CONNECTION_X_ALIGN)) ?: continue
+            // Steps on our map for step (0, 0) on theirs.
+            val (dx, dy) =
+                when (side) {
+                    0 -> -xAlign to -yAlign - 1
+                    1 -> -xAlign to -yAlign + height
+                    2 -> -xAlign - 1 to -yAlign
+                    else -> -xAlign + width to -yAlign
+                }
+            result["$group.$number"] = MapOffset(dx * 16, dy * 16)
+        }
+        return result
+    }
+
+    private val places = ConcurrentHashMap<String, Place>()
+
+    // The map header in ROM says which town map landmark the map belongs to.
+    override fun place(map: String): Place? {
+        places[map]?.let { return it }
+        val place =
+            runCatching {
+                val (group, number) = map.split('.').map { it.toInt() }
+                val mapsBank = layout.mapGroupPointers / 0x4000
+                val groupPointer = rom.u16(layout.mapGroupPointers + (group - 1) * 2L) ?: return null
+                val header = romOffset(mapsBank, groupPointer) + (number - 1) * MAP_HEADER_SIZE
+                val environment = rom.u8(header + 2L) ?: return null
+                val landmark = rom.u8(header + 5L) ?: return null
+                val landmarksBank = layout.landmarks / 0x4000
+                val namePointer = rom.u16(layout.landmarks + landmark * 4L + 2) ?: return null
+                val name = decodeText(romOffset(landmarksBank, namePointer)) ?: return null
+                Place(titleCase(name), environment == INDOOR || environment == GATE)
+            }.getOrNull() ?: return null
+        places[map] = place
+        return place
+    }
+
+    // The game's own text encoding (letters, digits and a few signs are enough for place names).
+    private fun decodeText(offset: Int): String? {
+        val text = StringBuilder()
+        for (i in 0 until 32) {
+            val c = rom.u8(offset + i.toLong()) ?: return null
+            when (c) {
+                0x50 -> break
+                in 0x80..0x99 -> text.append('A' + (c - 0x80))
+                in 0xA0..0xB9 -> text.append('a' + (c - 0xA0))
+                in 0xF6..0xFF -> text.append('0' + (c - 0xF6))
+                0x54 -> text.append("POKé")
+                0xE3 -> text.append('-')
+                0xE8 -> text.append('.')
+                0xE0 -> text.append('\'')
+                0xEA -> text.append('é')
+                else -> text.append(' ')
+            }
+        }
+        return text.toString().trim().ifEmpty { null }
     }
 
     override fun sprite(look: Look): SpriteImage? {
@@ -188,6 +271,17 @@ class Gen2Adapter(
 
         private const val SPRITE_ENTRY_SIZE = 6
 
+        private val FACINGS = arrayOf(Facing.DOWN, Facing.UP, Facing.LEFT, Facing.RIGHT)
+
+        private const val CONNECTION_SIZE = 12
+        private const val CONNECTION_Y_ALIGN = 8
+        private const val CONNECTION_X_ALIGN = 9
+        private const val MAP_HEADER_SIZE = 9
+
+        // Map environments (constants/map_data_constants.asm).
+        private const val INDOOR = 3
+        private const val GATE = 6
+
         // Morning, day, night and dark sets of 8 palettes of 4 colors each.
         private const val DAY_PALETTES = 64
 
@@ -213,9 +307,15 @@ class Gen2Adapter(
                 bgMapOffsetY = 0xD14D,
                 windowStackSize = 0xCF78,
                 scriptRunning = 0xD438,
+                mapHeight = 0xD19E,
+                mapWidth = 0xD19F,
+                connectionFlags = 0xD1A8,
+                northConnection = 0xD1A9,
                 facings = romOffset(0x01, 0x4049),
                 overworldSprites = romOffset(0x05, 0x4736),
                 objectPalettes = romOffset(0x02, 0x7469),
+                mapGroupPointers = romOffset(0x25, 0x4000),
+                landmarks = romOffset(0x72, 0x68C3),
             )
 
         val GOLD_SILVER =
@@ -234,9 +334,15 @@ class Gen2Adapter(
                 bgMapOffsetY = 0xCE82,
                 windowStackSize = 0xCEAF,
                 scriptRunning = 0xD15F,
+                mapHeight = 0xD087,
+                mapWidth = 0xD088,
+                connectionFlags = 0xD091,
+                northConnection = 0xD092,
                 facings = romOffset(0x01, 0x404A),
                 overworldSprites = romOffset(0x05, 0x47DE),
                 objectPalettes = romOffset(0x02, 0x78AE),
+                mapGroupPointers = romOffset(0x25, 0x40ED),
+                landmarks = romOffset(0x24, 0x6382),
             )
 
         /**

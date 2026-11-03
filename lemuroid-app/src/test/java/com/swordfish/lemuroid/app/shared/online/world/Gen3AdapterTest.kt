@@ -123,6 +123,30 @@ class Gen3AdapterTest {
         assertNull(Gen3Adapter.layoutFor("BPEE", 1))
     }
 
+    // Real Emerald memory in Littleroot Town (WORLD_E2E: emerald.ewram and emerald.iwram dumped
+    // from a desktop emulator) with the player's own ROM.
+    @Test
+    fun `real Emerald memory - Littleroot Town, Route 101 to the north, place names`() {
+        val romFile = System.getenv("EMERALD_ROM")?.let(::File)
+        val folder = System.getenv("WORLD_E2E")?.let(::File)
+        assumeTrue(romFile != null && romFile.exists() && folder != null && File(folder, "emerald.ewram").exists())
+        val real = WorldAdapters.forRom("gba", romFile!!.readBytes())!!
+        val memory =
+            GameMemory(
+                listOf(
+                    GameMemory.Region(0x02000000, ByteBuffer.wrap(File(folder, "emerald.ewram").readBytes())),
+                    GameMemory.Region(0x03000000, ByteBuffer.wrap(File(folder, "emerald.iwram").readBytes())),
+                ),
+            )
+        val avatar = real.read(memory)!!
+        assertEquals("0.9", avatar.map)
+        assertEquals(Facing.DOWN, avatar.facing)
+        // Route 101 is joined on the north side, lined up (offset 0); it is 20 tiles tall.
+        assertEquals(mapOf("0.16" to MapOffset(0, -20 * 16)), real.neighbors(memory))
+        assertEquals(Place("Littleroot Town", false), real.place("0.9"))
+        assertEquals(Place("Route 101", false), real.place("0.16"))
+    }
+
     // Uses a real Emerald ROM when EMERALD_ROM points to one (never stored with the code).
     @Test
     fun `draws Brendan and May from the game's own graphics`() {

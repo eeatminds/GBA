@@ -40,8 +40,9 @@ object GameViewport {
 }
 
 /**
- * Draws the other players who are on our map, with this game's own sprites, over the game
- * picture. Works at any screen size: everything is scaled from the game's own pixels.
+ * Draws the other players who are on our map or a map joined to it, with this game's own
+ * sprites, over the game picture. Works at any screen size: everything is scaled from the
+ * game's own pixels.
  */
 @Composable
 fun WorldOverlay(
@@ -54,7 +55,8 @@ fun WorldOverlay(
     val local = view.local ?: return
     // A menu or text box is open: don't draw others over it.
     if (local.covered) return
-    val visible = view.others.filterValues { it.current.map == local.map }
+    // Players on our map, or on a joined map (they show up at its edge, as in the game).
+    val visible = view.others.filterValues { view.onOurMap(it.current) != null }
     if (visible.isEmpty()) return
 
     // Others glide from their last position to the newest one: redraw every frame while that
@@ -102,7 +104,8 @@ fun WorldOverlay(
             val ourFeetX = local.screenX + (ourPicture?.width ?: 16) / 2
             val ourFeetY = local.screenY + (ourPicture?.height ?: 32)
 
-            val drawn = visible.map { (id, remote) -> id to remote.at(now) }.sortedBy { it.second.y }
+            val drawn =
+                visible.mapNotNull { (id, remote) -> view.onOurMap(remote.at(now))?.let { id to it } }.sortedBy { it.second.y }
             for ((id, avatar) in drawn) {
                 val image = bitmap(avatar.look) ?: continue
                 val feetX = ourFeetX + (avatar.x - local.x)

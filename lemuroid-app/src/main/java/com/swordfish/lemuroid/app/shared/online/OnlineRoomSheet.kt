@@ -25,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -32,6 +33,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.shared.online.world.NoWorld
+import com.swordfish.lemuroid.app.shared.online.world.WorldSession
+import com.swordfish.lemuroid.app.shared.online.world.Worlds
 
 /**
  * Everyone in the room, and (in trade & battle rooms) who is linked with whom, with the steps
@@ -46,6 +50,7 @@ fun OnlineRoomSheet(
     onUnlink: () -> Unit,
     onInvite: () -> Unit,
     onDismiss: () -> Unit,
+    world: WorldSession? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -67,6 +72,7 @@ fun OnlineRoomSheet(
                 onLink = onLink,
                 onUnlink = onUnlink,
                 modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                world = world,
             )
         },
         confirmButton = {
@@ -90,15 +96,25 @@ fun OnlineRoomSheetContent(
     onLink: (Int) -> Unit,
     onUnlink: () -> Unit,
     modifier: Modifier = Modifier,
+    world: WorldSession? = null,
 ) {
+    // Where everyone is changes as they walk: follow it while the panel is open.
+    world?.view?.collectAsState()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (hasLinks) {
             LinkSteps(room, isPokemon)
+            if (world != null && world.adapter != NoWorld) {
+                Text(
+                    stringResource(R.string.online_world_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider()
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             room.players.forEach { player ->
-                PlayerRow(room, player, hasLinks, onLink)
+                PlayerRow(room, player, hasLinks, onLink, world)
             }
         }
         if (hasLinks && room.myGroup != null) {
@@ -187,6 +203,7 @@ private fun PlayerRow(
     player: OnlineSession.Player,
     hasLinks: Boolean,
     onLink: (Int) -> Unit,
+    world: WorldSession?,
 ) {
     val isMe = player.id == room.clientId
     val group = room.groupOf(player.id)
@@ -219,6 +236,16 @@ private fun PlayerRow(
                     color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (world != null && hasLinks && !player.away) {
+                val where = if (isMe) ourPlaceText(world) else placeText(world.spotOf(player.id))
+                Text(
+                    where,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         if (hasLinks && !isMe && !linkedWithMe && !player.away) {
             val asked = room.outgoingRequest == player.id
@@ -229,6 +256,29 @@ private fun PlayerRow(
         }
     }
 }
+
+/** Our game and where we are. */
+@Composable
+private fun ourPlaceText(world: WorldSession): String {
+    val game = Worlds.gameName(world.adapter.world) ?: return stringResource(R.string.online_game_not_shown)
+    val place = world.ourPlace() ?: return game
+    return stringResource(R.string.online_place_you, game, place)
+}
+
+/** Where another player is, and why they may not be on our screen. */
+@Composable
+private fun placeText(spot: WorldSession.Spot): String =
+    when (spot) {
+        is WorldSession.Spot.Here -> stringResource(R.string.online_place_here, spot.place ?: stringResource(R.string.online_place_this_map))
+        is WorldSession.Spot.Nearby -> stringResource(R.string.online_place_nearby, spot.place ?: "")
+        is WorldSession.Spot.Elsewhere ->
+            spot.place?.let { stringResource(R.string.online_place_elsewhere, it) } ?: stringResource(R.string.online_place_somewhere)
+        WorldSession.Spot.Busy -> stringResource(R.string.online_place_busy)
+        is WorldSession.Spot.OtherGame ->
+            spot.game?.let { stringResource(R.string.online_place_other_game, it) } ?: stringResource(R.string.online_place_other_game_unknown)
+        WorldSession.Spot.NotShown -> stringResource(R.string.online_place_not_shown)
+        WorldSession.Spot.Unknown -> stringResource(R.string.online_place_unknown)
+    }
 
 /** Someone wants to plug their link cable into ours. */
 @Composable

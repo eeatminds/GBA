@@ -111,6 +111,12 @@ class OnlineSession(
         data class PlayerBack(val name: String) : Event
 
         data object Reconnected : Event
+
+        /** [name] talked to us in the game: do we want to [kind] ("trade" or "battle")? */
+        data class Invited(val from: Int, val name: String, val kind: String) : Event
+
+        /** [name] answered our invitation. Saying yes linked us. */
+        data class InviteAnswered(val from: Int, val name: String, val kind: String, val accepted: Boolean) : Event
     }
 
     /** Play together rooms only: whether the game is waiting on the network. */
@@ -142,6 +148,12 @@ class OnlineSession(
 
     /** Whether we made the room (false: we joined one). */
     val isCreator: Boolean get() = config.isHost
+
+    /**
+     * Whether the room server is recent enough for keeping seats and for invitations to trade or
+     * battle (it hands out seat tokens since the same update).
+     */
+    val serverIsCurrent: Boolean get() = seat?.token != null
 
     /** The room's code once known (the one we joined, or the one the server gave our room). */
     val roomCode: String? get() = seat?.code ?: config.roomCode
@@ -245,6 +257,21 @@ class OnlineSession(
     /** Unplug our link cable. */
     fun unlink() {
         sendControl(JSONObject().put("t", "unlink"))
+    }
+
+    /** Ask player [playerId] to "trade" or "battle", as if talking to them in the game. */
+    fun invite(
+        playerId: Int,
+        kind: String,
+    ) {
+        sendControl(JSONObject().put("t", "invite").put("id", playerId).put("kind", kind))
+    }
+
+    fun answerInvite(
+        playerId: Int,
+        accept: Boolean,
+    ) {
+        sendControl(JSONObject().put("t", "invite_reply").put("id", playerId).put("accept", accept))
     }
 
     private fun sendControl(message: JSONObject) {
@@ -532,6 +559,20 @@ class OnlineSession(
             "link_error" -> {
                 updateRoom { it.copy(outgoingRequest = null) }
                 mutableEvents.tryEmit(Event.LinkError(message.optString("message")))
+            }
+
+            "invite" -> {
+                val from = message.optInt("from", -1)
+                if (from < 0) return
+                mutableEvents.tryEmit(Event.Invited(from, message.optString("name"), message.optString("kind", "trade")))
+            }
+
+            "invite_reply" -> {
+                val from = message.optInt("from", -1)
+                val name = (mutableState.value as? State.InRoom)?.playerName(from).orEmpty()
+                mutableEvents.tryEmit(
+                    Event.InviteAnswered(from, name, message.optString("kind", "trade"), message.optBoolean("accept", false)),
+                )
             }
 
             "closed" -> fail(Reason.HOST_LEFT)
