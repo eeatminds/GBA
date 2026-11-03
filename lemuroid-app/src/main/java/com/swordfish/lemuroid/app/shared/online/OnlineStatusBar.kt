@@ -2,6 +2,10 @@ package com.swordfish.lemuroid.app.shared.online
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -35,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,13 +61,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel
 import com.swordfish.lemuroid.app.shared.online.world.GameViewport
 import com.swordfish.lemuroid.app.shared.online.world.Talk
 import com.swordfish.lemuroid.app.shared.online.world.TalkBox
 import com.swordfish.lemuroid.app.shared.online.world.WorldSession
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 
 /**
  * The room, shown over the game screen:
@@ -76,6 +82,9 @@ fun OnlineStatusBar(
     gameTitle: String,
     world: WorldSession? = null,
     aPresses: Flow<Unit>? = null,
+    // The game's buttons for the talk box, and a switch that keeps them from the game meanwhile.
+    menuKeys: Flow<BaseGameScreenViewModel.MenuKey>? = null,
+    onCaptureInput: (Boolean) -> Unit = {},
 ) {
     val state by session.state.collectAsState()
     val context = LocalContext.current
@@ -89,7 +98,11 @@ fun OnlineStatusBar(
     LaunchedEffect(session) {
         session.events.collect { event ->
             when (event) {
-                is OnlineSession.Event.Invited -> talk = Talk.Invited(event.from, event.name, event.kind)
+                is OnlineSession.Event.Invited -> {
+                    talk = Talk.Invited(event.from, event.name, event.kind)
+                    // Someone wants to trade or battle: hard to miss, even mid-game.
+                    buzz(context)
+                }
                 is OnlineSession.Event.InviteAnswered -> {
                     val current = talk
                     if (current is Talk.Waiting && current.playerId == event.from) {
@@ -123,6 +136,11 @@ fun OnlineStatusBar(
             talk = Talk.Ask(id, room.playerName(id).ifBlank { context.getString(R.string.online_player_fallback, id + 1) })
         }
     }
+
+    // While a conversation is open, the pad and A/B answer it instead of moving the player.
+    val talking = talk != null
+    LaunchedEffect(talking) { onCaptureInput(talking) }
+    DisposableEffect(Unit) { onDispose { onCaptureInput(false) } }
 
     // Nobody answers forever.
     LaunchedEffect(talk) {
@@ -184,7 +202,28 @@ fun OnlineStatusBar(
                     }
             },
             onClose = { talk = null },
+            keys = menuKeys,
         )
+    }
+}
+
+// Two short pulses.
+private fun buzz(context: Context) {
+    runCatching {
+        val vibrator =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            } ?: return
+        val pattern = longArrayOf(0, 90, 90, 90)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(pattern, -1)
+        }
     }
 }
 

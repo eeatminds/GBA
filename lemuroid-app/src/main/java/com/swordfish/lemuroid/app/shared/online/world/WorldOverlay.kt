@@ -11,7 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 
 /** Where the game picture is drawn on screen, in pixels (set by the game screen layout). */
@@ -43,6 +44,11 @@ object GameViewport {
  * Draws the other players who are on our map or a map joined to it, with this game's own
  * sprites, over the game picture. Works at any screen size: everything is scaled from the
  * game's own pixels.
+ *
+ * While anyone is nearby it follows the game every frame: our own position is read fresh each
+ * frame (so others stay put against the scrolling map), others are played back from
+ * [WorldSession.Remote], and everything lands on whole game pixels. A frame that looks the
+ * same as the last one isn't drawn again.
  */
 @Composable
 fun WorldOverlay(
@@ -52,22 +58,24 @@ fun WorldOverlay(
     val view by session.view.collectAsState()
     val viewport by GameViewport.rect.collectAsState()
     val area = viewport ?: return
-    val local = view.local ?: return
-    // A menu or text box is open: don't draw others over it.
-    if (local.covered) return
-    // Players on our map, or on a joined map (they show up at its edge, as in the game).
-    val visible = view.others.filterValues { view.onOurMap(it.current) != null }
-    if (visible.isEmpty()) return
+    // Anyone on our map, or on a joined map (they show up at its edge, as in the game)?
+    val nearby = view.local != null && view.others.values.any { view.onOurMap(it.current) != null }
+    if (!nearby) return
 
-    // Others glide from their last position to the newest one: redraw every frame while that
-    // lasts (one update interval), then stop until the next update, so standing still costs nothing.
-    var now by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
-    val lastUpdate = visible.values.maxOf { it.receivedAt }
-    LaunchedEffect(lastUpdate) {
-        do {
-            withFrameMillis { now = SystemClock.uptimeMillis() }
-        } while (now < lastUpdate + WorldSession.TICK_MS)
+    var frame by remember { mutableStateOf<OverlayFrame?>(null) }
+    LaunchedEffect(session) {
+        while (isActive) {
+            withFrameMillis {
+                val current = session.view.value
+                val local = session.readLocal() ?: current.local
+                frame = local?.let { overlayFrame(current, it, SystemClock.uptimeMillis() - WorldSession.PLAYBACK_DELAY_MS) }
+            }
+        }
     }
+    val shown = frame ?: return
+    val local = shown.local
+    // A menu or text box is open: don't draw others over it.
+    if (local.covered || shown.players.isEmpty()) return
 
     val adapter = session.adapter
     val bitmaps = remember(adapter) { HashMap<Pair<Int, Int>, ImageBitmap?>() }
@@ -104,29 +112,46 @@ fun WorldOverlay(
             val ourFeetX = local.screenX + (ourPicture?.width ?: 16) / 2
             val ourFeetY = local.screenY + (ourPicture?.height ?: 32)
 
-            val drawn =
-                visible.mapNotNull { (id, remote) -> view.onOurMap(remote.at(now))?.let { id to it } }.sortedBy { it.second.y }
-            for ((id, avatar) in drawn) {
-                val image = bitmap(avatar.look) ?: continue
-                val feetX = ourFeetX + (avatar.x - local.x)
-                val feetY = ourFeetY + (avatar.y - local.y)
-                val left = (feetX - image.width / 2) * scale
-                val top = (feetY - image.height) * scale
-                val width = image.width * scale
-                val height = image.height * scale
-                val pivot = Offset(left + width / 2, top + height / 2)
-                scale(scaleX = if (avatar.look.flip) -1f else 1f, scaleY = 1f, pivot = pivot) {
+            for (player in shown.players) {
+                val image = bitmap(player.look) ?: continue
+                // Whole game pixels, like everything else the game draws.
+                val feetX = ourFeetX + (player.x - local.x)
+                val feetY = ourFeetY + (player.y - local.y)
+                val left = ((feetX - image.width / 2) * scale).roundToInt()
+                val top = ((feetY - image.height) * scale).roundToInt()
+                val width = (image.width * scale).roundToInt()
+                val height = (image.height * scale).roundToInt()
+                val pivot = Offset(left + width / 2f, top + height / 2f)
+                scale(scaleX = if (player.look.flip) -1f else 1f, scaleY = 1f, pivot = pivot) {
                     drawImage(
                         image = image,
-                        dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
-                        dstSize = IntSize(width.roundToInt(), height.roundToInt()),
+                        dstOffset = IntOffset(left, top),
+                        dstSize = IntSize(width, height),
                         filterQuality = FilterQuality.None,
                     )
                 }
-                names[id]?.let { name ->
-                    drawContext.canvas.nativeCanvas.drawText(name, left + width / 2, top - 4f, labelPaint)
+                names[player.id]?.let { name ->
+                    drawContext.canvas.nativeCanvas.drawText(name, left + width / 2f, top - 4f, labelPaint)
                 }
             }
         }
     }
 }
+
+/** One overlay picture: us, and the others on our map (in our map's coordinates, back to front). */
+private data class OverlayFrame(val local: Avatar, val players: List<Placed>)
+
+private data class Placed(val id: Int, val x: Int, val y: Int, val look: Look)
+
+private fun overlayFrame(
+    view: WorldSession.View,
+    local: Avatar,
+    playbackTime: Long,
+): OverlayFrame =
+    OverlayFrame(
+        // Only what decides the picture, so a still frame equals the last one.
+        local.copy(facing = null),
+        view.others.mapNotNull { (id, remote) ->
+            view.onMap(remote.at(playbackTime), local)?.let { Placed(id, it.x, it.y, it.look) }
+        }.sortedBy { it.y },
+    )

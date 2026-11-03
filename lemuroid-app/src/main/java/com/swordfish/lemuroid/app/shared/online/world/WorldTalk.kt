@@ -1,5 +1,6 @@
 package com.swordfish.lemuroid.app.shared.online.world
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,14 +12,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -27,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
+import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlin.math.roundToInt
 
 /** Talking to another player in the game, step by step. */
@@ -51,7 +62,8 @@ sealed interface Talk {
 
 /**
  * The conversation as a text box at the bottom of the game picture, in the spirit of the games'
- * own boxes: a light box with a dark frame, game-like lettering, and choices to tap.
+ * own boxes: a light box with a dark frame, game-like lettering, and choices with an arrow.
+ * The control pad moves the arrow, A picks and B backs out ([keys]); tapping a choice works too.
  */
 @Composable
 fun TalkBox(
@@ -60,6 +72,7 @@ fun TalkBox(
     onAsk: (playerId: Int, kind: String) -> Unit,
     onAnswer: (playerId: Int, accept: Boolean) -> Unit,
     onClose: () -> Unit,
+    keys: Flow<BaseGameScreenViewModel.MenuKey>? = null,
 ) {
     val viewport by GameViewport.rect.collectAsState()
     val area = viewport ?: return
@@ -75,6 +88,8 @@ fun TalkBox(
 
     val message: String
     val choices: List<Pair<String, () -> Unit>>
+    // What B does: back out, or say no.
+    val back: () -> Unit
     when (talk) {
         is Talk.Ask -> {
             message = stringResource(R.string.talk_ask, name)
@@ -84,10 +99,12 @@ fun TalkBox(
                     stringResource(R.string.talk_battle) to { onAsk(talk.playerId, Talk.BATTLE) },
                     stringResource(R.string.talk_cancel) to onClose,
                 )
+            back = onClose
         }
         is Talk.Waiting -> {
             message = stringResource(R.string.talk_waiting, name, kindWord(talk.kind))
             choices = listOf(stringResource(R.string.talk_cancel) to onClose)
+            back = onClose
         }
         is Talk.Invited -> {
             message = stringResource(R.string.talk_invited, name, kindWord(talk.kind))
@@ -96,6 +113,7 @@ fun TalkBox(
                     stringResource(R.string.talk_yes) to { onAnswer(talk.playerId, true) },
                     stringResource(R.string.talk_no) to { onAnswer(talk.playerId, false) },
                 )
+            back = { onAnswer(talk.playerId, false) }
         }
         is Talk.Result -> {
             message =
@@ -107,10 +125,27 @@ fun TalkBox(
                     else -> stringResource(R.string.talk_go_other, name)
                 }
             choices = listOf(stringResource(R.string.talk_ok) to onClose)
+            back = onClose
+        }
+    }
+
+    var selected by remember(talk) { mutableIntStateOf(0) }
+    val currentChoices by rememberUpdatedState(choices)
+    val currentBack by rememberUpdatedState(back)
+    LaunchedEffect(talk, keys) {
+        keys?.collect { key ->
+            val count = currentChoices.size
+            when (key) {
+                BaseGameScreenViewModel.MenuKey.LEFT, BaseGameScreenViewModel.MenuKey.UP -> selected = (selected - 1).coerceAtLeast(0)
+                BaseGameScreenViewModel.MenuKey.RIGHT, BaseGameScreenViewModel.MenuKey.DOWN -> selected = (selected + 1).coerceAtMost(count - 1)
+                BaseGameScreenViewModel.MenuKey.A -> currentChoices.getOrNull(selected)?.second?.invoke()
+                BaseGameScreenViewModel.MenuKey.B -> currentBack()
+            }
         }
     }
 
     with(density) {
+        val arrow = letter.toDp() * 0.7f
         // Over the game picture, at its bottom like the game's own text boxes. Only the box
         // itself takes taps; the rest of the game stays playable.
         Box(
@@ -120,31 +155,51 @@ fun TalkBox(
                     .size(area.width.toDp(), area.height.toDp()),
             contentAlignment = Alignment.BottomCenter,
         ) {
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp)
-                    .background(FRAME, RoundedCornerShape(6.dp))
-                    .padding(3.dp)
-                    .background(PAPER, RoundedCornerShape(4.dp))
-                    .border(1.dp, EDGE, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(message, style = style)
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    choices.forEachIndexed { index, (label, action) ->
-                        // The first choice carries the game-like arrow.
-                        Text(
-                            (if (index == 0) "▶" else " ") + label,
-                            style = style,
-                            modifier = Modifier.clickable(onClick = action).padding(vertical = 2.dp),
-                        )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .background(FRAME, RoundedCornerShape(6.dp))
+                        .padding(3.dp)
+                        .background(PAPER, RoundedCornerShape(4.dp))
+                        .border(1.dp, EDGE, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(message, style = style)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        choices.forEachIndexed { index, (label, action) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier =
+                                    Modifier
+                                        .clickable {
+                                            selected = index
+                                            action()
+                                        }
+                                        .padding(vertical = 2.dp),
+                            ) {
+                                // The arrow has its own fixed space, so every choice lines up.
+                                Canvas(Modifier.size(arrow)) {
+                                    if (index == selected) {
+                                        val path =
+                                            Path().apply {
+                                                moveTo(size.width * 0.15f, 0f)
+                                                lineTo(size.width, size.height / 2)
+                                                lineTo(size.width * 0.15f, size.height)
+                                                close()
+                                            }
+                                        drawPath(path, INK)
+                                    }
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(label, style = style)
+                            }
+                        }
                     }
                 }
             }
-        }
         }
     }
 }

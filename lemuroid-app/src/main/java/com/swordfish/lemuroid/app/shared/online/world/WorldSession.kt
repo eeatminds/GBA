@@ -12,6 +12,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /**
  * Shares where our character is with the room, and keeps where everyone else is.
@@ -30,18 +33,65 @@ class WorldSession(
     // Runs a block on the emulation thread between frames (for writing game memory safely).
     private val onEmulator: (() -> Unit) -> Unit = { it() },
 ) {
-    /** Another player's last two positions, so the overlay can glide between them. */
-    data class Remote(val previous: Avatar, val current: Avatar, val receivedAt: Long) {
-        /** Where to draw them at [now] (milliseconds, [SystemClock.uptimeMillis]). */
-        fun at(now: Long): Avatar {
-            if (previous.map != current.map) return current
-            val progress = ((now - receivedAt).toFloat() / TICK_MS).coerceIn(0f, 1f)
-            // Big jumps (warps, a lost message) snap instead of sliding across the map.
-            if (kotlin.math.abs(current.x - previous.x) > 48 || kotlin.math.abs(current.y - previous.y) > 48) return current
-            return current.copy(
-                x = previous.x + ((current.x - previous.x) * progress).toInt(),
-                y = previous.y + ((current.y - previous.y) * progress).toInt(),
+    /**
+     * Another player's recent positions, played back a little behind real time ([PLAYBACK_DELAY_MS])
+     * so their walk stays smooth when messages arrive unevenly.
+     *
+     * Messages carry no time, so each one gets a playback time: the sender reads its game at a
+     * steady pace, so while they move, one more interval after the previous message (never later
+     * than when it arrived, nor far before); after a pause, when it arrived.
+     */
+    class Remote private constructor(
+        private val samples: List<Sample>,
+        private val interval: Float,
+    ) {
+        class Sample(val avatar: Avatar, val time: Long)
+
+        val current: Avatar get() = samples.last().avatar
+
+        /** Where to draw them at playback time [time] (milliseconds, [SystemClock.uptimeMillis] based). */
+        fun at(time: Long): Avatar {
+            val next = samples.indexOfFirst { it.time > time }
+            if (next == -1) return current
+            if (next == 0) return samples[0].avatar
+            val a = samples[next - 1]
+            val b = samples[next]
+            // Big jumps (warps, a lost message) and map changes snap instead of sliding.
+            if (a.avatar.map != b.avatar.map || abs(b.avatar.x - a.avatar.x) > 48 || abs(b.avatar.y - a.avatar.y) > 48) return a.avatar
+            val progress = (time - a.time).toFloat() / (b.time - a.time).coerceAtLeast(1)
+            return a.avatar.copy(
+                x = a.avatar.x + ((b.avatar.x - a.avatar.x) * progress).roundToInt(),
+                y = a.avatar.y + ((b.avatar.y - a.avatar.y) * progress).roundToInt(),
             )
+        }
+
+        /** These positions plus [avatar], which arrived at [now]. */
+        fun with(
+            avatar: Avatar,
+            now: Long,
+        ): Remote {
+            val last = samples.last()
+            val gap = now - last.time
+            val moving = gap < PAUSE_MS
+            // The sender's pace, learned from messages that came while they kept moving.
+            val pace = if (moving && gap > 0) (interval * 0.9f + gap.coerceIn(TICK_MS / 2, TICK_MS * 2) * 0.1f) else interval
+            val time = if (moving) (last.time + pace.roundToLong()).coerceIn(now - MAX_LAG_MS, now) else now
+            val kept = samples.filter { it.time >= now - HISTORY_MS }.takeLast(MAX_SAMPLES - 2)
+            // After a pause they stood still until one step before this: don't slide across the pause.
+            val hold = if (!moving && now - TICK_MS > last.time) listOf(Sample(last.avatar, now - TICK_MS)) else emptyList()
+            return Remote(kept + hold + Sample(avatar, time.coerceAtLeast(last.time + 1)), pace)
+        }
+
+        companion object {
+            fun of(
+                avatar: Avatar,
+                now: Long,
+            ) = Remote(listOf(Sample(avatar, now)), TICK_MS.toFloat())
+
+            private const val PAUSE_MS = TICK_MS * 3
+            private const val MAX_LAG_MS = 100L
+            private const val HISTORY_MS = 1_500L
+            private const val MAX_SAMPLES = 24
         }
     }
 
@@ -56,9 +106,15 @@ class WorldSession(
         val presences: Map<Int, Presence> = emptyMap(),
     ) {
         /** [avatar] in our map's coordinates, or null when it is on a map that isn't ours or joined to it. */
-        fun onOurMap(avatar: Avatar): Avatar? {
-            val ours = local ?: return null
+        fun onOurMap(avatar: Avatar): Avatar? = local?.let { onMap(avatar, it) }
+
+        /** The same for [ours] read just now ([neighbors] belong to [local]'s map). */
+        fun onMap(
+            avatar: Avatar,
+            ours: Avatar,
+        ): Avatar? {
             if (avatar.map == ours.map) return avatar
+            if (ours.map != local?.map) return null
             val offset = neighbors[avatar.map] ?: return null
             return avatar.copy(map = ours.map, x = avatar.x + offset.dx, y = avatar.y + offset.dy)
         }
@@ -199,6 +255,9 @@ class WorldSession(
         }?.key
     }
 
+    /** Our character at this very moment (the overlay reads it every frame), or null. */
+    fun readLocal(): Avatar? = gameMemory?.let { runCatching { adapter.read(it) }.getOrNull() }
+
     /** Where player [id] is, as we know it. */
     fun spotOf(id: Int): Spot {
         val view = view.value
@@ -232,8 +291,7 @@ class WorldSession(
             return
         }
         val now = SystemClock.uptimeMillis()
-        val previous = remotes[from]?.let { it.at(now) } ?: avatar
-        remotes[from] = Remote(previous, avatar, now)
+        remotes[from] = remotes[from]?.with(avatar, now) ?: Remote.of(avatar, now)
     }
 
     fun onPlayerLeft(id: Int) {
@@ -266,6 +324,9 @@ class WorldSession(
 
     companion object {
         const val TICK_MS = 66L
+
+        /** Other players are drawn this far behind real time, for smooth playback. */
+        const val PLAYBACK_DELAY_MS = 150L
 
         // A queued script runs as soon as the player isn't busy; give up if that takes this long.
         private const val IN_PLACE_START_TIMEOUT_MS = 20_000L

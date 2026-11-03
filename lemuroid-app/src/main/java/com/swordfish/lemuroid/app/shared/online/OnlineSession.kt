@@ -200,6 +200,15 @@ class OnlineSession(
     private var connectAttempts = 0
 
     /** Call once the game is running. */
+    // The trainer name from the player's game, when known; otherwise the name set in the app.
+    @Volatile private var trainerName: String? = null
+    private val playerName: String get() = trainerName ?: config.playerName
+
+    /** Shows the others [name] (the player's in-game trainer name) instead of the app's name. Call before [start]. */
+    fun useTrainerName(name: String?) {
+        trainerName = name?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     fun start() {
         if (!active.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
@@ -320,7 +329,7 @@ class OnlineSession(
             JSONObject()
                 .put("t", "host")
                 .put("kind", config.kind.serverKey)
-                .put("name", config.playerName)
+                .put("name", playerName)
                 .put("game", config.gameTitle)
                 .put("system", config.systemId)
                 .put("core", config.coreName)
@@ -339,7 +348,7 @@ class OnlineSession(
         JSONObject()
             .put("t", "join")
             .put("code", code)
-            .put("name", config.playerName)
+            .put("name", playerName)
             .put("protocol", protocol)
 
     // Events from sockets we already gave up on are ignored.

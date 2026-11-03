@@ -13,15 +13,12 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.swordfish.lemuroid.app.shared.cheats.CheatsManager
-import com.swordfish.lemuroid.common.graphics.takeScreenshot
-import kotlinx.coroutines.Dispatchers
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.mobile.feature.game.GameActivity
 import com.swordfish.lemuroid.app.mobile.feature.game.GameService
@@ -29,6 +26,7 @@ import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
 import com.swordfish.lemuroid.app.mobile.shared.compose.ui.AppTheme
 import com.swordfish.lemuroid.app.shared.GameMenuContract
 import com.swordfish.lemuroid.app.shared.ImmersiveActivity
+import com.swordfish.lemuroid.app.shared.cheats.CheatsManager
 import com.swordfish.lemuroid.app.shared.coreoptions.CoreOption
 import com.swordfish.lemuroid.app.shared.coreoptions.LemuroidCoreOption
 import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelSideEffects
@@ -37,16 +35,17 @@ import com.swordfish.lemuroid.app.shared.online.OnlineConfig
 import com.swordfish.lemuroid.app.shared.online.OnlineSession
 import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
-import com.swordfish.lemuroid.app.shared.online.world.NoWorld
-import com.swordfish.lemuroid.app.shared.online.world.WorldSession
-import com.swordfish.lemuroid.app.shared.online.world.WorldOverlay
-import com.swordfish.lemuroid.app.shared.online.world.WorldAdapters
-import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.app.shared.online.world.GameMemory
+import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.world.NoWorld
+import com.swordfish.lemuroid.app.shared.online.world.TrainerNames
 import com.swordfish.lemuroid.app.shared.online.world.VisitStore
 import com.swordfish.lemuroid.app.shared.online.world.WorldAdapter
+import com.swordfish.lemuroid.app.shared.online.world.WorldAdapters
+import com.swordfish.lemuroid.app.shared.online.world.WorldOverlay
+import com.swordfish.lemuroid.app.shared.online.world.WorldSession
 import com.swordfish.lemuroid.app.shared.online.world.WorldVisit
-import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
 import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
 import com.swordfish.lemuroid.app.tv.game.TVGameActivity
@@ -54,6 +53,7 @@ import com.swordfish.lemuroid.common.animationDuration
 import com.swordfish.lemuroid.common.coroutines.launchOnState
 import com.swordfish.lemuroid.common.displayToast
 import com.swordfish.lemuroid.common.dump
+import com.swordfish.lemuroid.common.graphics.takeScreenshot
 import com.swordfish.lemuroid.common.kotlin.serializable
 import com.swordfish.lemuroid.lib.core.CoreVariablesManager
 import com.swordfish.lemuroid.lib.game.GameLoader
@@ -68,16 +68,18 @@ import com.swordfish.libretrodroid.GLRetroView
 import com.swordfish.libretrodroid.Variable
 import com.swordfish.touchinput.radial.sensors.TiltConfiguration
 import dagger.Lazy
+import java.io.File
+import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.io.File
-import javax.inject.Inject
 
 @OptIn(DelicateCoroutinesApi::class)
 abstract class BaseGameActivity : ImmersiveActivity() {
@@ -194,6 +196,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                             gameTitle = game.customName ?: game.title,
                             world = worldSession.value,
                             aPresses = baseGameScreenViewModel.aButtonPresses,
+                            menuKeys = baseGameScreenViewModel.menuKeys,
+                            onCaptureInput = { baseGameScreenViewModel.capturingInput = it },
                         )
                     }
                 }
@@ -205,6 +209,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             // The emulator only exists once the game has drawn its first frame.
             baseGameScreenViewModel.retroGameView.waitGLEvent<GLRetroView.GLRetroEvents.FrameRendered>()
             applyCheats()
+            // Others see our trainer name from the game's save (instead of "Player 1").
+            if (session != null && session.hasLinks) session.useTrainerName(readTrainerName())
             // The core registers its link interface while the game loads.
             session?.start()
             // Same world rooms also share the map, in games we know how to read.
@@ -367,6 +373,13 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        // A box over the game (the talk box) has the pad: hat and stick move its choice.
+        if (baseGameScreenViewModel.capturingInput) {
+            val x = event.getAxisValue(MotionEvent.AXIS_HAT_X).takeIf { it != 0f } ?: event.getAxisValue(MotionEvent.AXIS_X)
+            val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y).takeIf { it != 0f } ?: event.getAxisValue(MotionEvent.AXIS_Y)
+            baseGameScreenViewModel.captureControllerDirection(x, y)
+            return true
+        }
         val handled = baseGameScreenViewModel.sendMotionEvent(event)
         if (handled) {
             return true
@@ -378,6 +391,11 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         keyCode: Int,
         event: KeyEvent,
     ): Boolean {
+        // A box over the game (the talk box) has the buttons: presses go to it, not the game.
+        if (baseGameScreenViewModel.capturingInput) {
+            if (event.repeatCount == 0 && baseGameScreenViewModel.captureKey(keyCode)) return true
+            if (keyCode in BOX_KEYS) return true
+        }
         if (keyCode == KeyEvent.KEYCODE_BUTTON_A && event.repeatCount == 0) baseGameScreenViewModel.aButtonPresses.tryEmit(Unit)
         val handled = baseGameScreenViewModel.sendKeyEvent(keyCode, event)
         if (handled) {
@@ -500,7 +518,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     private fun startWorld(session: OnlineSession) {
         lifecycleScope.launch {
             // Games we can't show on maps still tell the others so (for the Players panel).
-            val rom = WorldAdapters.loadRom(applicationContext, game)
+            val rom = gameRom()
             val adapter = rom?.let { WorldAdapters.forRom(game.systemId, it) } ?: NoWorld
             if (adapter == NoWorld) Timber.i("Same world: ${game.title} can't be shown on maps")
             val world =
@@ -515,6 +533,19 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             if (adapter != NoWorld) startVisit(session, world, adapter)
         }
     }
+
+    // The game's ROM, read once (for the world readers and the trainer name).
+    private var romBytes: ByteArray? = null
+
+    private suspend fun gameRom(): ByteArray? = romBytes ?: WorldAdapters.loadRom(applicationContext, game)?.also { romBytes = it }
+
+    private suspend fun readTrainerName(): String? =
+        runCatching {
+            val rom = gameRom() ?: return null
+            val view = baseGameScreenViewModel.retroGameView.retroGameView ?: return null
+            val save = withContext(Dispatchers.IO) { view.serializeSRAM() }
+            TrainerNames.fromSave(game.systemId, rom, save)
+        }.onFailure { Timber.w(it, "Could not read the trainer name") }.getOrNull()
 
     private fun visitStore() = VisitStore(File(filesDir, "visits/${game.id}"))
 
@@ -569,7 +600,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         val store = visitStore()
         if (!store.exists()) return
         lifecycleScope.launch {
-            val rom = WorldAdapters.loadRom(applicationContext, game) ?: return@launch
+            val rom = gameRom() ?: return@launch
             val adapter = WorldAdapters.forRom(game.systemId, rom) ?: return@launch
             delay(VISIT_START_DELAY_MS)
             newVisit(adapter).resume(null)
@@ -719,6 +750,17 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         // How often the auto-resume snapshot is saved while playing.
         private const val PERIODIC_SAVE_MS = 30_000L
+
+        // Keys a box over the game uses, including repeats of held ones.
+        private val BOX_KEYS =
+            setOf(
+                KeyEvent.KEYCODE_BUTTON_A,
+                KeyEvent.KEYCODE_BUTTON_B,
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT,
+            )
 
         // The auto-resume snapshot loads right after the first frame; visits start after it.
         private const val VISIT_START_DELAY_MS = 2_500L

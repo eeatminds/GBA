@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -349,11 +350,87 @@ class BaseGameScreenViewModel(
     /** Each press of the game's A button (touch or controller), for talking to other players. */
     val aButtonPresses = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
 
+    /** The game's buttons, as a box the app shows over the game (like the talk box) uses them. */
+    enum class MenuKey { UP, DOWN, LEFT, RIGHT, A, B }
+
+    /**
+     * While true, the control pad and the A and B buttons drive the app's box instead of the
+     * game: presses come out of [menuKeys]. Releases (and a centred pad) still reach the game,
+     * so nothing it saw pressed stays held.
+     */
+    @Volatile var capturingInput = false
+    val menuKeys = MutableSharedFlow<MenuKey>(extraBufferCapacity = 8)
+    private var heldDirection: MenuKey? = null
+
     fun handleVirtualInputEvent(events: List<InputEvent>) {
+        if (capturingInput) {
+            touchControls.handleVirtualInputEvent(events.mapNotNull(::captureVirtual))
+            return
+        }
+        heldDirection = null
         if (events.any { it is InputEvent.Button && it.id == KeyEvent.KEYCODE_BUTTON_A && it.pressed }) {
             aButtonPresses.tryEmit(Unit)
         }
         touchControls.handleVirtualInputEvent(events)
+    }
+
+    private fun captureVirtual(event: InputEvent): InputEvent? =
+        when (event) {
+            is InputEvent.Button ->
+                when {
+                    // The menu button still opens the game menu.
+                    event.id == KeyEvent.KEYCODE_BUTTON_MODE || !event.pressed -> event
+                    else -> {
+                        captureKey(event.id)
+                        null
+                    }
+                }
+            is InputEvent.DiscreteDirection -> {
+                captureDirection(event.direction.x, event.direction.y)
+                event.copy(direction = Offset.Zero)
+            }
+            is InputEvent.ContinuousDirection -> {
+                captureDirection(event.direction.x, event.direction.y)
+                event.copy(direction = Offset.Zero)
+            }
+            else -> event
+        }
+
+    /** A controller key while [capturingInput]: true when the box used it (the game must not get it). */
+    fun captureKey(keyCode: Int): Boolean {
+        val key =
+            when (keyCode) {
+                KeyEvent.KEYCODE_BUTTON_A -> MenuKey.A
+                KeyEvent.KEYCODE_BUTTON_B -> MenuKey.B
+                KeyEvent.KEYCODE_DPAD_UP -> MenuKey.UP
+                KeyEvent.KEYCODE_DPAD_DOWN -> MenuKey.DOWN
+                KeyEvent.KEYCODE_DPAD_LEFT -> MenuKey.LEFT
+                KeyEvent.KEYCODE_DPAD_RIGHT -> MenuKey.RIGHT
+                else -> return false
+            }
+        menuKeys.tryEmit(key)
+        return true
+    }
+
+    /** A controller's hat or stick while [capturingInput] (y grows downwards). */
+    fun captureControllerDirection(
+        x: Float,
+        y: Float,
+    ) = captureDirection(x, -y)
+
+    // One step each time the pad leaves the centre (pad coordinates: y grows upwards).
+    private fun captureDirection(
+        x: Float,
+        y: Float,
+    ) {
+        val direction =
+            when {
+                kotlin.math.abs(x) < DIRECTION_DEAD_ZONE && kotlin.math.abs(y) < DIRECTION_DEAD_ZONE -> null
+                kotlin.math.abs(x) >= kotlin.math.abs(y) -> if (x > 0) MenuKey.RIGHT else MenuKey.LEFT
+                else -> if (y > 0) MenuKey.UP else MenuKey.DOWN
+            }
+        if (direction != null && direction != heldDirection) menuKeys.tryEmit(direction)
+        heldDirection = direction
     }
 
     override fun onCreate(owner: LifecycleOwner) {
@@ -376,3 +453,6 @@ class BaseGameScreenViewModel(
         return inputs.sendMotionEvent(event)
     }
 }
+
+// How far the pad must move to count as a direction for the app's boxes.
+private const val DIRECTION_DEAD_ZONE = 0.5f

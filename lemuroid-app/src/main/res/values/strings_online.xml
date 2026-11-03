@@ -167,8 +167,8 @@
     <string name="talk_trade">TRADE</string>
     <string name="talk_battle">BATTLE</string>
     <string name="talk_cancel">CANCEL</string>
-    <string name="talk_yes">YES</string>
-    <string name="talk_no">NO</string>
+    <string name="talk_yes">ACCEPT</string>
+    <string name="talk_no">DECLINE</string>
     <string name="talk_ok">OK</string>
     <string name="talk_starting_trade">Linking with %1$s… Your game saves, then the trade opens right here. Don\'t close the game.</string>
     <string name="talk_starting_battle">Linking with %1$s… Your game saves, then the battle starts right here. Don\'t close the game.</string>
