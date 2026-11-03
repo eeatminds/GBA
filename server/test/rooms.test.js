@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BROADCAST, EMPTY_ROOM_MS, RoomRegistry, cleanName, describeGroups, describePlayers, isValidCode } from '../src/rooms.js';
+import { BROADCAST, EMPTY_ROOM_MS, RoomRegistry, cleanName, describeGroups, describePlayers, describeRoom, isValidCode } from '../src/rooms.js';
 
 test('host gets client id 0 and joiners get the lowest free id', () => {
   const registry = new RoomRegistry();
@@ -74,6 +74,16 @@ test('trade & battle rooms stay open when the host leaves, and the next player o
   assert.deepEqual(registry.sweep(Date.now()), []);
   assert.deepEqual(registry.sweep(Date.now() + EMPTY_ROOM_MS), [room.code]);
   assert.equal(registry.rooms.size, 0);
+});
+
+test('same world rooms are trade & battle rooms marked as such', () => {
+  const registry = new RoomRegistry();
+  const { room: world } = registry.createRoom('a', { system: 'gbc', world: true, public: true });
+  const { room: plain } = registry.createRoom('b', { system: 'gbc', public: true });
+  const { room: netplay } = registry.createRoom('c', { kind: 'netplay', system: 'snes', world: true, public: true });
+  assert.equal(describeRoom(world).world, true);
+  assert.equal(describeRoom(plain).world, false);
+  assert.equal(describeRoom(netplay).world, false);
 });
 
 test('the first player into an empty trade & battle room owns it', () => {

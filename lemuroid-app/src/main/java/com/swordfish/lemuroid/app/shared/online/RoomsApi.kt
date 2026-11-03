@@ -22,6 +22,8 @@ data class RoomInfo(
     val players: Int,
     val maxPlayers: Int,
     val isPublic: Boolean,
+    // Same world room: players see each other on the map and talk to trade or battle.
+    val world: Boolean = false,
 ) {
     companion object {
         fun fromJson(json: JSONObject): RoomInfo {
@@ -37,6 +39,7 @@ data class RoomInfo(
                 players = json.optInt("players"),
                 maxPlayers = json.optInt("maxPlayers"),
                 isPublic = json.optBoolean("public"),
+                world = json.optBoolean("world"),
             )
         }
     }

@@ -28,7 +28,10 @@ class OnlineGameLauncher(
     private val coresSelection: CoresSelection,
     private val gameLaunchTaskHandler: GameLaunchTaskHandler,
 ) {
-    /** Trade & battle room for a GBA, Game Boy or Game Boy Color game. */
+    /**
+     * Trade & battle room for a GBA, Game Boy or Game Boy Color game. [sameWorld]: players also
+     * see each other on the map and talk to trade or battle.
+     */
     fun hostLink(
         activity: Activity,
         game: Game,
@@ -36,6 +39,7 @@ class OnlineGameLauncher(
         isPublic: Boolean,
         playerName: String,
         serverUrl: String,
+        sameWorld: Boolean = false,
     ) {
         val isGameBoy = LinkSystems.isGameBoy(game.systemId)
         val linkMode = if (isGameBoy) LinkMode.GAME_BOY else mode
@@ -59,6 +63,7 @@ class OnlineGameLauncher(
                 coreName = coreConfig.coreID.coreName,
                 inputDelayFrames = 0,
                 maxPlayers = LinkSystems.ROOM_CAPACITY,
+                sameWorld = sameWorld,
             )
         launch(activity, game, config) { coreConfig }
     }
@@ -127,6 +132,7 @@ class OnlineGameLauncher(
                 coreName = coreConfig.coreID.coreName,
                 inputDelayFrames = room.delay,
                 maxPlayers = room.maxPlayers,
+                sameWorld = room.world,
             )
         launch(activity, game, config) { coreConfig }
     }

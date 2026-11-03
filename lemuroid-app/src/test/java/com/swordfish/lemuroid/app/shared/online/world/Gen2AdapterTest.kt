@@ -107,6 +107,54 @@ class Gen2AdapterTest {
         assertNull(Gen2Adapter.layoutFor("PM_CRYSTAL\u0000", "BXTJ"))
     }
 
+    @Test
+    fun `no in-place link without the expected scripts in the ROM, nor for Gold and Silver yet`() {
+        assertNull(adapter.inPlaceLink(Talk.TRADE))
+        assertNull(Gen2Adapter(Rom(ByteArray(0x200000), 0L), Gen2Adapter.GOLD_SILVER).inPlaceLink(Talk.TRADE))
+    }
+
+    // The exact bytes that started a trade and a battle between two linked Crystal games in a
+    // desktop emulator (both sides reached the trade menu / the battle, and came back in place).
+    @Test
+    fun `in-place trade and battle scripts for Crystal`() {
+        val file = System.getenv("CRYSTAL_ROM")?.let(::File)
+        assumeTrue(file != null && file.exists())
+        val rom =
+            if (file!!.name.endsWith(".zip")) {
+                ZipFile(file).use { zip -> zip.getInputStream(zip.entries().toList().first { it.name.endsWith(".gbc") }).readBytes() }
+            } else {
+                file.readBytes()
+            }
+        val real = WorldAdapters.forRom("gbc", rom)!!
+        val ram = GameMemory.SYSTEM_RAM_BASE - 0xC000
+
+        val trade = real.inPlaceLink(Talk.TRADE)!!.writes
+        assertEquals(ram + 0xC7E8, trade[0].first)
+        assertEquals(
+            "0f0100 0f0200 080a74 0f0400 080a74 0f0300 080a74 030574".replace(" ", ""),
+            trade[0].second.joinToString("") { "%02x".format(it) },
+        )
+        assertEquals(ram + 0xD45D, trade[1].first)
+        assertEquals("64e8c7", trade[1].second.joinToString("") { "%02x".format(it) })
+        // The flag that makes the game run it comes last.
+        assertEquals(ram + 0xD45C, trade[2].first)
+        assertEquals("01", trade[2].second.joinToString("") { "%02x".format(it) })
+
+        val battle = real.inPlaceLink(Talk.BATTLE)!!.writes
+        assertEquals(
+            "0f0900 0f0200 089874 0f0400 089874 0f0300 089874 039374".replace(" ", ""),
+            battle[0].second.joinToString("") { "%02x".format(it) },
+        )
+        assertEquals("0f080091", real.inPlaceLinkCleanup()!!.writes[0].second.joinToString("") { "%02x".format(it) })
+
+        // Applied to a work RAM block, the script lands where the game will read it.
+        val memory = GameMemory(listOf(GameMemory.Region(GameMemory.SYSTEM_RAM_BASE, ByteBuffer.allocate(0x8000))))
+        assertTrue(real.inPlaceLink(Talk.TRADE)!!.applyTo(memory))
+        assertEquals(1, memory.u8(ram + 0xD45C))
+        assertEquals(0x0F, memory.u8(ram + 0xC7E8))
+        assertEquals(0x74, memory.u8(ram + 0xC7E8 + 23))
+    }
+
     // Uses a real Crystal ROM (or a zip with one) when CRYSTAL_ROM points to it.
     @Test
     fun `draws Chris and Kris from the game's own graphics`() {

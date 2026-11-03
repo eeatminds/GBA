@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_online">Online</string>
+    <string name="title_same_world">Connect in Same World</string>
+    <string name="title_same_world_short">Same World</string>
+
+    <string name="world_intro_title">Adventure together in the same world</string>
+    <string name="world_intro_message">Everyone plays their own copy of the same Pokémon game. You see each other walking on the map, and when you meet, walk up and press A to trade or battle right there.</string>
+    <string name="world_host_description">Your friends need the same game (for example Crystal with Crystal, or Gold with Silver). Up to 8 players.</string>
+    <string name="world_no_games">Add a Pokémon Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed or LeafGreen game to your library first.</string>
 
     <string name="online_intro_title">Play together online</string>
     <string name="online_intro_message">Play multiplayer games with friends over the internet, or link Game Boy, Game Boy Color and Game Boy Advance games to trade and battle. Each player needs their own copy of the game.</string>
@@ -75,6 +82,7 @@
     <string name="online_status_players">Players</string>
     <string name="online_status_linked_with">Linked with %1$s</string>
     <string name="online_status_tap_to_link">Not linked yet · Tap here and pick who to link with</string>
+    <string name="online_status_linked_world">Linked with %1$s · Walk up to them and press A</string>
     <string name="online_status_linked_pokemon">Linked with %1$s · Now go upstairs in a Pokémon Center</string>
     <string name="online_status_partner_away">%1$s lost connection · Waiting for them to come back</string>
     <string name="online_status_reconnecting">Connection dropped · Reconnecting, keep the game open</string>
@@ -85,6 +93,8 @@
     <string name="online_step_invite">Invite a friend: tap Invite and send them the code.</string>
     <string name="online_step_link">Link up. With 2 players this happens by itself; with more, tap Link next to a player.</string>
     <string name="online_step_go_pokemon">Both players: go upstairs in any Pokémon Center and talk to the receptionist. The game asks you to save first.</string>
+    <string name="online_step_meet">Meet on the map: the list below shows where everyone is.</string>
+    <string name="online_step_talk">Walk up to them and press A, then pick Trade or Battle.</string>
     <string name="online_step_go_other">Both players: open the link or multiplayer option in your game.</string>
     <string name="online_step_play_pokemon">Pick Trade or Battle (Colosseum) and have fun.</string>
     <string name="online_player_away">Lost connection, coming back…</string>
@@ -160,6 +170,8 @@
     <string name="talk_yes">YES</string>
     <string name="talk_no">NO</string>
     <string name="talk_ok">OK</string>
+    <string name="talk_starting_trade">Linking with %1$s… Your game saves, then the trade opens right here. Don\'t close the game.</string>
+    <string name="talk_starting_battle">Linking with %1$s… Your game saves, then the battle starts right here. Don\'t close the game.</string>
     <string name="talk_server_outdated">To talk to other players, the room server needs its latest update.</string>
     <string name="talk_kind_trade">trade</string>
     <string name="talk_kind_battle">battle</string>

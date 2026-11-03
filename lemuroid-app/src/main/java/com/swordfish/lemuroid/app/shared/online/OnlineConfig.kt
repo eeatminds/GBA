@@ -150,6 +150,8 @@ data class OnlineConfig(
     val coreName: String,
     val inputDelayFrames: Int,
     val maxPlayers: Int,
+    // Same world room (see [RoomInfo.world]).
+    val sameWorld: Boolean = false,
 ) : Serializable {
     /** Rooms only match players running the same core and link protocol. */
     val protocol: String

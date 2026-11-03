@@ -147,6 +147,8 @@ export class RoomRegistry {
       mode: modeKey,
       game: cleanText(request.game, MAX_GAME_LENGTH) || 'Game',
       isPublic: request.public === true,
+      // "Same world" rooms: players also see each other on the map and talk to trade or battle.
+      world: kind === 'link' && request.world === true,
       protocol: typeof request.protocol === 'string' ? request.protocol.slice(0, 64) : '',
       maxPlayers,
       createdAt: Date.now(),
@@ -455,6 +457,7 @@ export function describeRoom(room) {
     players: room.players.size,
     maxPlayers: room.maxPlayers,
     public: room.isPublic,
+    world: room.world,
   };
 }
 

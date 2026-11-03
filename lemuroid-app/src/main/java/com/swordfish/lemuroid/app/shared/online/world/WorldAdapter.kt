@@ -26,6 +26,23 @@ interface WorldAdapter {
 
     /** Where [map] is, as the game's own town map names it, or null when unknown. */
     fun place(map: String): Place? = null
+
+    /**
+     * Memory writes that make the game run its own link trade ([Talk.TRADE]) or battle
+     * ([Talk.BATTLE]) right where the player stands, or null when this game can't.
+     */
+    fun inPlaceLink(kind: String): MemoryPatch? = null
+
+    /** Whether such a link session (its script, the trade or battle screens) still runs. */
+    fun inPlaceLinkRunning(memory: GameMemory): Boolean = false
+
+    /** Memory writes that close the link afterwards, as the game does when leaving its link rooms. */
+    fun inPlaceLinkCleanup(): MemoryPatch? = null
+}
+
+/** Bytes to write into the game's memory, in order (the last write sets things off). */
+class MemoryPatch(val writes: List<Pair<Long, ByteArray>>) {
+    fun applyTo(memory: GameMemory): Boolean = writes.all { (address, bytes) -> memory.write(address, bytes) }
 }
 
 /** Pixels to add to a position on a neighbouring map to place it on ours. */

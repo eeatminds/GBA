@@ -21,18 +21,24 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
+/**
+ * The Online tab ([sameWorld] false: link cable rooms and play together rooms) or the Same World
+ * tab (rooms where players share the map, talk, and trade or battle where they meet).
+ */
 class OnlineViewModel(
     appContext: Context,
     private val retrogradeDb: RetrogradeDatabase,
+    val sameWorld: Boolean = false,
     private val roomsApi: RoomsApi = RoomsApi(),
 ) : ViewModel() {
     class Factory(
         private val appContext: Context,
         private val retrogradeDb: RetrogradeDatabase,
+        private val sameWorld: Boolean = false,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return OnlineViewModel(appContext, retrogradeDb) as T
+            return OnlineViewModel(appContext, retrogradeDb, sameWorld) as T
         }
     }
 
@@ -67,6 +73,8 @@ class OnlineViewModel(
         val netplayGames: List<Game> = emptyList(),
         val dialog: Dialog? = null,
         val message: Message? = null,
+        // Games whose world can be shared (the Pokémon games), for Same World rooms.
+        val worldGames: List<Game> = emptyList(),
         // A trade & battle room we were in lately, to go back to.
         val recentRoom: String? = null,
     ) {
@@ -101,7 +109,8 @@ class OnlineViewModel(
                 runCatching { dao.asyncSelectBySystems(NetplaySystems.systemIds) }
                     .onFailure { Timber.e(it, "Could not load multiplayer games") }
                     .getOrDefault(emptyList())
-            mutableState.update { it.copy(linkGames = link, netplayGames = netplay) }
+            val world = link.filter { POKEMON.containsMatchIn(it.customName ?: it.title) }
+            mutableState.update { it.copy(linkGames = link, netplayGames = netplay, worldGames = world) }
         }
     }
 
@@ -112,7 +121,8 @@ class OnlineViewModel(
         refreshJob =
             viewModelScope.launch {
                 mutableState.update { it.copy(roomsStatus = RoomsStatus.LOADING) }
-                val result = runCatching { roomsApi.listPublicRooms(serverUrl) }
+                // Each tab lists its own kind of room.
+                val result = runCatching { roomsApi.listPublicRooms(serverUrl).filter { it.world == sameWorld } }
                 mutableState.update {
                     it.copy(
                         publicRooms = result.getOrDefault(it.publicRooms),
@@ -205,6 +215,8 @@ class OnlineViewModel(
     }
 
     companion object {
+        private val POKEMON = Regex("pok[eé]mon", RegexOption.IGNORE_CASE)
+
         val HOST_MODES = listOf(LinkMode.LINK_CABLE, LinkMode.WIRELESS, LinkMode.AUTO, LinkMode.ADVANCE_WARS, LinkMode.ADVANCE_WARS_2)
     }
 }

@@ -146,6 +146,9 @@ class OnlineSession(
     /** Whether players in this room link up with each other (trade & battle rooms). */
     val hasLinks: Boolean get() = config.kind == RoomKind.LINK
 
+    /** Same world room: we share the map with the others and talk to them. */
+    val sameWorld: Boolean get() = config.sameWorld
+
     /** Whether we made the room (false: we joined one). */
     val isCreator: Boolean get() = config.isHost
 
@@ -326,6 +329,7 @@ class OnlineSession(
                 .put("public", config.isPublic)
                 .put("maxPlayers", config.maxPlayers)
                 .put("protocol", protocol)
+                .put("world", config.sameWorld)
         } else {
             joinMessage(config.roomCode)
         }

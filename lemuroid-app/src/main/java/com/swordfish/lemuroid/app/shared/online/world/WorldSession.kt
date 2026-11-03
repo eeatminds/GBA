@@ -27,6 +27,8 @@ class WorldSession(
     private val memory: () -> GameMemory?,
     private val send: (JSONObject) -> Unit,
     private val scope: CoroutineScope,
+    // Runs a block on the emulation thread between frames (for writing game memory safely).
+    private val onEmulator: (() -> Unit) -> Unit = { it() },
 ) {
     /** Another player's last two positions, so the overlay can glide between them. */
     data class Remote(val previous: Avatar, val current: Avatar, val receivedAt: Long) {
@@ -86,6 +88,15 @@ class WorldSession(
 
     private val remotes = ConcurrentHashMap<Int, Remote>()
     private val presences = ConcurrentHashMap<Int, Presence>()
+
+    // An in-place trade or battle we started: when, and whether its script has been seen running.
+    private class InPlace(val startedAt: Long, var seenRunning: Boolean = false)
+
+    @Volatile private var inPlace: InPlace? = null
+    @Volatile private var gameMemory: GameMemory? = null
+
+    /** Whether this game can trade and battle right where the players stand. */
+    val canLinkInPlace: Boolean get() = adapter.inPlaceLink(Talk.TRADE) != null
     private val mutableView = MutableStateFlow(View())
     val view: StateFlow<View> = mutableView.asStateFlow()
 
@@ -95,7 +106,6 @@ class WorldSession(
         if (job != null) return
         job =
             scope.launch(Dispatchers.Default) {
-                var gameMemory: GameMemory? = null
                 var lastSent: Avatar? = null
                 var lastSentAt = 0L
                 var sentHidden = false
@@ -103,7 +113,9 @@ class WorldSession(
                 var neighbors = emptyMap<String, MapOffset>()
                 while (isActive) {
                     if (gameMemory == null) gameMemory = memory()
+                    val gameMemory = gameMemory
                     val local = gameMemory?.let { runCatching { adapter.read(it) }.getOrNull() }
+                    if (gameMemory != null) watchInPlace(gameMemory)
                     // The maps joined to ours change only with our map.
                     if (local != null && local.map != neighborsOf) {
                         neighbors = gameMemory?.let { runCatching { adapter.neighbors(it) }.getOrNull() }.orEmpty()
@@ -134,6 +146,37 @@ class WorldSession(
         remotes.clear()
         presences.clear()
         mutableView.value = View()
+    }
+
+    /**
+     * Starts the game's own link trade or battle ([Talk.TRADE] / [Talk.BATTLE]) right here. The
+     * other player starts theirs at the same time; the game waits a few seconds for them.
+     * Returns false when this game can't.
+     */
+    fun startInPlace(kind: String): Boolean {
+        val memory = gameMemory ?: memory() ?: return false
+        val patch = adapter.inPlaceLink(kind) ?: return false
+        onEmulator { patch.applyTo(memory) }
+        inPlace = InPlace(SystemClock.uptimeMillis())
+        return true
+    }
+
+    // Once the session ends (back on the map), close the link the way the game does when leaving
+    // its link rooms. A script that never got to run (the game was busy) is given up.
+    private fun watchInPlace(memory: GameMemory) {
+        val session = inPlace ?: return
+        val running = runCatching { adapter.inPlaceLinkRunning(memory) }.getOrDefault(false)
+        when {
+            running -> session.seenRunning = true
+            session.seenRunning -> {
+                inPlace = null
+                adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
+            }
+            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> {
+                inPlace = null
+                adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
+            }
+        }
     }
 
     /**
@@ -220,6 +263,9 @@ class WorldSession(
 
     companion object {
         const val TICK_MS = 66L
+
+        // A queued script runs as soon as the player isn't busy; give up if that takes this long.
+        private const val IN_PLACE_START_TIMEOUT_MS = 20_000L
         private const val HEARTBEAT_MS = 1000L
     }
 }

@@ -67,6 +67,7 @@ import com.swordfish.lemuroid.app.shared.game.GameLauncher
 import com.swordfish.lemuroid.app.shared.input.InputDeviceManager
 import com.swordfish.lemuroid.app.shared.main.BusyActivity
 import com.swordfish.lemuroid.app.shared.main.GameLaunchTaskHandler
+import com.swordfish.lemuroid.app.shared.online.LinkMode
 import com.swordfish.lemuroid.app.shared.online.OnlineGameLauncher
 import com.swordfish.lemuroid.app.shared.online.OnlineSettings
 import com.swordfish.lemuroid.app.shared.settings.GameFilePickerLauncher
@@ -346,6 +347,30 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                             onHostNetplay = { game, delay, isPublic, playerName, serverUrl ->
                                 onlineGameLauncher.hostNetplay(this@MainActivity, game, delay, isPublic, playerName, serverUrl)
                             },
+                            onJoin = { game, room, playerName, serverUrl ->
+                                onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
+                            },
+                        )
+                    }
+                    composable(MainRoute.SAME_WORLD) {
+                        // Rooms where everyone shares the map, talks, and trades or battles where they meet.
+                        val worldViewModel: OnlineViewModel =
+                            viewModel(key = "sameWorld", factory = OnlineViewModel.Factory(applicationContext, retrogradeDb, sameWorld = true))
+                        OnlineScreen(
+                            modifier = Modifier.padding(padding),
+                            viewModel = worldViewModel,
+                            onHostLink = { game, _, isPublic, playerName, serverUrl ->
+                                onlineGameLauncher.hostLink(
+                                    this@MainActivity,
+                                    game,
+                                    LinkMode.LINK_CABLE,
+                                    isPublic,
+                                    playerName,
+                                    serverUrl,
+                                    sameWorld = true,
+                                )
+                            },
+                            onHostNetplay = { _, _, _, _, _ -> },
                             onJoin = { game, room, playerName, serverUrl ->
                                 onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
                             },

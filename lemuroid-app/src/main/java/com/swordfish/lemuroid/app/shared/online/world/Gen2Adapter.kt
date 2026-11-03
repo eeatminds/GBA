@@ -46,6 +46,33 @@ class Gen2Adapter(
         val objectPalettes: Int,
         val mapGroupPointers: Int,
         val landmarks: Int,
+        // Running the game's own link trade or battle where the player stands; null: not (yet)
+        // checked for this game.
+        val inPlace: InPlace? = null,
+    )
+
+    /**
+     * What the game's link receptionist does (set up the request, wait for the friend, save, check
+     * the link), as a 24-byte script in an unused part of work RAM, queued through the game's own
+     * "run this script" slot. It ends by jumping to the console script of the Trade Center or the
+     * Colosseum in ROM, which starts the trade or battle and then reloads the current map.
+     */
+    data class InPlace(
+        val scriptBuffer: Int,
+        val queueFlag: Int,
+        val linkMode: Int,
+        val consoleBank: Int,
+        val tradeConsole: Int,
+        val battleConsole: Int,
+        // Special numbers in the game's table.
+        val setTradeRequest: Int,
+        val setBattleRequest: Int,
+        val waitForFriend: Int,
+        val quickSave: Int,
+        val checkLinkTimeout: Int,
+        val tradeCenter: Int,
+        val colosseum: Int,
+        val leaveLink: Int,
     )
 
     override val world: String get() = layout.world
@@ -138,6 +165,50 @@ class Gen2Adapter(
             result["$group.$number"] = MapOffset(dx * 16, dy * 16)
         }
         return result
+    }
+
+    override fun inPlaceLink(kind: String): MemoryPatch? {
+        val link = layout.inPlace ?: return null
+        val battle = kind == Talk.BATTLE
+        val console = if (battle) link.battleConsole else link.tradeConsole
+        // The console script must be in this ROM exactly as expected: special, reload map, end.
+        val expected = byteArrayOf(SPECIAL, (if (battle) link.colosseum else link.tradeCenter).toByte(), 0, NEWLOADMAP, MAPSETUP_LINKRETURN, END)
+        val found = ByteArray(expected.size) { rom.u8(romOffset(link.consoleBank, console) + it.toLong())?.toByte() ?: return null }
+        if (!found.contentEquals(expected)) return null
+        // Failed steps end at the console script's "end", like a receptionist saying no.
+        val fail = console + 5
+        val script =
+            byteArrayOf(
+                SPECIAL, (if (battle) link.setBattleRequest else link.setTradeRequest).toByte(), 0,
+                SPECIAL, link.waitForFriend.toByte(), 0, IFFALSE, fail.toByte(), (fail shr 8).toByte(),
+                SPECIAL, link.quickSave.toByte(), 0, IFFALSE, fail.toByte(), (fail shr 8).toByte(),
+                SPECIAL, link.checkLinkTimeout.toByte(), 0, IFFALSE, fail.toByte(), (fail shr 8).toByte(),
+                SJUMP, console.toByte(), (console shr 8).toByte(),
+            )
+        return queueScript(link, script)
+    }
+
+    override fun inPlaceLinkCleanup(): MemoryPatch? {
+        val link = layout.inPlace ?: return null
+        return queueScript(link, byteArrayOf(SPECIAL, link.leaveLink.toByte(), 0, END))
+    }
+
+    // Our script is running while the game runs a map script; the trade and battle screens run inside it.
+    override fun inPlaceLinkRunning(memory: GameMemory): Boolean = memory.u8(ram(layout.scriptRunning)) == MAP_SCRIPT
+
+    // The script goes in the buffer; then the slot gets its bank and address, and the flag last.
+    private fun queueScript(
+        link: InPlace,
+        script: ByteArray,
+    ): MemoryPatch {
+        require(script.size <= SCRIPT_BUFFER_SIZE)
+        return MemoryPatch(
+            listOf(
+                ram(link.scriptBuffer) to script,
+                ram(link.queueFlag + 1) to byteArrayOf(link.consoleBank.toByte(), link.scriptBuffer.toByte(), (link.scriptBuffer shr 8).toByte()),
+                ram(link.queueFlag) to byteArrayOf(1),
+            ),
+        )
     }
 
     private val places = ConcurrentHashMap<String, Place>()
@@ -273,6 +344,16 @@ class Gen2Adapter(
 
         private val FACINGS = arrayOf(Facing.DOWN, Facing.UP, Facing.LEFT, Facing.RIGHT)
 
+        // Script commands (macros/scripts/events.asm) and the map setup after a link.
+        private const val SJUMP: Byte = 0x03
+        private const val IFFALSE: Byte = 0x08
+        private const val SPECIAL: Byte = 0x0F
+        private const val NEWLOADMAP: Byte = 0x8A.toByte()
+        private const val END: Byte = 0x91.toByte()
+        private const val MAPSETUP_LINKRETURN: Byte = 0xF8.toByte()
+        private const val MAP_SCRIPT = 0xFF
+        private const val SCRIPT_BUFFER_SIZE = 24
+
         private const val CONNECTION_SIZE = 12
         private const val CONNECTION_Y_ALIGN = 8
         private const val CONNECTION_X_ALIGN = 9
@@ -316,6 +397,24 @@ class Gen2Adapter(
                 objectPalettes = romOffset(0x02, 0x7469),
                 mapGroupPointers = romOffset(0x25, 0x4000),
                 landmarks = romOffset(0x72, 0x68C3),
+                inPlace =
+                    InPlace(
+                        // wUnusedMapBuffer (24 bytes nothing uses) and wMapReentryScriptQueueFlag.
+                        scriptBuffer = 0xC7E8,
+                        queueFlag = 0xD45C,
+                        linkMode = 0xC2DC,
+                        consoleBank = 0x64,
+                        tradeConsole = 0x7405,
+                        battleConsole = 0x7493,
+                        setTradeRequest = 0x01,
+                        setBattleRequest = 0x09,
+                        waitForFriend = 0x02,
+                        quickSave = 0x04,
+                        checkLinkTimeout = 0x03,
+                        tradeCenter = 0x0D,
+                        colosseum = 0x0E,
+                        leaveLink = 0x08,
+                    ),
             )
 
         val GOLD_SILVER =

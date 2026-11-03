@@ -47,6 +47,16 @@ open class GameMemory(private val regions: List<Region>) {
 
     fun s32(address: Long): Int? = u32(address)?.toInt()
 
+    /** Writes [bytes] at [address]. Only call it between frames (on the emulation thread). */
+    fun write(
+        address: Long,
+        bytes: ByteArray,
+    ): Boolean {
+        val (buffer, offset) = locate(address, bytes.size) ?: return false
+        bytes.forEachIndexed { index, byte -> buffer.put(offset + index, byte) }
+        return true
+    }
+
     companion object {
         /** Base address used for the console's whole work RAM block (all banks, in order). */
         const val SYSTEM_RAM_BASE = 0x1_0000_0000L

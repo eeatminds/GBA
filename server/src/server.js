@@ -6,7 +6,7 @@
 //
 // Protocol (one WebSocket per player, at /ws):
 //   1. The client sends one JSON text message:
-//        {"t":"host","kind":"link"|"netplay","name","game","system","core","mode","delay","public","maxPlayers","protocol"}
+//        {"t":"host","kind":"link"|"netplay","name","game","system","core","mode","delay","public","maxPlayers","protocol","world"}
 //        {"t":"join","code","name","protocol"}
 //        {"t":"resume","code","id","token","protocol"}  (take your seat back after losing the connection)
 //   2. The server answers {"t":"hosted"|"joined","clientId","token","room","players"} or {"t":"error","code","message"}.

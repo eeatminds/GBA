@@ -102,7 +102,7 @@ fun OnlineRoomSheetContent(
     world?.view?.collectAsState()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (hasLinks) {
-            LinkSteps(room, isPokemon)
+            LinkSteps(room, isPokemon, sameWorld = world != null)
             if (world != null && world.adapter != NoWorld) {
                 Text(
                     stringResource(R.string.online_world_hint),
@@ -130,15 +130,22 @@ fun OnlineRoomSheetContent(
 private fun LinkSteps(
     room: OnlineSession.State.InRoom,
     isPokemon: Boolean,
+    sameWorld: Boolean,
 ) {
     val invited = room.players.size > 1
     val linked = room.myGroup != null
     val steps =
         buildList {
             add(stringResource(R.string.online_step_invite) to invited)
-            add(stringResource(R.string.online_step_link) to linked)
-            add(stringResource(if (isPokemon) R.string.online_step_go_pokemon else R.string.online_step_go_other) to false)
-            if (isPokemon) add(stringResource(R.string.online_step_play_pokemon) to false)
+            if (sameWorld) {
+                // Same world: meet on the map and talk; saying yes links the two of you.
+                add(stringResource(R.string.online_step_meet) to linked)
+                add(stringResource(R.string.online_step_talk) to false)
+            } else {
+                add(stringResource(R.string.online_step_link) to linked)
+                add(stringResource(if (isPokemon) R.string.online_step_go_pokemon else R.string.online_step_go_other) to false)
+                if (isPokemon) add(stringResource(R.string.online_step_play_pokemon) to false)
+            }
         }
     // The first step not done yet is the one to do now.
     val current = steps.indexOfFirst { !it.second }

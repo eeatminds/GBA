@@ -196,8 +196,8 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             applyCheats()
             // The core registers its link interface while the game loads.
             session?.start()
-            // Trade & battle rooms also share the world, in games we know how to read.
-            if (session != null && session.hasLinks) startWorld(session)
+            // Same world rooms also share the map, in games we know how to read.
+            if (session != null && session.hasLinks && session.sameWorld) startWorld(session)
             // Auto-resume: a quiet snapshot every 30 seconds while the game is on screen.
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (true) {
@@ -487,7 +487,11 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             val rom = WorldAdapters.loadRom(applicationContext, game)
             val adapter = rom?.let { WorldAdapters.forRom(game.systemId, it) } ?: NoWorld
             if (adapter == NoWorld) Timber.i("Same world: ${game.title} can't be shown on maps")
-            val world = WorldSession(adapter, { GameMemory.ofRunningGame() }, session::sendPresence, lifecycleScope)
+            val world =
+                WorldSession(adapter, { GameMemory.ofRunningGame() }, session::sendPresence, lifecycleScope) { block ->
+                    // Game memory is written between frames, on the emulation thread.
+                    baseGameScreenViewModel.retroGameView.retroGameView?.queueEvent(block)
+                }
             session.onPresence = world::onPresence
             session.onPlayerLeft = world::onPlayerLeft
             worldSession.value = world

@@ -93,7 +93,12 @@ fun OnlineStatusBar(
                 is OnlineSession.Event.InviteAnswered -> {
                     val current = talk
                     if (current is Talk.Waiting && current.playerId == event.from) {
-                        talk = Talk.Result(current.name, current.kind, event.accepted)
+                        talk =
+                            if (event.accepted && startInPlace(context, world, current.name, current.kind)) {
+                                null
+                            } else {
+                                Talk.Result(current.name, current.kind, event.accepted)
+                            }
                     }
                 }
                 else -> {
@@ -156,6 +161,7 @@ fun OnlineStatusBar(
         roomCode = session.roomCode,
         isPokemon = isPokemon,
         onOpenRoom = { showRoom = true },
+        sameWorld = session.sameWorld,
     )
 
     talk?.let { current ->
@@ -169,7 +175,13 @@ fun OnlineStatusBar(
             onAnswer = { id, accept ->
                 session.answerInvite(id, accept)
                 val invited = current as? Talk.Invited
-                talk = if (accept && invited != null) Talk.Result(invited.name, invited.kind, accepted = true) else null
+                talk =
+                    when {
+                        !accept || invited == null -> null
+                        // Trade or battle right here; the game's own screens take over.
+                        startInPlace(context, world, invited.name, invited.kind) -> null
+                        else -> Talk.Result(invited.name, invited.kind, accepted = true)
+                    }
             },
             onClose = { talk = null },
         )
@@ -177,6 +189,19 @@ fun OnlineStatusBar(
 }
 
 private const val INVITE_TIMEOUT_MS = 30_000L
+
+// Both players start the game's own link right where they stand (when their game can).
+private fun startInPlace(
+    context: Context,
+    world: WorldSession?,
+    name: String,
+    kind: String,
+): Boolean {
+    if (world == null || !world.startInPlace(kind)) return false
+    val text = context.getString(if (kind == Talk.BATTLE) R.string.talk_starting_battle else R.string.talk_starting_trade, name)
+    Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+    return true
+}
 
 /** The loading card, then the room status in free space. Drawn from [state] alone. */
 @Composable
@@ -187,6 +212,7 @@ fun OnlineRoomStatus(
     roomCode: String?,
     isPokemon: Boolean,
     onOpenRoom: () -> Unit,
+    sameWorld: Boolean = false,
 ) {
     if (state == OnlineSession.State.WaitingForGame || state == OnlineSession.State.Connecting) {
         LoadingCard(
@@ -213,7 +239,7 @@ fun OnlineRoomStatus(
     }
     if (!visible) return
 
-    val status = statusText(state, hasLinks, isPokemon)
+    val status = statusText(state, hasLinks, isPokemon, sameWorld)
     val onClick = if (room != null) onOpenRoom else null
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -294,6 +320,7 @@ private fun statusText(
     state: OnlineSession.State,
     hasLinks: Boolean,
     isPokemon: Boolean,
+    sameWorld: Boolean,
 ): Status =
     when (state) {
         is OnlineSession.State.InRoom -> {
@@ -311,7 +338,15 @@ private fun statusText(
                     Status(
                         title,
                         shortTitle = short,
-                        subtitle = stringResource(if (isPokemon) R.string.online_status_linked_pokemon else R.string.online_status_linked_with, names),
+                        subtitle =
+                            stringResource(
+                                when {
+                                    sameWorld -> R.string.online_status_linked_world
+                                    isPokemon -> R.string.online_status_linked_pokemon
+                                    else -> R.string.online_status_linked_with
+                                },
+                                names,
+                            ),
                         linked = true,
                     )
                 }

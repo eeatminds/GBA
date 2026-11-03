@@ -83,6 +83,7 @@ fun OnlineScreen(
     onHostNetplay: (game: Game, delay: InputDelay, isPublic: Boolean, playerName: String, serverUrl: String) -> Unit,
     onJoin: (game: Game, room: RoomInfo, playerName: String, serverUrl: String) -> Unit,
 ) {
+    val sameWorld = viewModel.sameWorld
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
@@ -113,7 +114,7 @@ fun OnlineScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { IntroCard() }
+        item { IntroCard(sameWorld) }
 
         if (!state.serverConfigured) {
             item { ServerMissingCard(onSetServer = { viewModel.showDialog(OnlineViewModel.Dialog.Server) }) }
@@ -211,7 +212,8 @@ fun OnlineScreen(
         null -> Unit
         is OnlineViewModel.Dialog.Host ->
             HostDialog(
-                linkGames = state.linkGames,
+                sameWorld = sameWorld,
+                linkGames = if (sameWorld) state.worldGames else state.linkGames,
                 netplayGames = state.netplayGames,
                 onDismiss = { viewModel.showDialog(null) },
                 onStartLink = { game, mode, isPublic ->
@@ -260,19 +262,19 @@ fun OnlineScreen(
 }
 
 @Composable
-private fun IntroCard() {
+private fun IntroCard(sameWorld: Boolean) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = stringResource(R.string.online_intro_title),
+                text = stringResource(if (sameWorld) R.string.world_intro_title else R.string.online_intro_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                text = stringResource(R.string.online_intro_message),
+                text = stringResource(if (sameWorld) R.string.world_intro_message else R.string.online_intro_message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -434,13 +436,15 @@ private fun OptionRow(
 
 @Composable
 private fun HostDialog(
+    sameWorld: Boolean,
     linkGames: List<Game>,
     netplayGames: List<Game>,
     onDismiss: () -> Unit,
     onStartLink: (Game, LinkMode, Boolean) -> Unit,
     onStartNetplay: (Game, InputDelay, Boolean) -> Unit,
 ) {
-    var kind by rememberSaveable { mutableStateOf(RoomKind.NETPLAY) }
+    // Same world rooms are always trade & battle rooms with a link cable.
+    var kind by rememberSaveable { mutableStateOf(if (sameWorld) RoomKind.LINK else RoomKind.NETPLAY) }
     var selectedGameId by rememberSaveable { mutableStateOf<Int?>(null) }
     var mode by rememberSaveable { mutableStateOf(LinkMode.LINK_CABLE) }
     var delay by rememberSaveable { mutableStateOf(InputDelay.NORMAL) }
@@ -456,6 +460,13 @@ private fun HostDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (sameWorld) {
+                    Text(
+                        stringResource(R.string.world_host_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                 Text(stringResource(R.string.online_room_type), style = MaterialTheme.typography.titleSmall)
                 listOf(
                     Triple(RoomKind.NETPLAY, R.string.online_kind_netplay, R.string.online_kind_netplay_description),
@@ -478,6 +489,7 @@ private fun HostDialog(
                         }
                     }
                 }
+                }
                 HorizontalDivider()
                 Text(stringResource(R.string.online_pick_game), style = MaterialTheme.typography.titleSmall)
                 GamePicker(
@@ -485,12 +497,18 @@ private fun HostDialog(
                     selected = selectedGame,
                     emptyMessage =
                         stringResource(
-                            if (kind == RoomKind.LINK) R.string.online_no_link_games else R.string.online_no_netplay_games,
+                            when {
+                                sameWorld -> R.string.world_no_games
+                                kind == RoomKind.LINK -> R.string.online_no_link_games
+                                else -> R.string.online_no_netplay_games
+                            },
                         ),
                     showSystem = true,
                 ) { selectedGameId = it.id }
                 HorizontalDivider()
-                if (kind == RoomKind.LINK && selectedGame != null && LinkSystems.isGameBoy(selectedGame.systemId)) {
+                if (sameWorld) {
+                    // The link type is the link cable: no choice to get wrong.
+                } else if (kind == RoomKind.LINK && selectedGame != null && LinkSystems.isGameBoy(selectedGame.systemId)) {
                     Text(stringResource(R.string.online_link_type), style = MaterialTheme.typography.titleSmall)
                     Text(
                         stringResource(R.string.online_mode_game_boy_description),
