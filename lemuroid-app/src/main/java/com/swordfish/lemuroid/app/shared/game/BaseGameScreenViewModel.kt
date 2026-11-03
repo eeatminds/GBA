@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.swordfish.lemuroid.app.mobile.feature.game.GameService
 import com.swordfish.lemuroid.app.mobile.feature.settings.SettingsManager
+import com.swordfish.lemuroid.app.shared.GameMenuContract
 import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelInput
 import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelRetroGameView
 import com.swordfish.lemuroid.app.shared.game.viewmodel.GameViewModelSaves
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 class BaseGameScreenViewModel(
@@ -273,11 +275,21 @@ class BaseGameScreenViewModel(
         }
     }
 
+    // The fast forward speed the player picked last (2x unless they chose 4x).
+    private var fastForwardSpeed = GameMenuContract.FAST_FORWARD_SPEEDS.first()
+
+    /** The controller shortcut: fast forward at the speed picked last, or back to normal. */
     fun toggleFastForward() {
-        Timber.d("Loading quick save")
         retroGameView.retroGameView?.apply {
-            frameSpeed = if (frameSpeed == 1) 2 else 1
+            frameSpeed = if (frameSpeed == 1) fastForwardSpeed else 1
         }
+    }
+
+    /** 1 is normal speed; otherwise one of [GameMenuContract.FAST_FORWARD_SPEEDS]. */
+    fun setFrameSpeed(speed: Int) {
+        val allowed = speed.takeIf { it in GameMenuContract.FAST_FORWARD_SPEEDS } ?: 1
+        if (allowed > 1) fastForwardSpeed = allowed
+        retroGameView.retroGameView?.frameSpeed = allowed
     }
 
     suspend fun reset() =
@@ -290,10 +302,14 @@ class BaseGameScreenViewModel(
             }
         }
 
+    /** Runs before the game closes (for example, coming home from a visit to the host's world). */
+    var beforeFinish: (suspend () -> Unit)? = null
+
     fun requestFinish() {
         if (loadingState.value) return
         viewModelScope.launch {
             withLoading {
+                runCatching { beforeFinish?.invoke() }.onFailure { Timber.e(it, "Before finish failed") }
                 val snapshot = saves.captureSaveSnapshot(true) ?: return@launch
                 saves.writeSaveSnapshot(snapshot)
                 sideEffects.requestSuccessfulFinish()
@@ -312,6 +328,13 @@ class BaseGameScreenViewModel(
                 val snapshot = saves.captureSaveSnapshot(true)
                 saves.writeSaveSnapshot(snapshot)
             }.onFailure { Timber.w(it, "Periodic save failed") }
+        }
+    }
+
+    /** Writes the in-game save and the auto-resume snapshot to disk, and waits for it. */
+    suspend fun saveNow() {
+        withContext(Dispatchers.IO) {
+            runCatching { saves.writeSaveSnapshot(saves.captureSaveSnapshot(true)) }.onFailure { Timber.w(it, "Save failed") }
         }
     }
 

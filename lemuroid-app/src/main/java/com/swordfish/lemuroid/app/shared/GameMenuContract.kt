@@ -10,6 +10,9 @@ object GameMenuContract {
     const val EXTRA_AUDIO_ENABLED = "EXTRA_AUDIO_ENABLED"
     const val EXTRA_FAST_FORWARD_SUPPORTED = "EXTRA_FAST_FORWARD_SUPPORTED"
     const val EXTRA_FAST_FORWARD = "EXTRA_FAST_FORWARD"
+
+    // How fast the game runs: 1 (normal), 2 or 4.
+    const val EXTRA_FRAME_SPEED = "EXTRA_FRAME_SPEED"
     const val EXTRA_CURRENT_TILT_CONFIG = "EXTRA_CURRENT_TILT_CONFIG"
     const val EXTRA_TILT_ALL_CONFIGS = "EXTRA_TILT_ALL_CONFIGS"
     const val EXTRA_CHEATS_SUPPORTED = "EXTRA_CHEATS_SUPPORTED"
@@ -22,6 +25,10 @@ object GameMenuContract {
     const val RESULT_EDIT_TOUCH_CONTROLS = "RESULT_EDIT_TOUCH_CONTROLS"
     const val RESULT_ENABLE_AUDIO = "RESULT_ENABLE_AUDIO"
     const val RESULT_ENABLE_FAST_FORWARD = "RESULT_ENABLE_FAST_FORWARD"
+    const val RESULT_FRAME_SPEED = "RESULT_FRAME_SPEED"
+
+    /** The fast forward speeds players can pick, after normal speed (1). */
+    val FAST_FORWARD_SPEEDS = listOf(2, 4)
     const val RESULT_CHANGE_TILT_CONFIG = "RESULT_CHANGE_TILT_CONFIG"
     const val RESULT_SCREENSHOT = "RESULT_SCREENSHOT"
 }

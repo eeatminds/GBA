@@ -203,4 +203,13 @@
     <string name="online_recent_room_title">Back to room %1$s</string>
     <string name="online_recent_room_message">Rooms stay open while anyone is in them, and for 5 minutes after the last player leaves.</string>
     <string name="online_recent_room_rejoin">Rejoin</string>
+
+    <!-- Joining the host's world (Same World rooms). -->
+    <string name="visit_joined">You\'re in %1$s\'s world. Close the game when you\'re done to go back home: Pokémon you trade come with you.</string>
+    <string name="visit_other_game">%1$s plays %2$s, a different game, so you stay in your own world. Trading and battles still work.</string>
+    <string name="visit_other_game_unknown">%1$s plays a different game, so you stay in your own world. Trading and battles still work.</string>
+    <string name="visit_home_traded">You\'re back home with the Pokémon you traded. Your game was saved.</string>
+    <string name="visit_home">You\'re back home, just as you left.</string>
+    <string name="visit_home_kept_all">You\'re back home. Your party couldn\'t hold the trades, so everything from the visit was kept.</string>
+    <string name="visit_panel">You\'re visiting %1$s\'s world. Close the game to go back home: only Pokémon you trade come with you.</string>
 </resources>

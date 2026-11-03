@@ -95,6 +95,9 @@ class WorldSession(
     @Volatile private var inPlace: InPlace? = null
     @Volatile private var gameMemory: GameMemory? = null
 
+    /** Our visit to the host's world, for guests in games that can visit. */
+    @Volatile var visit: WorldVisit? = null
+
     /** Whether this game can trade and battle right where the players stand. */
     val canLinkInPlace: Boolean get() = adapter.inPlaceLink(Talk.TRADE) != null
     private val mutableView = MutableStateFlow(View())

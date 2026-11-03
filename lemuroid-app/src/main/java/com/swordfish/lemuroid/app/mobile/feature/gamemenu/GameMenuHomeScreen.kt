@@ -52,9 +52,13 @@ fun GameMenuHomeScreen(
         }
 
         if (gameMenuRequest.fastForwardSupported) {
-            val enabled = gameMenuRequest.fastForwardEnabled
-            GameMenuRow(stringResource(R.string.game_menu_fast_forward), value = if (enabled) on else off) {
-                onResult { putExtra(GameMenuContract.RESULT_ENABLE_FAST_FORWARD, !enabled) }
+            // Each tap picks the next speed: off, 2x, 4x, then off again.
+            val speeds = listOf(1) + GameMenuContract.FAST_FORWARD_SPEEDS
+            val speed = gameMenuRequest.frameSpeed.takeIf { it in speeds } ?: 1
+            val value = if (speed == 1) off else stringResource(R.string.menu_value_speed, speed)
+            GameMenuRow(stringResource(R.string.game_menu_fast_forward), value = value) {
+                val next = speeds[(speeds.indexOf(speed) + 1) % speeds.size]
+                onResult { putExtra(GameMenuContract.RESULT_FRAME_SPEED, next) }
             }
         }
 

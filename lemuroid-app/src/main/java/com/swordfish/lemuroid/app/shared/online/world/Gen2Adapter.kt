@@ -49,6 +49,26 @@ class Gen2Adapter(
         // Running the game's own link trade or battle where the player stands; null: not (yet)
         // checked for this game.
         val inPlace: InPlace? = null,
+        // Joining the host's world and coming back home; null: not checked for this game.
+        val visit: Visit? = null,
+    )
+
+    /**
+     * What a visit to the host's world needs (see [WorldVisit]): the party (6 slots of a
+     * 48-byte record, then 6 trainer names and 6 nicknames of 11 bytes), the Pokédex flags, and
+     * the game's own "save everything" routine (it asks nothing). Scripts that load a map go
+     * in a text buffer, since loading a map clears the in-place link script buffer.
+     */
+    data class Visit(
+        val partyCount: Int,
+        val partyMons: Int,
+        val partyTrainers: Int,
+        val partyNicknames: Int,
+        val pokedexCaught: Int,
+        val pokedexSeen: Int,
+        val warpScriptBuffer: Int,
+        val saveBank: Int,
+        val saveAddress: Int,
     )
 
     /**
@@ -207,15 +227,97 @@ class Gen2Adapter(
     private fun queueScript(
         link: InPlace,
         script: ByteArray,
+        buffer: Int = link.scriptBuffer,
     ): MemoryPatch {
         require(script.size <= SCRIPT_BUFFER_SIZE)
         return MemoryPatch(
             listOf(
-                ram(link.scriptBuffer) to script,
-                ram(link.queueFlag + 1) to byteArrayOf(link.consoleBank.toByte(), link.scriptBuffer.toByte(), (link.scriptBuffer shr 8).toByte()),
+                ram(buffer) to script,
+                ram(link.queueFlag + 1) to byteArrayOf(link.consoleBank.toByte(), buffer.toByte(), (buffer shr 8).toByte()),
                 ram(link.queueFlag) to byteArrayOf(1),
             ),
         )
+    }
+
+    // The game's own warp, as a script ends with when it moves the player.
+    override fun visitWarp(
+        map: String,
+        x: Int,
+        y: Int,
+    ): MemoryPatch? {
+        val link = layout.inPlace ?: return null
+        val visit = layout.visit ?: return null
+        val (group, number) = map.split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
+        if (group !in 1..0xFF || number !in 1..0xFF || x !in 0..0xFF || y !in 0..0xFF) return null
+        val script = byteArrayOf(WARP, group.toByte(), number.toByte(), x.toByte(), y.toByte(), link.end.toByte())
+        return queueScript(link, script, visit.warpScriptBuffer)
+    }
+
+    override fun party(memory: GameMemory): List<PartyMon>? {
+        val visit = layout.visit ?: return null
+        val count = memory.u8(ram(visit.partyCount)) ?: return null
+        if (count > PARTY_LENGTH) return null
+        return (0 until count).map { slot ->
+            val species = memory.u8(ram(visit.partyCount + 1 + slot)) ?: return null
+            val mon = memory.read(ram(visit.partyMons + slot * MON_SIZE), MON_SIZE) ?: return null
+            val trainer = memory.read(ram(visit.partyTrainers + slot * NAME_SIZE), NAME_SIZE) ?: return null
+            val nickname = memory.read(ram(visit.partyNicknames + slot * NAME_SIZE), NAME_SIZE) ?: return null
+            // Who it is: trainer ID, DVs and trainer name (the species changes when it evolves).
+            val key = (mon.copyOfRange(MON_TRAINER_ID, MON_TRAINER_ID + 2) + mon.copyOfRange(MON_DVS, MON_DVS + 2) + trainer).toHex()
+            PartyMon(key, species, mon + trainer + nickname)
+        }
+    }
+
+    override fun writeParty(party: List<PartyMon>): MemoryPatch? {
+        val visit = layout.visit ?: return null
+        if (party.size > PARTY_LENGTH || party.any { it.data.size != MON_SIZE + 2 * NAME_SIZE }) return null
+        val writes = ArrayList<Pair<Long, ByteArray>>()
+        writes += ram(visit.partyCount) to byteArrayOf(party.size.toByte()) + party.map { it.species.toByte() } + byteArrayOf(-1)
+        party.forEachIndexed { slot, mon ->
+            writes += ram(visit.partyMons + slot * MON_SIZE) to mon.data.copyOfRange(0, MON_SIZE)
+            writes += ram(visit.partyTrainers + slot * NAME_SIZE) to mon.data.copyOfRange(MON_SIZE, MON_SIZE + NAME_SIZE)
+            writes += ram(visit.partyNicknames + slot * NAME_SIZE) to mon.data.copyOfRange(MON_SIZE + NAME_SIZE, MON_SIZE + 2 * NAME_SIZE)
+        }
+        return MemoryPatch(writes)
+    }
+
+    // Pokémon that came in a trade are in the Pokédex as caught (and seen), as the game does.
+    override fun registerInPokedex(
+        memory: GameMemory,
+        species: List<Int>,
+    ): MemoryPatch? {
+        val visit = layout.visit ?: return null
+        val writes = ArrayList<Pair<Long, ByteArray>>()
+        for (table in listOf(visit.pokedexCaught, visit.pokedexSeen)) {
+            val flags = memory.read(ram(table), POKEDEX_BYTES) ?: return null
+            for (number in species) {
+                if (number !in 1..NUM_POKEMON) continue
+                val bit = number - 1
+                flags[bit / 8] = (flags[bit / 8].toInt() or (1 shl (bit % 8))).toByte()
+            }
+            writes += ram(table) to flags
+        }
+        return MemoryPatch(writes)
+    }
+
+    override fun saveGame(): MemoryPatch? {
+        val link = layout.inPlace ?: return null
+        val visit = layout.visit ?: return null
+        // The routine must be in this ROM as expected: call the real save, then return.
+        val start = romOffset(visit.saveBank, visit.saveAddress).toLong()
+        if (rom.u8(start) != CALL || rom.u8(start + 3) != RET) return null
+        val script = byteArrayOf(CALLASM, visit.saveBank.toByte(), visit.saveAddress.toByte(), (visit.saveAddress shr 8).toByte(), link.end.toByte())
+        return queueScript(link, script)
+    }
+
+    override fun linkActive(memory: GameMemory): Boolean {
+        val link = layout.inPlace ?: return false
+        return (memory.u8(ram(link.linkMode)) ?: 0) != 0
+    }
+
+    override fun scriptPending(memory: GameMemory): Boolean {
+        val link = layout.inPlace ?: return false
+        return (memory.u8(ram(link.queueFlag)) ?: 0) != 0 || memory.u8(ram(layout.scriptRunning)) == MAP_SCRIPT
     }
 
     private val places = ConcurrentHashMap<String, Place>()
@@ -354,10 +456,23 @@ class Gen2Adapter(
         // Script commands (macros/scripts/events.asm) and the map setup after a link.
         private const val SJUMP: Byte = 0x03
         private const val IFFALSE: Byte = 0x08
+        private const val CALLASM: Byte = 0x0E
         private const val SPECIAL: Byte = 0x0F
+        private const val WARP: Byte = 0x3C
+        // CPU instructions, to check the save routine.
+        private const val CALL = 0xCD
+        private const val RET = 0xC9
         private const val MAPSETUP_LINKRETURN: Byte = 0xF8.toByte()
         private const val MAP_SCRIPT = 0xFF
         private const val SCRIPT_BUFFER_SIZE = 24
+
+        private const val PARTY_LENGTH = 6
+        private const val MON_SIZE = 48
+        private const val MON_TRAINER_ID = 6
+        private const val MON_DVS = 21
+        private const val NAME_SIZE = 11
+        private const val NUM_POKEMON = 251
+        private const val POKEDEX_BYTES = 32
 
         private const val CONNECTION_SIZE = 12
         private const val CONNECTION_Y_ALIGN = 8
@@ -422,6 +537,19 @@ class Gen2Adapter(
                         newLoadMap = 0x8A,
                         end = 0x91,
                     ),
+                visit =
+                    Visit(
+                        partyCount = 0xDCD7,
+                        partyMons = 0xDCDF,
+                        partyTrainers = 0xDDFF,
+                        partyNicknames = 0xDE41,
+                        pokedexCaught = 0xDE99,
+                        pokedexSeen = 0xDEB9,
+                        // wStringBuffer2
+                        warpScriptBuffer = 0xD086,
+                        saveBank = 0x05,
+                        saveAddress = 0x4B85,
+                    ),
             )
 
         val GOLD_SILVER =
@@ -468,6 +596,19 @@ class Gen2Adapter(
                         leaveLink = 0x08,
                         newLoadMap = 0x89,
                         end = 0x90,
+                    ),
+                visit =
+                    Visit(
+                        partyCount = 0xDA22,
+                        partyMons = 0xDA2A,
+                        partyTrainers = 0xDB4A,
+                        partyNicknames = 0xDB8C,
+                        pokedexCaught = 0xDBE4,
+                        pokedexSeen = 0xDC04,
+                        // wStringBuffer2
+                        warpScriptBuffer = 0xCF7E,
+                        saveBank = 0x05,
+                        saveAddress = 0x4C23,
                     ),
             )
 

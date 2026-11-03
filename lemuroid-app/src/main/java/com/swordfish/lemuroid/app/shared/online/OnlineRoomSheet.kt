@@ -100,7 +100,18 @@ fun OnlineRoomSheetContent(
 ) {
     // Where everyone is changes as they walk: follow it while the panel is open.
     world?.view?.collectAsState()
+    val visitingHost = world?.visit?.visiting?.collectAsState()?.value
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (visitingHost != null) {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primaryContainer) {
+                Text(
+                    stringResource(R.string.visit_panel, visitingHost),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
         if (hasLinks) {
             LinkSteps(room, isPokemon, sameWorld = world != null)
             if (world != null && world.adapter != NoWorld) {

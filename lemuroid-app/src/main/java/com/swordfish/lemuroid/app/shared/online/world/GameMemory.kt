@@ -47,6 +47,15 @@ open class GameMemory(private val regions: List<Region>) {
 
     fun s32(address: Long): Int? = u32(address)?.toInt()
 
+    /** [length] bytes from [address], or null when they aren't all in one region. */
+    fun read(
+        address: Long,
+        length: Int,
+    ): ByteArray? {
+        val (buffer, offset) = locate(address, length) ?: return null
+        return ByteArray(length) { buffer.get(offset + it) }
+    }
+
     /** Writes [bytes] at [address]. Only call it between frames (on the emulation thread). */
     fun write(
         address: Long,

@@ -38,7 +38,47 @@ interface WorldAdapter {
 
     /** Memory writes that close the link afterwards, as the game does when leaving its link rooms. */
     fun inPlaceLinkCleanup(): MemoryPatch? = null
+
+    // Joining the host's world, and coming back home with what was traded (see WorldVisit).
+
+    /** Memory writes that take our character to step ([x], [y]) on [map], or null when this game can't. */
+    fun visitWarp(
+        map: String,
+        x: Int,
+        y: Int,
+    ): MemoryPatch? = null
+
+    /** The Pokémon in our party, in order, or null when this game can't tell. */
+    fun party(memory: GameMemory): List<PartyMon>? = null
+
+    /** Memory writes that make [party] our party. */
+    fun writeParty(party: List<PartyMon>): MemoryPatch? = null
+
+    /** Memory writes that mark [species] (national numbers) as caught and seen in the Pokédex. */
+    fun registerInPokedex(
+        memory: GameMemory,
+        species: List<Int>,
+    ): MemoryPatch? = null
+
+    /** Memory writes that make the game save itself, without asking anything. */
+    fun saveGame(): MemoryPatch? = null
+
+    /** Whether the game's link (for a trade or a battle) is on. */
+    fun linkActive(memory: GameMemory): Boolean = false
+
+    /** Whether a script we queued hasn't finished yet. */
+    fun scriptPending(memory: GameMemory): Boolean = false
 }
+
+/**
+ * One Pokémon in a party. [key] says who it is and stays the same when it evolves; [species]
+ * is the number the party list shows; [data] is everything the game keeps for it.
+ */
+class PartyMon(val key: String, val species: Int, val data: ByteArray)
+
+fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+fun String.hexToBytes(): ByteArray = ByteArray(length / 2) { substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 
 /** Bytes to write into the game's memory, in order (the last write sets things off). */
 class MemoryPatch(val writes: List<Pair<Long, ByteArray>>) {

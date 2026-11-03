@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -42,6 +43,9 @@ import com.swordfish.lemuroid.app.shared.online.world.WorldOverlay
 import com.swordfish.lemuroid.app.shared.online.world.WorldAdapters
 import com.swordfish.lemuroid.app.shared.online.world.GameViewport
 import com.swordfish.lemuroid.app.shared.online.world.GameMemory
+import com.swordfish.lemuroid.app.shared.online.world.VisitStore
+import com.swordfish.lemuroid.app.shared.online.world.WorldAdapter
+import com.swordfish.lemuroid.app.shared.online.world.WorldVisit
 import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.app.shared.rumble.RumbleManager
 import com.swordfish.lemuroid.app.shared.settings.ControllerConfigsManager
@@ -64,11 +68,15 @@ import com.swordfish.libretrodroid.GLRetroView
 import com.swordfish.libretrodroid.Variable
 import com.swordfish.touchinput.radial.sensors.TiltConfiguration
 import dagger.Lazy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import javax.inject.Inject
 
 @OptIn(DelicateCoroutinesApi::class)
@@ -115,6 +123,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     private var onlineConfig: OnlineConfig? = null
     private var onlineSession: OnlineSession? = null
     private val worldSession = mutableStateOf<WorldSession?>(null)
+
+    // Visiting the host's world (guests in Same World rooms), or coming home from a visit.
+    private var worldVisit: WorldVisit? = null
 
     // Cheats would make players' games differ in "play together" rooms.
     private val cheatsAllowed: Boolean
@@ -197,7 +208,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             // The core registers its link interface while the game loads.
             session?.start()
             // Same world rooms also share the map, in games we know how to read.
-            if (session != null && session.hasLinks && session.sameWorld) startWorld(session)
+            if (session != null && session.hasLinks && session.sameWorld) startWorld(session) else finishLeftoverVisit()
             // Auto-resume: a quiet snapshot every 30 seconds while the game is on screen.
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (true) {
@@ -298,6 +309,10 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                 this.putExtra(
                     GameMenuContract.EXTRA_FAST_FORWARD,
                     (baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1) > 1,
+                )
+                this.putExtra(
+                    GameMenuContract.EXTRA_FRAME_SPEED,
+                    baseGameScreenViewModel.retroGameView.retroGameView?.frameSpeed ?: 1,
                 )
                 this.putExtra(GameMenuContract.EXTRA_CURRENT_TILT_CONFIG, currentTiltConfiguration)
                 // TODO PADS... Make sure to avoid passing this if a physical pad is connected.
@@ -444,6 +459,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
     override fun onDestroy() {
         if (!isChangingConfigurations) {
+            worldVisit?.stop()
             worldSession.value?.stop()
             GameViewport.rect.value = null
             GameViewport.area.value = null
@@ -496,7 +512,107 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             session.onPlayerLeft = world::onPlayerLeft
             worldSession.value = world
             world.start()
+            if (adapter != NoWorld) startVisit(session, world, adapter)
         }
+    }
+
+    private fun visitStore() = VisitStore(File(filesDir, "visits/${game.id}"))
+
+    private fun newVisit(adapter: WorldAdapter): WorldVisit =
+        WorldVisit(adapter, { GameMemory.ofRunningGame() }, RunningGame(), visitStore(), lifecycleScope, ::showVisitNotice)
+            .also { visit ->
+                worldVisit = visit
+                baseGameScreenViewModel.beforeFinish = { visit.goHome() }
+            }
+
+    /**
+     * Guests join the host's world: once the host is on a map in the same game world, we are
+     * taken next to them. Closing the game or the room ending brings us home.
+     */
+    private fun startVisit(
+        session: OnlineSession,
+        world: WorldSession,
+        adapter: WorldAdapter,
+    ) {
+        val visit = newVisit(adapter)
+        world.visit = visit
+        lifecycleScope.launch {
+            // Let the auto-resume snapshot load first: a visit must start from the real game.
+            delay(VISIT_START_DELAY_MS)
+            val first = session.state.first { it is OnlineSession.State.InRoom || it is OnlineSession.State.Failed || it is OnlineSession.State.Left }
+            val room = first as? OnlineSession.State.InRoom
+            visit.resume(room?.code?.takeIf { room.clientId != room.ownerId })
+            launch {
+                // The room is gone for good: back home.
+                session.state.first { it is OnlineSession.State.Failed || it is OnlineSession.State.Left }
+                visit.goHome()
+            }
+            if (room == null || room.clientId == room.ownerId) return@launch
+            combine(world.view, session.state) { view, state -> view to state }.collect { (view, state) ->
+                val inRoom = state as? OnlineSession.State.InRoom ?: return@collect
+                if (inRoom.reconnecting) return@collect
+                val hostId = inRoom.ownerId
+                if (inRoom.players.none { it.id == hostId && !it.away }) return@collect
+                visit.maybeJoin(
+                    room = inRoom.code,
+                    host = inRoom.playerName(hostId),
+                    hostWorld = view.presences[hostId]?.world,
+                    hostAvatar = view.others[hostId]?.current,
+                    local = view.local,
+                )
+            }
+        }
+    }
+
+    // A visit left from before (the app was closed during it): come home now.
+    private fun finishLeftoverVisit() {
+        val store = visitStore()
+        if (!store.exists()) return
+        lifecycleScope.launch {
+            val rom = WorldAdapters.loadRom(applicationContext, game) ?: return@launch
+            val adapter = WorldAdapters.forRom(game.systemId, rom) ?: return@launch
+            delay(VISIT_START_DELAY_MS)
+            newVisit(adapter).resume(null)
+        }
+    }
+
+    private fun showVisitNotice(notice: WorldVisit.Notice) {
+        val text =
+            when (notice) {
+                is WorldVisit.Notice.Joined -> getString(R.string.visit_joined, notice.host)
+                is WorldVisit.Notice.OtherGame ->
+                    notice.game?.let { getString(R.string.visit_other_game, notice.host, it) }
+                        ?: getString(R.string.visit_other_game_unknown, notice.host)
+                is WorldVisit.Notice.Home -> getString(if (notice.traded) R.string.visit_home_traded else R.string.visit_home)
+                WorldVisit.Notice.HomeKeptAll -> getString(R.string.visit_home_kept_all)
+            }
+        runOnUiThread { Toast.makeText(applicationContext, text, Toast.LENGTH_LONG).show() }
+    }
+
+    /** The running emulator, for visits: snapshots and in-game saves between two frames. */
+    private inner class RunningGame : WorldVisit.Emulator {
+        override suspend fun <T> betweenFrames(block: (WorldVisit.Core) -> T): T {
+            val view = baseGameScreenViewModel.retroGameView.retroGameView ?: error("The game isn't running")
+            val core =
+                object : WorldVisit.Core {
+                    override fun saveState(): ByteArray = view.serializeState(false)
+
+                    override fun loadState(state: ByteArray): Boolean = view.unserializeState(state, false)
+
+                    override fun saveSram(): ByteArray = view.serializeSRAM(false)
+
+                    override fun loadSram(sram: ByteArray): Boolean = view.unserializeSRAM(sram, false)
+                }
+            val result = CompletableDeferred<T>()
+            view.queueEvent {
+                runCatching { block(core) }
+                    .onSuccess { result.complete(it) }
+                    .onFailure { result.completeExceptionally(it) }
+            }
+            return result.await()
+        }
+
+        override suspend fun persist() = baseGameScreenViewModel.saveNow()
     }
 
     private fun applyCheats() {
@@ -585,6 +701,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                     this.frameSpeed = if (fastForwardEnabled) 2 else 1
                 }
             }
+            if (data?.hasExtra(GameMenuContract.RESULT_FRAME_SPEED) == true) {
+                baseGameScreenViewModel.setFrameSpeed(data.getIntExtra(GameMenuContract.RESULT_FRAME_SPEED, 1))
+            }
             if (data?.getBooleanExtra(GameMenuContract.RESULT_EDIT_TOUCH_CONTROLS, false) == true) {
                 baseGameScreenViewModel.showEditControls(true)
             }
@@ -600,6 +719,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         // How often the auto-resume snapshot is saved while playing.
         private const val PERIODIC_SAVE_MS = 30_000L
+
+        // The auto-resume snapshot loads right after the first frame; visits start after it.
+        private const val VISIT_START_DELAY_MS = 2_500L
 
         // Screens up to this rate already suit 60 frames a second games.
         private const val MAX_GAME_REFRESH_RATE = 65f

@@ -31,6 +31,8 @@
     <string name="settings_title_save_backup_stop">Stop backing up</string>
     <string name="menu_value_on">On</string>
     <string name="menu_value_off">Off</string>
+    <!-- Fast forward speed, for example "2×". -->
+    <string name="menu_value_speed">%1$d×</string>
     <string name="screenshot_saved">Screenshot saved to your Gallery</string>
     <string name="screenshot_failed">Could not save the screenshot</string>
 
