@@ -199,7 +199,6 @@ class OnlineSession(
     private val attemptResults = Channel<Boolean>(Channel.CONFLATED)
     private var connectAttempts = 0
 
-    /** Call once the game is running. */
     // The trainer name from the player's game, when known; otherwise the name set in the app.
     @Volatile private var trainerName: String? = null
     private val playerName: String get() = trainerName ?: config.playerName
@@ -207,6 +206,26 @@ class OnlineSession(
     /** Shows the others [name] (the player's in-game trainer name) instead of the app's name. Call before [start]. */
     fun useTrainerName(name: String?) {
         trainerName = name?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * The trainer name read from the running game (a loaded save state can hold one the save
+     * file doesn't): when it's new, the others are told. Servers from before this just ignore it.
+     */
+    fun updateTrainerName(name: String?) {
+        val clean = name?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        if (clean == trainerName) return
+        trainerName = clean
+        val room = mutableState.value as? State.InRoom ?: return
+        sendControl(JSONObject().put("t", "name").put("name", clean))
+        renamed(room.clientId, clean)
+    }
+
+    private fun renamed(
+        id: Int,
+        name: String,
+    ) {
+        updateRoom { room -> room.copy(players = room.players.map { if (it.id == id) it.copy(name = name) else it }) }
     }
 
     fun start() {
@@ -485,6 +504,18 @@ class OnlineSession(
                 val inputDelay = room.optInt("delay", config.inputDelayFrames)
                 startTransport(clientId, inputDelay)
                 transport.groupChanged(clientId, inRoom.myGroup)
+                // Back in a seat that kept an older name (it changed while we were away).
+                val name = trainerName
+                if (name != null && inRoom.playerName(clientId).let { it.isNotEmpty() && it != name }) {
+                    sendControl(JSONObject().put("t", "name").put("name", name))
+                    renamed(clientId, name)
+                }
+            }
+
+            "renamed" -> {
+                val id = message.optInt("id", -1)
+                val name = message.optString("name")
+                if (id >= 0 && name.isNotEmpty()) renamed(id, name)
             }
 
             "peer_joined" -> {

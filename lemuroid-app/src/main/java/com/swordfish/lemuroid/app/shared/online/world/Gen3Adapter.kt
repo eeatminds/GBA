@@ -25,6 +25,8 @@ class Gen3Adapter(
         // Either the save block itself (Ruby/Sapphire) or a pointer to it.
         val saveBlock1: Long,
         val saveBlock1IsPointer: Boolean,
+        // The other save block (the trainer's name, ...), held the same way.
+        val saveBlock2: Long,
         val playerAvatar: Long,
         val objectEvents: Long,
         val sprites: Long,
@@ -57,6 +59,14 @@ class Gen3Adapter(
 
     private val pictures = ConcurrentHashMap<Long, SpriteImage>()
     private val missing = ConcurrentHashMap.newKeySet<Long>()
+
+    // The trainer's name starts the second save block.
+    override fun trainerName(memory: GameMemory): String? {
+        if (memory.u32(layout.main + 4) != (layout.cb2Overworld or 1L)) return null
+        val saveBlock = if (layout.saveBlock1IsPointer) memory.u32(layout.saveBlock2) ?: return null else layout.saveBlock2
+        if (saveBlock !in EWRAM) return null
+        return TrainerNames.gen3Text(memory.read(saveBlock, TrainerNames.GEN3_NAME_LENGTH + 1) ?: return null)
+    }
 
     override fun read(memory: GameMemory): Avatar? {
         // Only while the overworld runs (not in battles, menus that replace the map, etc.).
@@ -346,6 +356,7 @@ class Gen3Adapter(
             cb2Overworld = cb2Overworld,
             saveBlock1 = 0x03005008,
             saveBlock1IsPointer = true,
+            saveBlock2 = 0x0300500c,
             playerAvatar = 0x02037078,
             objectEvents = 0x02036e38,
             sprites = 0x0202063c,
@@ -374,6 +385,7 @@ class Gen3Adapter(
             cb2Overworld = cb2Overworld,
             saveBlock1 = 0x02025734,
             saveBlock1IsPointer = false,
+            saveBlock2 = 0x02024ea4,
             playerAvatar = 0x0202e858,
             objectEvents = 0x030048a0,
             sprites = 0x02020004,
@@ -397,6 +409,7 @@ class Gen3Adapter(
                 cb2Overworld = 0x08085e5c,
                 saveBlock1 = 0x03005d8c,
                 saveBlock1IsPointer = true,
+                saveBlock2 = 0x03005d90,
                 playerAvatar = 0x02037590,
                 objectEvents = 0x02037350,
                 sprites = 0x02020630,

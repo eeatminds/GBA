@@ -29,11 +29,15 @@ object TrainerNames {
         val code = String(rom, 0x13F, 4, Charsets.US_ASCII)
         Gen2Adapter.layoutFor(title, code) ?: return null
         if (save.size < GEN2_NAME + GEN2_NAME_LENGTH || save[GEN2_CHECK].toInt() and 0xFF != GEN2_CHECK_VALUE) return null
+        return gen2Text(save.copyOfRange(GEN2_NAME, GEN2_NAME + GEN2_NAME_LENGTH))
+    }
+
+    /** A Gold, Silver or Crystal name (letters, digits, a few marks; ends at $50), or null when it isn't one. */
+    fun gen2Text(bytes: ByteArray): String? {
         val name = StringBuilder()
-        for (i in 0 until GEN2_NAME_LENGTH) {
-            val c = save[GEN2_NAME + i].toInt() and 0xFF
-            when (c) {
-                0x50 -> break
+        for (byte in bytes) {
+            when (val c = byte.toInt() and 0xFF) {
+                0x50 -> return name.toString().trim().takeIf { it.isNotEmpty() }
                 in 0x80..0x99 -> name.append('A' + (c - 0x80))
                 in 0xA0..0xB9 -> name.append('a' + (c - 0xA0))
                 in 0xF6..0xFF -> name.append('0' + (c - 0xF6))
@@ -43,7 +47,7 @@ object TrainerNames {
                 else -> return null
             }
         }
-        return name.toString()
+        return null
     }
 
     // Ruby, Sapphire, Emerald, FireRed and LeafGreen save in two slots of 4 KB sectors; each
@@ -67,10 +71,14 @@ object TrainerNames {
             }
         }
         val start = newest ?: return null
+        return gen3Text(save.copyOfRange(start, start + GEN3_NAME_LENGTH + 1))
+    }
+
+    /** A Ruby, Sapphire, Emerald, FireRed or LeafGreen name (ends at $FF, or after 7 letters), or null when it isn't one. */
+    fun gen3Text(bytes: ByteArray): String? {
         val name = StringBuilder()
-        for (i in 0 until GEN3_NAME_LENGTH) {
-            val c = save[start + i].toInt() and 0xFF
-            when (c) {
+        for (byte in bytes.take(GEN3_NAME_LENGTH)) {
+            when (val c = byte.toInt() and 0xFF) {
                 0xFF -> break
                 in 0xBB..0xD4 -> name.append('A' + (c - 0xBB))
                 in 0xD5..0xEE -> name.append('a' + (c - 0xD5))
@@ -81,7 +89,7 @@ object TrainerNames {
                 else -> return null
             }
         }
-        return name.toString()
+        return name.toString().trim().takeIf { it.isNotEmpty() }
     }
 
     private fun u16(
@@ -97,12 +105,12 @@ object TrainerNames {
     private const val GEN2_CHECK = 0x2008
     private const val GEN2_CHECK_VALUE = 99
     private const val GEN2_NAME = 0x200B
-    private const val GEN2_NAME_LENGTH = 11
+    const val GEN2_NAME_LENGTH = 11
 
     private const val SECTOR_SIZE = 0x1000
     private const val SECTOR_ID = 0xFF4
     private const val SECTOR_SIGNATURE = 0xFF8
     private const val SECTOR_COUNTER = 0xFFC
     private const val SIGNATURE = 0x08012025L
-    private const val GEN3_NAME_LENGTH = 7
+    const val GEN3_NAME_LENGTH = 7
 }

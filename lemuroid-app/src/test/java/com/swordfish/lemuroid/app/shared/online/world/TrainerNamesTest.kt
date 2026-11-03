@@ -28,6 +28,21 @@ class TrainerNamesTest {
         assertNull(TrainerNames.fromSave("nes", crystalHeader, save))
     }
 
+    @Test
+    fun `names in the running game's memory, only clean text with its end mark`() {
+        fun bytes(vararg values: Int) = ByteArray(values.size) { values[it].toByte() }
+        assertEquals("Kris", TrainerNames.gen2Text(bytes(0x8A, 0xB1, 0xA8, 0xB2, 0x50, 0x00)))
+        // Not set yet (a new game, the title screen): zeros, or no end mark.
+        assertNull(TrainerNames.gen2Text(ByteArray(11)))
+        assertNull(TrainerNames.gen2Text(bytes(0x80, 0x80, 0x80)))
+        assertNull(TrainerNames.gen2Text(bytes(0x50)))
+        // "Ash", then the end mark; seven letters need none.
+        assertEquals("Ash", TrainerNames.gen3Text(bytes(0xBB, 0xE7, 0xDC, 0xFF, 0x00)))
+        assertEquals("AAAAAAA", TrainerNames.gen3Text(bytes(0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0x12)))
+        assertNull(TrainerNames.gen3Text(bytes(0xFF)))
+        assertNull(TrainerNames.gen3Text(bytes(0x12, 0x34)))
+    }
+
     // Saves made in a desktop emulator (the test intro named both players with A's).
     @Test
     fun `names from real Gold and FireRed saves`() {

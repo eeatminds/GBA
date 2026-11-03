@@ -213,6 +213,29 @@ test('talking to a player: trade or battle, yes links the two, no just answers',
   players.forEach((p) => p.ws.close());
 });
 
+test('a new name from the game goes to everyone else, and to players who join later', async () => {
+  const players = [connect(), connect(), connect()];
+  await Promise.all(players.map((p) => p.opened));
+  const [a, b, c] = players;
+  a.sendJson({ t: 'host', system: 'gbc' });
+  const { room } = await a.next(ofType('hosted'));
+  b.sendJson({ t: 'join', code: room.code });
+  await b.next(ofType('joined'));
+
+  b.sendJson({ t: 'name', name: '  SILVER<>  ' });
+  assert.deepEqual(await a.next(ofType('renamed')), { t: 'renamed', id: 1, name: 'SILVER' });
+  // The same name again, or an empty one, changes nothing.
+  b.sendJson({ t: 'name', name: 'SILVER' });
+  b.sendJson({ t: 'name', name: '<>' });
+  c.sendJson({ t: 'join', code: room.code });
+  const joined = await c.next(ofType('joined'));
+  assert.equal(joined.players.find((p) => p.id === 1).name, 'SILVER');
+  a.sendJson({ t: 'name', name: 'GOLD' });
+  assert.deepEqual(await c.next(ofType('renamed')), { t: 'renamed', id: 0, name: 'GOLD' });
+  assert.deepEqual(await b.next(ofType('renamed')), { t: 'renamed', id: 0, name: 'GOLD' });
+  players.forEach((p) => p.ws.close());
+});
+
 test('play together room closes when the host leaves', async () => {
   const host = connect();
   await host.opened;

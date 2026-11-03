@@ -23,11 +23,13 @@ import java.util.concurrent.TimeUnit
  *
  * Our Gambatte also sends whole blocks ([0, BLOCK_MARK, length low, length high, bytes...]) for
  * the big exchanges of Gold, Silver and Crystal, and for their "both ready?" checks: one packet
- * each instead of one round trip per byte. With nobody to answer a block it gets
- * [0, NO_PARTNER_MARK] back, so the game gives up at once instead of waiting.
+ * each instead of one round trip per byte. A block sent before we are linked is held for a few
+ * seconds (the room links two players a moment after one accepts the other's invitation), then
+ * forwarded; with still nobody to answer it, the game gets [0, NO_PARTNER_MARK] and gives up.
  */
 class GbLinkBridge(
     private val ports: IntRange = DEFAULT_PORTS,
+    private val holdBlocksMs: Long = HOLD_BLOCKS_MS,
 ) {
     private val lock = Any()
     private val outgoing = LinkedBlockingQueue<ByteArray>()
@@ -45,6 +47,9 @@ class GbLinkBridge(
     // Our blocks still waiting for the peer's.
     private var blocksOwed = 0
 
+    // Blocks our game sent while unlinked, with when (SystemClock-free: System.nanoTime ms).
+    private val heldBlocks = ArrayList<Pair<Long, ByteArray>>()
+
     /** Starts listening and returns the port Gambatte should connect to, or null. */
     fun start(): Int? {
         synchronized(lock) {
@@ -55,6 +60,10 @@ class GbLinkBridge(
                 server = candidate
                 running = true
                 Thread({ acceptLoop(candidate) }, "gb-link-accept").apply {
+                    isDaemon = true
+                    start()
+                }
+                Thread({ heldBlocksLoop() }, "gb-link-held").apply {
                     isDaemon = true
                     start()
                 }
@@ -73,6 +82,7 @@ class GbLinkBridge(
             server = null
             socket = null
             peer = null
+            heldBlocks.clear()
         }
         outgoing.clear()
         // Wake the room's sending thread.
@@ -90,6 +100,14 @@ class GbLinkBridge(
             received = 0
             blocksOwed = 0
             peer = id
+            // Linked now: blocks our game sent a moment ago go to the partner.
+            if (id != null) {
+                heldBlocks.forEach { (_, block) ->
+                    blocksOwed++
+                    outgoing.offer(roomPacket(id, block))
+                }
+                heldBlocks.clear()
+            }
         }
     }
 
@@ -168,7 +186,7 @@ class GbLinkBridge(
                     synchronized(lock) {
                         val target = peer
                         if (target == null) {
-                            writeToGame(NO_PARTNER_BLOCK)
+                            heldBlocks += now() to block
                         } else {
                             blocksOwed++
                             outgoing.offer(roomPacket(target, block))
@@ -196,6 +214,22 @@ class GbLinkBridge(
         }
     }
 
+    // Held blocks nobody came for get "no partner".
+    private fun heldBlocksLoop() {
+        while (running) {
+            Thread.sleep(HELD_CHECK_MS)
+            synchronized(lock) {
+                val expired = heldBlocks.filter { now() - it.first > holdBlocksMs }
+                if (expired.isNotEmpty()) {
+                    heldBlocks.removeAll(expired.toSet())
+                    expired.forEach { writeToGame(NO_PARTNER_BLOCK) }
+                }
+            }
+        }
+    }
+
+    private fun now(): Long = System.nanoTime() / 1_000_000
+
     // Call with the lock held.
     private fun writeToGame(message: ByteArray) {
         val current = socket ?: return
@@ -218,7 +252,11 @@ class GbLinkBridge(
         const val MESSAGE_SIZE = 2
 
         // What a Game Boy reads with nothing plugged in.
-        private val NO_PARTNER = byteArrayOf(0xFF.toByte(), 0)
+        private val NO_PARTNER = byteArrayOf(0xFF.toByte(), 0x80.toByte())
+
+        // How long a block sent before we are linked waits for the partner.
+        const val HOLD_BLOCKS_MS = 10_000L
+        private const val HELD_CHECK_MS = 200L
 
         // Block messages (see the class comment); the marks match our Gambatte's.
         const val BLOCK_MARK: Byte = 0xB5.toByte()

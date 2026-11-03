@@ -48,6 +48,9 @@ interface WorldAdapter {
         y: Int,
     ): MemoryPatch? = null
 
+    /** The trainer name in the running game, while on a map, or null when this game can't tell. */
+    fun trainerName(memory: GameMemory): String? = null
+
     /** The Pokémon in our party, in order, or null when this game can't tell. */
     fun party(memory: GameMemory): List<PartyMon>? = null
 

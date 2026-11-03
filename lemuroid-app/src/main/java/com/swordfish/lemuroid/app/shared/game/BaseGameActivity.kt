@@ -209,8 +209,12 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             // The emulator only exists once the game has drawn its first frame.
             baseGameScreenViewModel.retroGameView.waitGLEvent<GLRetroView.GLRetroEvents.FrameRendered>()
             applyCheats()
-            // Others see our trainer name from the game's save (instead of "Player 1").
-            if (session != null && session.hasLinks) session.useTrainerName(readTrainerName())
+            // Others see our trainer name from the game's save (instead of "Player 1"), then from
+            // the running game once it's on a map (a save state can hold a game the save doesn't).
+            if (session != null && session.hasLinks) {
+                session.useTrainerName(readTrainerName())
+                launch { watchTrainerName(session) }
+            }
             // The core registers its link interface while the game loads.
             session?.start()
             // Same world rooms also share the map, in games we know how to read.
@@ -547,6 +551,15 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             TrainerNames.fromSave(game.systemId, rom, save)
         }.onFailure { Timber.w(it, "Could not read the trainer name") }.getOrNull()
 
+    private suspend fun watchTrainerName(session: OnlineSession) {
+        val adapter = gameRom()?.let { WorldAdapters.forRom(game.systemId, it) } ?: return
+        while (true) {
+            delay(TRAINER_NAME_CHECK_MS)
+            val memory = GameMemory.ofRunningGame() ?: continue
+            runCatching { adapter.trainerName(memory) }.getOrNull()?.let(session::updateTrainerName)
+        }
+    }
+
     private fun visitStore() = VisitStore(File(filesDir, "visits/${game.id}"))
 
     private fun newVisit(adapter: WorldAdapter): WorldVisit =
@@ -750,6 +763,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         // How often the auto-resume snapshot is saved while playing.
         private const val PERIODIC_SAVE_MS = 30_000L
+
+        // How often the running game is checked for the trainer's name.
+        private const val TRAINER_NAME_CHECK_MS = 3_000L
 
         // Keys a box over the game uses, including repeats of held ones.
         private val BOX_KEYS =

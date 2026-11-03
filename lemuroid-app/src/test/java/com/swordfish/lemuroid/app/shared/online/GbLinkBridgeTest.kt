@@ -4,6 +4,8 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.DataInputStream
 import java.net.InetAddress
@@ -26,8 +28,11 @@ class GbLinkBridgeTest {
         bridges.forEach { it.stop() }
     }
 
-    private fun bridge(ports: IntRange): Pair<GbLinkBridge, Int> {
-        val bridge = GbLinkBridge(ports)
+    private fun bridge(
+        ports: IntRange,
+        holdBlocksMs: Long = 300,
+    ): Pair<GbLinkBridge, Int> {
+        val bridge = GbLinkBridge(ports, holdBlocksMs)
         val port = bridge.start()
         assertNotNull(port)
         bridges += bridge
@@ -72,7 +77,8 @@ class GbLinkBridgeTest {
         val (_, port) = bridge(56500..56510)
         val game = emulator(port)
         game.send(0x42, 0)
-        assertArrayEquals(bytes(0xFF, 0), game.receive())
+        // An answer (flag 0x80), so a late one is never taken for a new transfer.
+        assertArrayEquals(bytes(0xFF, 0x80), game.receive())
     }
 
     @Test
@@ -113,7 +119,7 @@ class GbLinkBridgeTest {
         Thread.sleep(100)
         assertNotNull(a.takeOutgoing(500))
         a.setPeer(null)
-        assertArrayEquals(bytes(0xFF, 0), gameA.receive())
+        assertArrayEquals(bytes(0xFF, 0x80), gameA.receive())
         b.stop()
     }
 
@@ -145,12 +151,28 @@ class GbLinkBridgeTest {
     }
 
     @Test
-    fun `a block with nobody linked gets no partner at once`() {
-        val (_, port) = bridge(56571..56580)
+    fun `a block with nobody linked gets no partner after a while`() {
+        val (_, port) = bridge(56571..56580, holdBlocksMs = 300)
         val game = emulator(port)
         Thread.sleep(200)
         game.send(*block(2, 5))
+        val started = System.currentTimeMillis()
         assertArrayEquals(bytes(0, 0xB6), game.receive())
+        assertTrue(System.currentTimeMillis() - started >= 250)
+    }
+
+    // The room links two players a moment after one accepts: a block sent just before waits.
+    @Test
+    fun `a block sent just before linking goes to the partner once linked`() {
+        val (a, portA) = bridge(56591..56600, holdBlocksMs = 5_000)
+        val gameA = emulator(portA)
+        Thread.sleep(200)
+        gameA.send(*block(4, 1, 2, 3, 4))
+        Thread.sleep(300)
+        assertNull(a.takeOutgoing(50))
+        a.setPeer(7)
+        val packet = a.takeOutgoing(1000)!!
+        assertArrayEquals(bytes(0, 0, 7, 0, 0xB5, 5, 0, 4, 1, 2, 3, 4), packet)
     }
 
     @Test

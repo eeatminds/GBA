@@ -69,6 +69,8 @@ class Gen2Adapter(
         val warpScriptBuffer: Int,
         val saveBank: Int,
         val saveAddress: Int,
+        // wPlayerName
+        val playerName: Int,
     )
 
     /**
@@ -107,6 +109,12 @@ class Gen2Adapter(
 
     // Bank 0 ($C000) and bank 1 ($D000) sit one after the other in the work RAM block.
     private fun ram(address: Int): Long = GameMemory.SYSTEM_RAM_BASE + (address - 0xC000)
+
+    override fun trainerName(memory: GameMemory): String? {
+        val visit = layout.visit ?: return null
+        if (memory.u8(ram(layout.mapStatus)) != MAPSTATUS_HANDLE) return null
+        return TrainerNames.gen2Text(memory.read(ram(visit.playerName), TrainerNames.GEN2_NAME_LENGTH) ?: return null)
+    }
 
     override fun read(memory: GameMemory): Avatar? {
         if (memory.u8(ram(layout.mapStatus)) != MAPSTATUS_HANDLE) return null
@@ -558,6 +566,7 @@ class Gen2Adapter(
                         warpScriptBuffer = 0xD086,
                         saveBank = 0x05,
                         saveAddress = 0x4B85,
+                        playerName = 0xD47D,
                     ),
             )
 
@@ -618,6 +627,7 @@ class Gen2Adapter(
                         warpScriptBuffer = 0xCF7E,
                         saveBank = 0x05,
                         saveAddress = 0x4C23,
+                        playerName = 0xD1A3,
                     ),
             )
 

@@ -14,7 +14,8 @@
 //      Server to client: [sender id u16 BE][payload]. Target 0xFFFF means everyone else.
 //   4. Other JSON messages: peer_joined, peer_left, peer_away, peer_back, closed, kicked, kick (owner only),
 //      leave, ping/pong, pos (where a player is in their game), link_* (link cables),
-//      invite / invite_reply (asking another player to trade or battle).
+//      invite / invite_reply (asking another player to trade or battle), name / renamed (a new
+//      player name, e.g. the trainer name read from the running game).
 //
 // In trade & battle rooms a player whose connection drops keeps their seat (and link) for
 // RESUME_GRACE_MS, and an empty room stays open for EMPTY_ROOM_MS, so a phone that briefly
@@ -26,6 +27,7 @@ import {
   BROADCAST,
   RoomError,
   RoomRegistry,
+  cleanName,
   describePlayers,
   describeGroups,
   describeRoom,
@@ -215,6 +217,16 @@ function handleConnection(ws, registry, config, awayTimers) {
       case 'invite_reply':
         handleInvite(registry, state, message);
         break;
+      case 'name': {
+        // The trainer name from the player's game, read once the game is running.
+        const name = cleanName(message.name, '');
+        if (!name || name === state.player.name) break;
+        state.player.name = name;
+        for (const other of state.room.players.values()) {
+          if (other.id !== state.player.id) sendJson(other.connection, { t: 'renamed', id: state.player.id, name });
+        }
+        break;
+      }
       case 'kick': {
         // Only the room's owner may remove players.
         const room = state.room;
