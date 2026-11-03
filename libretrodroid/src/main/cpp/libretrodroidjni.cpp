@@ -601,6 +601,14 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setViewpor
     LibretroDroid::getInstance().setViewportAlignment(viewportAlignment);
 }
 
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setScreenRefreshRate(
+        JNIEnv* env,
+        jclass obj,
+        jfloat refreshRate
+) {
+    LibretroDroid::getInstance().setScreenRefreshRate(refreshRate);
+}
+
 JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_refreshAspectRatio(
     JNIEnv* env,
     jclass obj

@@ -22,7 +22,13 @@
 namespace libretrodroid {
 
 unsigned FPSSync::advanceFrames() {
-    if (useVSync) return 1;
+    if (useVSync) {
+        if (!screenFasterThanExpected()) return 1;
+        // One game frame per screen refresh would now run the game too fast (the screen went
+        // back to a higher refresh rate): from here on, pace the game by the clock instead.
+        LOGI("Screen refreshes faster than %f Hz, pacing frames by time", screenRefreshRate);
+        useVSync = false;
+    }
 
     if (lastFrame == MIN_TIME) {
         start();
@@ -40,7 +46,21 @@ FPSSync::FPSSync(double contentRefreshRate, double screenRefreshRate) {
     this->screenRefreshRate = screenRefreshRate;
     this->useVSync = std::abs(contentRefreshRate - screenRefreshRate) < FPS_TOLERANCE;
     this->sampleInterval = std::chrono::microseconds((long) ((1000000L / contentRefreshRate)));
+    this->averageVSyncInterval = 1.0 / screenRefreshRate;
     reset();
+}
+
+bool FPSSync::screenFasterThanExpected() {
+    auto now = std::chrono::steady_clock::now();
+    if (lastVSync != MIN_TIME) {
+        double interval = std::chrono::duration<double>(now - lastVSync).count();
+        // Long gaps (pauses, loading) say nothing about the screen.
+        if (interval < 0.1) {
+            averageVSyncInterval += (interval - averageVSyncInterval) * 0.05;
+        }
+    }
+    lastVSync = now;
+    return averageVSyncInterval < 0.8 / contentRefreshRate;
 }
 
 void FPSSync::start() {
@@ -50,6 +70,7 @@ void FPSSync::start() {
 
 void FPSSync::reset() {
     lastFrame = MIN_TIME;
+    lastVSync = MIN_TIME;
 }
 
 double FPSSync::getTimeStretchFactor() {

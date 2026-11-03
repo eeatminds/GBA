@@ -701,6 +701,10 @@ void LibretroDroid::setCheat(unsigned index, bool enabled, const std::string& co
     core->retro_cheat_set(index, enabled, Utils::cloneToCString(code));
 }
 
+void LibretroDroid::setScreenRefreshRate(float refreshRate) {
+    if (refreshRate > 0) screenRefreshRate = refreshRate;
+}
+
 bool LibretroDroid::requiresVideoRefresh() const {
     return dirtyVideo;
 }

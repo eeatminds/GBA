@@ -123,6 +123,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setUpExceptionsHandler()
+        requestGameRefreshRate()
         GameService.startService(applicationContext, intent)
         game = intent.getSerializableExtra(EXTRA_GAME) as Game
         systemCoreConfig = intent.getSerializableExtra(EXTRA_SYSTEM_CORE_CONFIG) as SystemCoreConfig
@@ -451,6 +452,27 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         super.onDestroy()
     }
 
+    /**
+     * The games run at about 60 frames a second. A screen running faster (90 or 120 Hz, common on
+     * high-end phones) only shows each picture twice while using more power, so ask for 60 Hz
+     * while the game is on screen. The phone goes back to its usual rate when the game closes.
+     */
+    private fun requestGameRefreshRate() {
+        runCatching {
+            @Suppress("DEPRECATION")
+            val display = windowManager.defaultDisplay
+            val current = display.mode
+            if (current.refreshRate <= MAX_GAME_REFRESH_RATE) return
+            val mode =
+                display.supportedModes
+                    .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+                    .filter { it.refreshRate in 59f..MAX_GAME_REFRESH_RATE }
+                    .minByOrNull { kotlin.math.abs(it.refreshRate - 60f) }
+                    ?: return
+            window.attributes = window.attributes.apply { preferredDisplayModeId = mode.modeId }
+        }.onFailure { Timber.w(it, "Could not ask for a 60 Hz screen") }
+    }
+
     /** See the other players in our game: their characters are drawn over the game picture. */
     private fun startWorld(session: OnlineSession) {
         lifecycleScope.launch {
@@ -565,6 +587,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         // How often the auto-resume snapshot is saved while playing.
         private const val PERIODIC_SAVE_MS = 30_000L
+
+        // Screens up to this rate already suit 60 frames a second games.
+        private const val MAX_GAME_REFRESH_RATE = 65f
 
         private const val EXTRA_GAME = "GAME"
         private const val EXTRA_LOAD_SAVE = "LOAD_SAVE"

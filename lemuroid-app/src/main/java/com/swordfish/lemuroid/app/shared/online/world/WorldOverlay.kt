@@ -57,10 +57,14 @@ fun WorldOverlay(
     val visible = view.others.filterValues { it.current.map == local.map }
     if (visible.isEmpty()) return
 
-    // Redraw every frame so others glide smoothly between their position updates.
+    // Others glide from their last position to the newest one: redraw every frame while that
+    // lasts (one update interval), then stop until the next update, so standing still costs nothing.
     var now by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) withFrameMillis { now = SystemClock.uptimeMillis() }
+    val lastUpdate = visible.values.maxOf { it.receivedAt }
+    LaunchedEffect(lastUpdate) {
+        do {
+            withFrameMillis { now = SystemClock.uptimeMillis() }
+        } while (now < lastUpdate + WorldSession.TICK_MS)
     }
 
     val adapter = session.adapter

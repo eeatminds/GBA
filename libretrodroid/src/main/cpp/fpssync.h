@@ -44,9 +44,14 @@ private:
 
     const TimePoint MIN_TIME = TimePoint::min();
     void start();
+    bool screenFasterThanExpected();
 
     TimePoint lastFrame = MIN_TIME;
     Duration sampleInterval;
+
+    // Vsync mode: when the last screen refresh came, and the average time between them (seconds).
+    TimePoint lastVSync = MIN_TIME;
+    double averageVSyncInterval;
 };
 
 }

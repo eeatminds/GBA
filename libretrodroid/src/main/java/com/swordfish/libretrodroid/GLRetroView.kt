@@ -17,11 +17,14 @@
 
 package com.swordfish.libretrodroid
 
+import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.PointF
 import android.graphics.RectF
 import android.opengl.GLSurfaceView
+import android.os.SystemClock
 import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -77,6 +80,13 @@ class GLRetroView(
     private var isEmulationReady = false
     private var isAborted = false
 
+    // Only the first drawn frame is announced: nothing needs the others, and posting to the main
+    // thread every frame (60 to 120 times a second) costs battery.
+    private var firstFrameAnnounced = false
+
+    // The refresh rate the activity asked the screen for, if any (see [currentScreenRefreshRate]).
+    @Volatile private var requestedRefreshRate: Float? = null
+
     private val retroGLEventsSubject = MutableSharedFlow<GLRetroEvents>(1)
     private val retroGLIssuesErrors = MutableSharedFlow<Int>(1)
 
@@ -95,6 +105,7 @@ class GLRetroView(
     @OnLifecycleEvent(Lifecycle.Event.ON_CREATE)
     fun onCreate(lifecycleOwner: LifecycleOwner) = catchExceptions {
         lifecycle = lifecycleOwner.lifecycle
+        requestedRefreshRate = findRequestedRefreshRate()
         LibretroDroid.create(
             openGLESVersion,
             data.coreFilePath,
@@ -124,6 +135,28 @@ class GLRetroView(
 
     private fun getDefaultRefreshRate(): Float {
         return (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.refreshRate
+    }
+
+    // The display mode the activity's window asked for (for example 60 Hz on a 120 Hz phone).
+    private fun findRequestedRefreshRate(): Float? {
+        var current: Context? = context
+        while (current is ContextWrapper && current !is Activity) current = current.baseContext
+        val modeId = (current as? Activity)?.window?.attributes?.preferredDisplayModeId ?: return null
+        if (modeId == 0) return null
+        val display = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+        return display.supportedModes.firstOrNull { it.modeId == modeId }?.refreshRate
+    }
+
+    // What the screen refreshes at now. If the activity asked for another rate, the screen may
+    // still be switching: wait for it a moment. Called on the GL thread, before the game loads.
+    private fun currentScreenRefreshRate(): Float {
+        val display = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+        val wanted = requestedRefreshRate ?: return display.refreshRate
+        val deadline = SystemClock.uptimeMillis() + REFRESH_RATE_SWITCH_WAIT_MS
+        while (kotlin.math.abs(display.refreshRate - wanted) > 1f && SystemClock.uptimeMillis() < deadline) {
+            Thread.sleep(16)
+        }
+        return display.refreshRate
     }
 
     fun sendKeyEvent(action: Int, keyCode: Int, port: Int = 0) {
@@ -337,8 +370,11 @@ class GLRetroView(
         override fun onDrawFrame(gl: GL10) = catchExceptions {
             if (isEmulationReady) {
                 LibretroDroid.step(this@GLRetroView)
-                lifecycle?.coroutineScope?.launch {
-                    retroGLEventsSubject.emit(GLRetroEvents.FrameRendered)
+                if (!firstFrameAnnounced) {
+                    firstFrameAnnounced = true
+                    lifecycle?.coroutineScope?.launch {
+                        retroGLEventsSubject.emit(GLRetroEvents.FrameRendered)
+                    }
                 }
             }
         }
@@ -361,6 +397,8 @@ class GLRetroView(
     // These functions are called from the GL thread.
     private fun initializeCore() = catchExceptions {
         if (isGameLoaded) return@catchExceptions
+        // Frame pacing depends on the screen's refresh rate, which may have changed since create.
+        LibretroDroid.setScreenRefreshRate(currentScreenRefreshRate())
         when {
             data.gameFilePath != null -> loadGameFromPath(data.gameFilePath!!)
             data.gameFileBytes != null -> loadGameFromBytes(data.gameFileBytes!!)
@@ -523,6 +561,9 @@ class GLRetroView(
 
     companion object {
         private val TAG_LOG = GLRetroView::class.java.simpleName
+
+        // How long a game start waits for the screen to switch to the refresh rate asked for.
+        private const val REFRESH_RATE_SWITCH_WAIT_MS = 800L
 
         const val MOTION_SOURCE_DPAD = LibretroDroid.MOTION_SOURCE_DPAD
         const val MOTION_SOURCE_ANALOG_LEFT = LibretroDroid.MOTION_SOURCE_ANALOG_LEFT

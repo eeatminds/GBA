@@ -133,6 +133,9 @@ public:
 
     void setShaderConfig(ShaderManager::Config shaderConfig);
 
+    // The screen's refresh rate, read again just before a game loads (it may have changed).
+    void setScreenRefreshRate(float refreshRate);
+
     void setViewportAlignment(unsigned int viewportAlignment);
 
     void resetGlobalVariables();
