@@ -73,7 +73,24 @@ class SameWorldEndToEndTest {
         val folder = System.getenv("WORLD_E2E")?.let(::File)
         val romFile = System.getenv("CRYSTAL_ROM")?.let(::File)
         assumeTrue(folder != null && folder.exists() && romFile != null && romFile.exists())
-        val adapter = WorldAdapters.forRom("gbc", readRom(romFile!!))!!
+        sameTown(folder!!, romFile!!, pictures = true)
+    }
+
+    // Gold (or Silver): the same, from WORLD_E2E/gold dumps.
+    @Test
+    fun `gold - a friend in the same town shows and can be talked to`() {
+        val folder = System.getenv("WORLD_E2E")?.let { File(it, "gold") }
+        val romFile = System.getenv("GOLD_ROM")?.let(::File)
+        assumeTrue(folder != null && folder.exists() && romFile != null && romFile.exists())
+        sameTown(folder!!, romFile!!, pictures = false)
+    }
+
+    private fun sameTown(
+        folder: File,
+        romFile: File,
+        pictures: Boolean,
+    ) {
+        val adapter = WorldAdapters.forRom("gbc", readRom(romFile))!!
         val you = memory(File(folder, "you.wram"))
         val friend = adapter.read(memory(File(folder, "friend.wram")))!!
 
@@ -98,12 +115,21 @@ class SameWorldEndToEndTest {
         assertEquals(WorldSession.Spot.Here("New Bark Town"), world.spotOf(1))
         assertEquals("New Bark Town", world.ourPlace())
         // New Bark Town's neighbours: Route 29 (60 steps wide) to the west, Route 27 to the east.
-        assertEquals(MapOffset(-60 * 16, 0), world.view.value.neighbors["24.3"])
-        assertEquals(MapOffset(20 * 16, 0), world.view.value.neighbors["24.2"])
+        val neighbors = world.view.value.neighbors
+        val route29 = neighbors.keys.single { adapter.place(it)?.name == "Route 29" }
+        val route27 = neighbors.keys.single { adapter.place(it)?.name == "Route 27" }
+        assertEquals(MapOffset(-60 * 16, 0), neighbors[route29])
+        assertEquals(MapOffset(20 * 16, 0), neighbors[route27])
         // A friend standing at Route 29's east end is one step west of our map.
-        val onRoute29 = world.view.value.onOurMap(friend.copy(map = "24.3", x = 59 * 16, y = 6 * 16))
+        val onRoute29 = world.view.value.onOurMap(friend.copy(map = route29, x = 59 * 16, y = 6 * 16))
         assertEquals(-16, onRoute29?.x)
-        assertEquals(Place("Route 29", false), adapter.place("24.3"))
+        // The game itself can trade and battle right here.
+        assertEquals(true, world.canLinkInPlace)
+        if (!pictures) {
+            world.stop()
+            scope.cancel()
+            return
+        }
 
         val frame = BitmapFactory.decodeFile(File(folder, "you.png").path).asImageBitmap()
         val talk = mutableStateOf<Talk?>(null)

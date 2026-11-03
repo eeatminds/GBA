@@ -147,6 +147,45 @@ class Gen3AdapterTest {
         assertEquals(Place("Route 101", false), real.place("0.16"))
     }
 
+    // Real FireRed memory just outside the player's house in Pallet Town (WORLD_E2E:
+    // firered.ewram and firered.iwram) with the player's own ROM (FIRERED_ROM).
+    @Test
+    fun `real FireRed memory - Pallet Town, Route 1 and Route 21, place names, sprite`() {
+        val romFile = System.getenv("FIRERED_ROM")?.let(::File)
+        val folder = System.getenv("WORLD_E2E")?.let(::File)
+        assumeTrue(romFile != null && romFile.exists() && folder != null && File(folder, "firered.ewram").exists())
+        val real = WorldAdapters.forRom("gba", romFile!!.readBytes())!!
+        assertEquals("kanto-frlg", real.world)
+        val memory =
+            GameMemory(
+                listOf(
+                    GameMemory.Region(0x02000000, ByteBuffer.wrap(File(folder, "firered.ewram").readBytes())),
+                    GameMemory.Region(0x03000000, ByteBuffer.wrap(File(folder, "firered.iwram").readBytes())),
+                ),
+            )
+        val avatar = real.read(memory)!!
+        assertEquals("3.0", avatar.map)
+        assertEquals(6 * 16, avatar.x)
+        assertEquals(8 * 16, avatar.y)
+        assertEquals(Facing.DOWN, avatar.facing)
+        assertEquals(false, avatar.covered)
+        // Route 1 (40 tiles tall) to the north and Route 21 to the south, both lined up.
+        assertEquals(mapOf("3.19" to MapOffset(0, -40 * 16), "3.39" to MapOffset(0, 20 * 16)), real.neighbors(memory))
+        assertEquals(Place("Pallet Town", false), real.place("3.0"))
+        assertEquals(Place("Route 1", false), real.place("3.19"))
+        assertEquals(Place("Route 21", false), real.place("3.39"))
+        // The player's house is in Pallet Town, indoors.
+        assertEquals(Place("Pallet Town", true), real.place("4.0"))
+        // Red, drawn from the game's own graphics in every frame.
+        for (frame in 0 until 18) {
+            val picture = real.sprite(avatar.look.copy(frame = frame))
+            assertNotNull("frame $frame", picture)
+            assertEquals(16, picture!!.width)
+            assertEquals(32, picture.height)
+            assertTrue(picture.pixels.count { it != 0 } > 100)
+        }
+    }
+
     // Uses a real Emerald ROM when EMERALD_ROM points to one (never stored with the code).
     @Test
     fun `draws Brendan and May from the game's own graphics`() {

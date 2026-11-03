@@ -108,10 +108,38 @@ class Gen2AdapterTest {
     }
 
     @Test
-    fun `no in-place link without the expected scripts in the ROM, nor for Gold and Silver yet`() {
+    fun `no in-place link without the expected scripts in the ROM`() {
         assertNull(adapter.inPlaceLink(Talk.TRADE))
         assertNull(Gen2Adapter(Rom(ByteArray(0x200000), 0L), Gen2Adapter.GOLD_SILVER).inPlaceLink(Talk.TRADE))
     }
+
+    // Gold and Silver: the scripts that traded and battled between a linked Gold and Silver.
+    @Test
+    fun `in-place trade and battle scripts for Gold and Silver`() {
+        for (variable in listOf("GOLD_ROM", "SILVER_ROM")) {
+            val file = System.getenv(variable)?.let(::File) ?: continue
+            assumeTrue(file.exists())
+            val real = WorldAdapters.forRom("gbc", readRom(file))!!
+            val ram = GameMemory.SYSTEM_RAM_BASE - 0xC000
+            val trade = real.inPlaceLink(Talk.TRADE)!!.writes
+            assertEquals(ram + 0xC6E8, trade[0].first)
+            assertEquals("0f0100 0f0200 08b454 0f0400 08b454 0f0300 08b454 03af54".replace(" ", ""), trade[0].second.hex())
+            assertEquals(ram + 0xD184, trade[1].first)
+            assertEquals("5ce8c6", trade[1].second.hex())
+            assertEquals(ram + 0xD183, trade[2].first)
+            assertEquals("0f0900 0f0200 083555 0f0400 083555 0f0300 083555 033055".replace(" ", ""), real.inPlaceLink(Talk.BATTLE)!!.writes[0].second.hex())
+            assertEquals("0f080090", real.inPlaceLinkCleanup()!!.writes[0].second.hex())
+        }
+    }
+
+    private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
+
+    private fun readRom(file: File): ByteArray =
+        if (file.name.endsWith(".zip")) {
+            ZipFile(file).use { zip -> zip.getInputStream(zip.entries().toList().first { it.name.endsWith(".gbc") }).readBytes() }
+        } else {
+            file.readBytes()
+        }
 
     // The exact bytes that started a trade and a battle between two linked Crystal games in a
     // desktop emulator (both sides reached the trade menu / the battle, and came back in place).

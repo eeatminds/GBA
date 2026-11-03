@@ -73,6 +73,9 @@ class Gen2Adapter(
         val tradeCenter: Int,
         val colosseum: Int,
         val leaveLink: Int,
+        // Script command numbers that differ between Gold/Silver and Crystal.
+        val newLoadMap: Int,
+        val end: Int,
     )
 
     override val world: String get() = layout.world
@@ -172,7 +175,11 @@ class Gen2Adapter(
         val battle = kind == Talk.BATTLE
         val console = if (battle) link.battleConsole else link.tradeConsole
         // The console script must be in this ROM exactly as expected: special, reload map, end.
-        val expected = byteArrayOf(SPECIAL, (if (battle) link.colosseum else link.tradeCenter).toByte(), 0, NEWLOADMAP, MAPSETUP_LINKRETURN, END)
+        val expected =
+            byteArrayOf(
+                SPECIAL, (if (battle) link.colosseum else link.tradeCenter).toByte(), 0,
+                link.newLoadMap.toByte(), MAPSETUP_LINKRETURN, link.end.toByte(),
+            )
         val found = ByteArray(expected.size) { rom.u8(romOffset(link.consoleBank, console) + it.toLong())?.toByte() ?: return null }
         if (!found.contentEquals(expected)) return null
         // Failed steps end at the console script's "end", like a receptionist saying no.
@@ -190,7 +197,7 @@ class Gen2Adapter(
 
     override fun inPlaceLinkCleanup(): MemoryPatch? {
         val link = layout.inPlace ?: return null
-        return queueScript(link, byteArrayOf(SPECIAL, link.leaveLink.toByte(), 0, END))
+        return queueScript(link, byteArrayOf(SPECIAL, link.leaveLink.toByte(), 0, link.end.toByte()))
     }
 
     // Our script is running while the game runs a map script; the trade and battle screens run inside it.
@@ -348,8 +355,6 @@ class Gen2Adapter(
         private const val SJUMP: Byte = 0x03
         private const val IFFALSE: Byte = 0x08
         private const val SPECIAL: Byte = 0x0F
-        private const val NEWLOADMAP: Byte = 0x8A.toByte()
-        private const val END: Byte = 0x91.toByte()
         private const val MAPSETUP_LINKRETURN: Byte = 0xF8.toByte()
         private const val MAP_SCRIPT = 0xFF
         private const val SCRIPT_BUFFER_SIZE = 24
@@ -414,6 +419,8 @@ class Gen2Adapter(
                         tradeCenter = 0x0D,
                         colosseum = 0x0E,
                         leaveLink = 0x08,
+                        newLoadMap = 0x8A,
+                        end = 0x91,
                     ),
             )
 
@@ -442,6 +449,26 @@ class Gen2Adapter(
                 objectPalettes = romOffset(0x02, 0x78AE),
                 mapGroupPointers = romOffset(0x25, 0x40ED),
                 landmarks = romOffset(0x24, 0x6382),
+                inPlace =
+                    InPlace(
+                        // The same 24 unused bytes and script slot as in Crystal, elsewhere.
+                        scriptBuffer = 0xC6E8,
+                        queueFlag = 0xD183,
+                        linkMode = 0xD042,
+                        consoleBank = 0x5C,
+                        tradeConsole = 0x54AF,
+                        battleConsole = 0x5530,
+                        setTradeRequest = 0x01,
+                        setBattleRequest = 0x09,
+                        waitForFriend = 0x02,
+                        quickSave = 0x04,
+                        checkLinkTimeout = 0x03,
+                        tradeCenter = 0x0D,
+                        colosseum = 0x0E,
+                        leaveLink = 0x08,
+                        newLoadMap = 0x89,
+                        end = 0x90,
+                    ),
             )
 
         /**
