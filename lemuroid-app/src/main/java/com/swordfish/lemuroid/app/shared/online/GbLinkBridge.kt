@@ -75,7 +75,7 @@ class GbLinkBridge(
             if (running) return server?.localPort
             for (port in ports) {
                 val candidate =
-                    runCatching { ServerSocket(port, 1, InetAddress.getLoopbackAddress()) }.getOrNull() ?: continue
+                    runCatching { ServerSocket(port, 1, LOOPBACK) }.getOrNull() ?: continue
                 server = candidate
                 running = true
                 Thread({ acceptLoop(candidate) }, "gb-link-accept").apply {
@@ -295,6 +295,10 @@ class GbLinkBridge(
     companion object {
         // The ports Gambatte's link option offers.
         val DEFAULT_PORTS = 56400..56420
+
+        // Gambatte connects to IPv4 127.0.0.1 (see [coreVariables]). Not getLoopbackAddress(): on
+        // Android that is IPv6 ::1, which refuses 127.0.0.1, so the game's cable never plugged in.
+        val LOOPBACK: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
 
         const val MESSAGE_SIZE = 2
 

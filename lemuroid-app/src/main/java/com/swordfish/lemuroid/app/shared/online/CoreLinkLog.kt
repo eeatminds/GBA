@@ -12,7 +12,8 @@ object CoreLinkLog {
             val process = ProcessBuilder("logcat", "-d", "-t", "4000", "-v", "raw").redirectErrorStream(true).start()
             val lines = process.inputStream.bufferedReader().use { it.readLines() }
             process.waitFor()
-            summarize(lines)
+            // Gambatte starts every line with its name.
+            summarize(lines.map { it.removePrefix("[Gambatte] ") })
         }.getOrNull()
 
     /** The summary for the core's log [lines], oldest first. */

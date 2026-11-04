@@ -8,7 +8,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.DataInputStream
-import java.net.InetAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -39,7 +38,8 @@ class GbLinkBridgeTest {
         return bridge to port!!
     }
 
-    private fun emulator(port: Int): Socket = Socket(InetAddress.getLoopbackAddress(), port).also {
+    // Gambatte connects to IPv4 127.0.0.1, whatever the platform's own loopback is.
+    private fun emulator(port: Int): Socket = Socket("127.0.0.1", port).also {
         it.soTimeout = 3000
         sockets += it
     }
@@ -71,6 +71,12 @@ class GbLinkBridgeTest {
     private fun Socket.receive(): ByteArray = ByteArray(2).also { DataInputStream(getInputStream()).readFully(it) }
 
     private fun bytes(vararg values: Int) = values.map { it.toByte() }.toByteArray()
+
+    // Android's getLoopbackAddress() is IPv6 ::1, which Gambatte's IPv4 connection never reaches.
+    @Test
+    fun `the bridge listens where Gambatte connects`() {
+        assertEquals("127.0.0.1", GbLinkBridge.LOOPBACK.hostAddress)
+    }
 
     @Test
     fun `unplugged cable answers 0xFF`() {
