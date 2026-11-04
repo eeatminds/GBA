@@ -59,6 +59,7 @@ class GbLinkBridge(
      * partner's that never reached our game. Tells why a trade or battle didn't start.
      */
     data class AttemptStats(
+        val gameConnected: Boolean,
         val blocksFromGame: Int,
         val blocksFromPeer: Int,
         val blocksLost: Int,
@@ -272,7 +273,7 @@ class GbLinkBridge(
     }
 
     fun attemptStats(): AttemptStats =
-        synchronized(lock) { AttemptStats(attemptFromGame, attemptFromPeer, attemptLost) }
+        synchronized(lock) { AttemptStats(socket != null, attemptFromGame, attemptFromPeer, attemptLost) }
 
     private fun now(): Long = System.nanoTime() / 1_000_000
 

@@ -56,8 +56,13 @@ sealed interface Talk {
     /** Both said yes: the games are linking up for the trade or battle right here. */
     data class Connecting(val name: String, val kind: String) : Talk
 
-    /** The link didn't come up, and why as far as we can tell. */
-    data class LinkFailed(val name: String, val kind: String, val why: LinkFailure = LinkFailure.DROPPED) : Talk
+    /** The link didn't come up, why as far as we can tell, and [details] for finding out more. */
+    data class LinkFailed(
+        val name: String,
+        val kind: String,
+        val why: LinkFailure = LinkFailure.DROPPED,
+        val details: String? = null,
+    ) : Talk
 
     companion object {
         const val TRADE = "trade"
@@ -148,7 +153,7 @@ fun TalkBox(
                     LinkFailure.OUR_GAME -> stringResource(R.string.talk_link_failed_our_game, name)
                     LinkFailure.NO_ANSWER -> stringResource(R.string.talk_link_failed_no_answer, name)
                     LinkFailure.DROPPED -> stringResource(R.string.talk_link_failed, name, kindWord(talk.kind))
-                }
+                } + talk.details?.let { "\n($it)" }.orEmpty()
             choices = listOf(stringResource(R.string.talk_ok) to onClose)
             back = onClose
         }

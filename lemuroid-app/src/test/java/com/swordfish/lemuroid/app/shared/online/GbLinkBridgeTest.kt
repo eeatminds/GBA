@@ -209,11 +209,11 @@ class GbLinkBridgeTest {
         assertNotNull(a.takeOutgoing(1000))
         // A new attempt starts from zero.
         a.markAttempt()
-        assertEquals(GbLinkBridge.AttemptStats(blocksFromGame = 0, blocksFromPeer = 0, blocksLost = 0), a.attemptStats())
+        assertEquals(GbLinkBridge.AttemptStats(gameConnected = true, blocksFromGame = 0, blocksFromPeer = 0, blocksLost = 0), a.attemptStats())
         gameA.send(*block(4, 1, 2, 3, 4))
         assertNotNull(a.takeOutgoing(1000))
         a.fromPeer(1, bytes(0, 0xB5, 1, 0, 4))
-        assertEquals(GbLinkBridge.AttemptStats(blocksFromGame = 1, blocksFromPeer = 1, blocksLost = 0), a.attemptStats())
+        assertEquals(GbLinkBridge.AttemptStats(gameConnected = true, blocksFromGame = 1, blocksFromPeer = 1, blocksLost = 0), a.attemptStats())
     }
 
     @Test

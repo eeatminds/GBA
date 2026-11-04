@@ -8,11 +8,16 @@ class LinkFailureTest {
     private fun stats(
         fromGame: Int,
         fromPeer: Int,
-    ) = GbLinkBridge.AttemptStats(blocksFromGame = fromGame, blocksFromPeer = fromPeer, blocksLost = 0)
+    ) = GbLinkBridge.AttemptStats(gameConnected = true, blocksFromGame = fromGame, blocksFromPeer = fromPeer, blocksLost = 0)
 
     @Test
     fun `a game that never got to it was busy`() {
         assertEquals(LinkFailure.BUSY, linkFailure(started = false, stats = stats(0, 1)))
+    }
+
+    @Test
+    fun `a script that never got into the game is our game's problem`() {
+        assertEquals(LinkFailure.OUR_GAME, linkFailure(started = false, stats = stats(0, 0), queued = false))
     }
 
     @Test
