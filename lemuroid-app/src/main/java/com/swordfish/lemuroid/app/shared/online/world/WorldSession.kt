@@ -159,8 +159,11 @@ class WorldSession(
         /** The game's own trade or battle screens are on. */
         data object Started : LinkStatus
 
-        /** It never got going (the other game didn't come, or the link failed). */
-        data object Failed : LinkStatus
+        /**
+         * It never got going (the other game didn't come, or the link failed). [started]: whether
+         * our game got to it at all (false: it stayed busy, in a menu or a text box, until we gave up).
+         */
+        data class Failed(val started: Boolean) : LinkStatus
     }
 
     private val mutableLinkStatus = MutableStateFlow<LinkStatus>(LinkStatus.Idle)
@@ -256,8 +259,8 @@ class WorldSession(
         }
         when {
             running -> session.seenRunning = true
-            session.seenRunning -> finishInPlace(memory, if (session.linked) LinkStatus.Idle else LinkStatus.Failed)
-            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> finishInPlace(memory, LinkStatus.Failed)
+            session.seenRunning -> finishInPlace(memory, if (session.linked) LinkStatus.Idle else LinkStatus.Failed(started = true))
+            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> finishInPlace(memory, LinkStatus.Failed(started = false))
         }
     }
 

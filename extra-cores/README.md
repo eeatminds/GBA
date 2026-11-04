@@ -4,7 +4,7 @@ Emulator cores that are not part of [LemuroidCores](https://github.com/Swordfish
 
 | Core | Used for | License | Source | Binary |
 |---|---|---|---|---|
-| gambatte (link) | Game Boy and Game Boy Color, with a network friendly link cable (whole-block exchanges for Gold, Silver and Crystal) | GPL-2.0 | https://github.com/libretro/gambatte-libretro (b752252, the version stock Lemuroid ships) plus `gambatte-link/0001-link-whole-blocks-and-sync-over-the-network.patch` | Built with NDK 26.1 (`ndk-build` in `libgambatte/libretro/jni`), `gambatte-link/jniLibs/<abi>/libgambatte_libretro_android.so`; replaces the stock gambatte in bundle builds |
+| gambatte (link) | Game Boy and Game Boy Color, with a network friendly link cable (whole-block exchanges for Gold, Silver and Crystal) | GPL-2.0 | https://github.com/libretro/gambatte-libretro (b752252, the version stock Lemuroid ships) plus `gambatte-link/0001-link-whole-blocks-and-sync-over-the-network.patch` | Built with NDK 26.1 (`ndk-build` in `libgambatte/libretro/jni`), `gambatte-link/jniLibs/<abi>/libgambatte_libretro_android.so`; replaces the stock gambatte in every build (bundled, cores downloaded from GitHub, and the Play Store's gambatte download, `lemuroid_core_gambatte`) |
 | gpSP | Game Boy Advance online link play (link cable and wireless adapter over the internet) | GPL-2.0-or-later | https://github.com/libretro/gpsp (master, 5819380 or later) | libretro buildbot nightly, 2026-10-29, `gpsp_libretro_android.so` |
 
 To update gpSP, download `gpsp_libretro_android.so.zip` for each ABI from
@@ -12,6 +12,11 @@ To update gpSP, download `gpsp_libretro_android.so.zip` for each ABI from
 `lemuroid_core_gpsp/src/main/jniLibs/<abi>/libgpsp_libretro_android.so`.
 
 ## gambatte (link)
+
+Phones whose builds of this core differ can't link: one waits for a message the other never
+sends. So **every change to the patch needs a new `OnlineConfig.GB_LINK_PROTOCOL`**: the room
+server then keeps different versions apart and tells players to update, instead of the trade or
+battle failing with no reason. `GbLinkProtocolTest` fails until both are updated.
 
 The stock link cable over a network sends one byte at a time and waits for the other phone's
 answer each time, so Pokémon Gold, Silver and Crystal take minutes to open a trade over the

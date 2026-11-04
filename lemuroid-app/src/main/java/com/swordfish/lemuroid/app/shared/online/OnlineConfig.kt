@@ -165,7 +165,10 @@ data class OnlineConfig(
     val isGameBoyLink: Boolean get() = kind == RoomKind.LINK && mode == LinkMode.GAME_BOY
 
     companion object {
-        const val GB_LINK_PROTOCOL = "retrolink-gblink-1"
+        // What goes over our Game Boy cable depends on our Gambatte (extra-cores/gambatte-link):
+        // two phones with different builds of it can't link, so the room must keep them apart.
+        // Change this with every change to that patch (GbLinkProtocolTest checks).
+        const val GB_LINK_PROTOCOL = "retrolink-gblink-3"
 
         /** Game Boy rooms use Gambatte, which has a link cable over a network socket. */
         fun gbLinkCoreConfig(systemId: String): SystemCoreConfig? {

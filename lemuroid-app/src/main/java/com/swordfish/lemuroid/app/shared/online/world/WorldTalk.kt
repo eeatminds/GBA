@@ -56,13 +56,28 @@ sealed interface Talk {
     /** Both said yes: the games are linking up for the trade or battle right here. */
     data class Connecting(val name: String, val kind: String) : Talk
 
-    /** The link didn't come up. */
-    data class LinkFailed(val name: String, val kind: String) : Talk
+    /** The link didn't come up, and why as far as we can tell. */
+    data class LinkFailed(val name: String, val kind: String, val why: LinkFailure = LinkFailure.DROPPED) : Talk
 
     companion object {
         const val TRADE = "trade"
         const val BATTLE = "battle"
     }
+}
+
+/** Why a trade or battle didn't start. */
+enum class LinkFailure {
+    /** Our game stayed busy (a menu, a text box) and never got to it. */
+    BUSY,
+
+    /** Our game never used the cable (it isn't plugged into the room's link). */
+    OUR_GAME,
+
+    /** Their game never answered: most often a different app version on their phone. */
+    NO_ANSWER,
+
+    /** Both games started linking, but it didn't hold. */
+    DROPPED,
 }
 
 /**
@@ -127,7 +142,13 @@ fun TalkBox(
             back = {}
         }
         is Talk.LinkFailed -> {
-            message = stringResource(R.string.talk_link_failed, name, kindWord(talk.kind))
+            message =
+                when (talk.why) {
+                    LinkFailure.BUSY -> stringResource(R.string.talk_link_failed_busy, name, kindWord(talk.kind))
+                    LinkFailure.OUR_GAME -> stringResource(R.string.talk_link_failed_our_game, name)
+                    LinkFailure.NO_ANSWER -> stringResource(R.string.talk_link_failed_no_answer, name)
+                    LinkFailure.DROPPED -> stringResource(R.string.talk_link_failed, name, kindWord(talk.kind))
+                }
             choices = listOf(stringResource(R.string.talk_ok) to onClose)
             back = onClose
         }

@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel
 import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.world.LinkFailure
 import com.swordfish.lemuroid.app.shared.online.world.Talk
 import com.swordfish.lemuroid.app.shared.online.world.TalkBox
 import com.swordfish.lemuroid.app.shared.online.world.WorldSession
@@ -148,7 +149,8 @@ fun OnlineStatusBar(
         val connecting = talk as? Talk.Connecting ?: return@LaunchedEffect
         when (linkStatus) {
             WorldSession.LinkStatus.Started -> talk = null
-            WorldSession.LinkStatus.Failed -> talk = Talk.LinkFailed(connecting.name, connecting.kind)
+            is WorldSession.LinkStatus.Failed ->
+                talk = Talk.LinkFailed(connecting.name, connecting.kind, linkFailure(linkStatus.started, session.linkAttemptStats()))
             else -> Unit
         }
     }
@@ -248,6 +250,23 @@ private fun buzz(context: Context) {
 }
 
 private const val INVITE_TIMEOUT_MS = 30_000L
+
+/**
+ * Why a trade or battle didn't start: [started] whether our game got to it, [stats] what crossed
+ * the cable meanwhile. Our game sends its first block as soon as it starts linking, and so does
+ * theirs; when theirs never came, their game wasn't linking with ours.
+ */
+internal fun linkFailure(
+    started: Boolean,
+    stats: GbLinkBridge.AttemptStats?,
+): LinkFailure =
+    when {
+        !started -> LinkFailure.BUSY
+        stats == null -> LinkFailure.DROPPED
+        stats.blocksFromGame == 0 -> LinkFailure.OUR_GAME
+        stats.blocksFromPeer == 0 -> LinkFailure.NO_ANSWER
+        else -> LinkFailure.DROPPED
+    }
 
 /** The loading card, then the room status in free space. Drawn from [state] alone. */
 @Composable

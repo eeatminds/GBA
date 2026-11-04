@@ -175,6 +175,47 @@ class GbLinkBridgeTest {
         assertArrayEquals(bytes(0, 0, 7, 0, 0xB5, 5, 0, 4, 1, 2, 3, 4), packet)
     }
 
+    // Gambatte plugs in again whenever its options change; a block that came meanwhile still counts.
+    @Test
+    fun `a partner's block that comes while our game is away reaches it once it is back`() {
+        val (b, portB) = bridge(56601..56610, holdBlocksMs = 5_000)
+        b.setPeer(0)
+        b.fromPeer(0, bytes(0, 0xB5, 3, 0, 4, 9, 9))
+        Thread.sleep(300)
+        val gameB = emulator(portB)
+        assertArrayEquals(bytes(0, 0xB5, 3, 0, 4, 9, 9, 0), gameB.receive(8))
+    }
+
+    @Test
+    fun `a partner's block too old for our game is dropped, not delivered late`() {
+        val (b, portB) = bridge(56611..56620, holdBlocksMs = 200)
+        b.markAttempt()
+        b.setPeer(0)
+        b.fromPeer(0, bytes(0, 0xB5, 1, 0, 4))
+        Thread.sleep(700)
+        val gameB = emulator(portB)
+        gameB.soTimeout = 400
+        assertTrue(runCatching { gameB.receive() }.isFailure)
+        assertEquals(1, b.attemptStats().blocksLost)
+    }
+
+    @Test
+    fun `attempt stats count blocks each way since the attempt began`() {
+        val (a, portA) = bridge(56621..56630)
+        val gameA = emulator(portA)
+        Thread.sleep(200)
+        a.setPeer(1)
+        gameA.send(*block(9))
+        assertNotNull(a.takeOutgoing(1000))
+        // A new attempt starts from zero.
+        a.markAttempt()
+        assertEquals(GbLinkBridge.AttemptStats(blocksFromGame = 0, blocksFromPeer = 0, blocksLost = 0), a.attemptStats())
+        gameA.send(*block(4, 1, 2, 3, 4))
+        assertNotNull(a.takeOutgoing(1000))
+        a.fromPeer(1, bytes(0, 0xB5, 1, 0, 4))
+        assertEquals(GbLinkBridge.AttemptStats(blocksFromGame = 1, blocksFromPeer = 1, blocksLost = 0), a.attemptStats())
+    }
+
     @Test
     fun `unplugging while a block waits for the partner lets the game go`() {
         val (a, portA) = bridge(56581..56590)

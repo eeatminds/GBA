@@ -92,8 +92,13 @@ android {
     }
 
     // Our own Game Boy core (gambatte with a network friendly link cable, see
-    // extra-cores/gambatte-link) replaces the stock one in builds that bundle the cores.
+    // extra-cores/gambatte-link) replaces the stock one in builds that bundle the cores, and in
+    // builds that download cores from GitHub (which would fetch the stock one): the app finds a
+    // core in the app first. Play Store builds get it as their gambatte download instead.
     sourceSets["bundle"].jniLibs.srcDir("../extra-cores/gambatte-link/jniLibs")
+    sourceSets.maybeCreate("freeDynamic").jniLibs.srcDir("../extra-cores/gambatte-link/jniLibs")
+    // gpSP isn't in LemuroidCores either, so those builds couldn't download it: carry it too.
+    sourceSets.maybeCreate("freeDynamic").jniLibs.srcDir("../extra-cores/lemuroid_core_gpsp/src/main/jniLibs")
 
     packagingOptions {
         jniLibs {
