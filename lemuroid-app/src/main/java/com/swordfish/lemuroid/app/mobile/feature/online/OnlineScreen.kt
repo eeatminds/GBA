@@ -60,10 +60,12 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.swordfish.lemuroid.BuildConfig
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.shared.online.InputDelay
 import com.swordfish.lemuroid.app.shared.online.LinkMode
 import com.swordfish.lemuroid.app.shared.online.LinkSystems
+import com.swordfish.lemuroid.app.shared.online.OnlineConfig
 import com.swordfish.lemuroid.app.shared.online.RoomInfo
 import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.lib.library.GameSystem
@@ -205,6 +207,15 @@ fun OnlineScreen(
                     Text(stringResource(R.string.online_server_change))
                 }
             }
+        }
+
+        // Both players need the same version to trade and battle: this is what to compare.
+        item {
+            Text(
+                text = stringResource(R.string.online_app_version, BuildConfig.VERSION_NAME, OnlineConfig.GB_LINK_PROTOCOL.substringAfterLast('-')),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 

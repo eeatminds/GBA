@@ -17,6 +17,7 @@
     <string name="online_server_set">Set server address</string>
     <string name="online_server_label">Server: %1$s</string>
     <string name="online_server_change">Change</string>
+    <string name="online_app_version">App version %1$s · link %2$s. To trade and battle, both players need the same version.</string>
     <string name="online_server_dialog_title">Room server</string>
     <string name="online_server_dialog_hint">https://rooms.example.com</string>
     <string name="online_server_reset">Use default</string>
@@ -173,6 +174,9 @@
     <string name="talk_server_outdated">To talk to other players, the room server needs its latest update.</string>
     <string name="talk_connecting">Linking up with %1$s for a %2$s… Please wait.</string>
     <string name="talk_link_failed">Couldn\'t link up with %1$s. Make sure you\'re both still in the room, then try again.</string>
+    <string name="talk_link_failed_busy">Your game was busy, so the %2$s didn\'t start. Close any menu or text, then talk to %1$s again.</string>
+    <string name="talk_link_failed_our_game">Couldn\'t link up with %1$s: this game isn\'t plugged into the room\'s link. Leave the room, open it again, then try again.</string>
+    <string name="talk_link_failed_no_answer">%1$s\'s game didn\'t answer. Check you both have the same app version (shown in the Online tab), then try again.</string>
     <string name="talk_kind_trade">trade</string>
     <string name="talk_kind_battle">battle</string>
     <string name="talk_waiting">Asking %1$s to %2$s…</string>

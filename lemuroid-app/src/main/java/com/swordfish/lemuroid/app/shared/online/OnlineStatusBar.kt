@@ -64,12 +64,15 @@ import androidx.compose.ui.unit.dp
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.shared.game.BaseGameScreenViewModel
 import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.world.LinkFailure
 import com.swordfish.lemuroid.app.shared.online.world.Talk
 import com.swordfish.lemuroid.app.shared.online.world.TalkBox
 import com.swordfish.lemuroid.app.shared.online.world.WorldSession
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 /**
  * The room, shown over the game screen:
@@ -148,7 +151,17 @@ fun OnlineStatusBar(
         val connecting = talk as? Talk.Connecting ?: return@LaunchedEffect
         when (linkStatus) {
             WorldSession.LinkStatus.Started -> talk = null
-            WorldSession.LinkStatus.Failed -> talk = Talk.LinkFailed(connecting.name, connecting.kind)
+            is WorldSession.LinkStatus.Failed -> {
+                val stats = session.linkAttemptStats()
+                val core = if (stats != null) withContext(Dispatchers.IO) { CoreLinkLog.read() } else null
+                talk =
+                    Talk.LinkFailed(
+                        connecting.name,
+                        connecting.kind,
+                        linkFailure(linkStatus.started, stats, linkStatus.queued),
+                        linkDetails(linkStatus, stats, core),
+                    )
+            }
             else -> Unit
         }
     }
@@ -248,6 +261,44 @@ private fun buzz(context: Context) {
 }
 
 private const val INVITE_TIMEOUT_MS = 30_000L
+
+/**
+ * Why a trade or battle didn't start: [started] whether our game got to it, [stats] what crossed
+ * the cable meanwhile. Our game sends its first block as soon as it starts linking, and so does
+ * theirs; when theirs never came, their game wasn't linking with ours.
+ */
+internal fun linkFailure(
+    started: Boolean,
+    stats: GbLinkBridge.AttemptStats?,
+    queued: Boolean = true,
+): LinkFailure =
+    when {
+        !queued -> LinkFailure.OUR_GAME
+        !started -> LinkFailure.BUSY
+        stats == null -> LinkFailure.DROPPED
+        stats.blocksFromGame == 0 -> LinkFailure.OUR_GAME
+        stats.blocksFromPeer == 0 -> LinkFailure.NO_ANSWER
+        else -> LinkFailure.DROPPED
+    }
+
+/** One line on what happened, for telling apart why a link didn't start (both phones' lines together). */
+internal fun linkDetails(
+    status: WorldSession.LinkStatus.Failed,
+    stats: GbLinkBridge.AttemptStats?,
+    core: String?,
+): String =
+    listOfNotNull(
+        when {
+            !status.queued -> "script not written"
+            !status.started -> "script waited"
+            else -> "script ran"
+        },
+        core,
+        stats?.let {
+            (if (it.gameConnected) "bridge on" else "bridge off") + " · sent ${it.blocksFromGame} · got ${it.blocksFromPeer}" +
+                (if (it.blocksLost > 0) " · lost ${it.blocksLost}" else "")
+        },
+    ).joinToString(" · ")
 
 /** The loading card, then the room status in free space. Drawn from [state] alone. */
 @Composable

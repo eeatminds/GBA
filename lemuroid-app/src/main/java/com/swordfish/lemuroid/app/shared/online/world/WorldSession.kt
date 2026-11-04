@@ -145,9 +145,14 @@ class WorldSession(
     private val remotes = ConcurrentHashMap<Int, Remote>()
     private val presences = ConcurrentHashMap<Int, Presence>()
 
-    // An in-place trade or battle we started: when, whether its script has been seen running,
-    // and whether the game's link session (its trade or battle screens) has begun.
-    private class InPlace(val startedAt: Long, var seenRunning: Boolean = false, var linked: Boolean = false)
+    // An in-place trade or battle we started: when, whether its script is in the game's queue,
+    // whether it has been seen running, and whether the game's link session (its trade or battle
+    // screens) has begun.
+    private class InPlace(val startedAt: Long) {
+        @Volatile var queued = false
+        var seenRunning = false
+        var linked = false
+    }
 
     /** How an in-place trade or battle we started is going. */
     sealed interface LinkStatus {
@@ -159,8 +164,12 @@ class WorldSession(
         /** The game's own trade or battle screens are on. */
         data object Started : LinkStatus
 
-        /** It never got going (the other game didn't come, or the link failed). */
-        data object Failed : LinkStatus
+        /**
+         * It never got going (the other game didn't come, or the link failed). [started]: whether
+         * our game ran its script at all (false: it stayed busy, in a menu or a text box, until we
+         * gave up). [queued]: whether the script got into the game in the first place.
+         */
+        data class Failed(val started: Boolean, val queued: Boolean = true) : LinkStatus
     }
 
     private val mutableLinkStatus = MutableStateFlow<LinkStatus>(LinkStatus.Idle)
@@ -233,8 +242,9 @@ class WorldSession(
     fun startInPlace(kind: String): Boolean {
         val memory = gameMemory ?: memory() ?: return false
         val patch = adapter.inPlaceLink(kind) ?: return false
-        onEmulator { patch.applyTo(memory) }
-        inPlace = InPlace(SystemClock.uptimeMillis())
+        val session = InPlace(SystemClock.uptimeMillis())
+        onEmulator { session.queued = patch.applyTo(memory) }
+        inPlace = session
         mutableLinkStatus.value = LinkStatus.Connecting
         return true
     }
@@ -256,8 +266,12 @@ class WorldSession(
         }
         when {
             running -> session.seenRunning = true
-            session.seenRunning -> finishInPlace(memory, if (session.linked) LinkStatus.Idle else LinkStatus.Failed)
-            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> finishInPlace(memory, LinkStatus.Failed)
+            // The game took our script and it is over: often within a frame, when its first step
+            // fails, so faster than we look.
+            session.queued && !runCatching { adapter.scriptPending(memory) }.getOrDefault(true) ->
+                finishInPlace(memory, if (session.linked) LinkStatus.Idle else LinkStatus.Failed(started = true))
+            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS ->
+                finishInPlace(memory, LinkStatus.Failed(started = session.seenRunning, queued = session.queued))
         }
     }
 

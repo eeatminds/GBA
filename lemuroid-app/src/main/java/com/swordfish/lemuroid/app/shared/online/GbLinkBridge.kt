@@ -50,13 +50,32 @@ class GbLinkBridge(
     // Blocks our game sent while unlinked, with when (SystemClock-free: System.nanoTime ms).
     private val heldBlocks = ArrayList<Pair<Long, ByteArray>>()
 
+    // The partner's blocks that came while our game wasn't plugged into the bridge (it reconnects
+    // after its link options change), with when: they go to the game once it is back.
+    private val blocksForGame = ArrayList<Pair<Long, ByteArray>>()
+
+    /**
+     * What went over the cable since [markAttempt]: our game's blocks, the partner's, and the
+     * partner's that never reached our game. Tells why a trade or battle didn't start.
+     */
+    data class AttemptStats(
+        val gameConnected: Boolean,
+        val blocksFromGame: Int,
+        val blocksFromPeer: Int,
+        val blocksLost: Int,
+    )
+
+    private var attemptFromGame = 0
+    private var attemptFromPeer = 0
+    private var attemptLost = 0
+
     /** Starts listening and returns the port Gambatte should connect to, or null. */
     fun start(): Int? {
         synchronized(lock) {
             if (running) return server?.localPort
             for (port in ports) {
                 val candidate =
-                    runCatching { ServerSocket(port, 1, InetAddress.getLoopbackAddress()) }.getOrNull() ?: continue
+                    runCatching { ServerSocket(port, 1, LOOPBACK) }.getOrNull() ?: continue
                 server = candidate
                 running = true
                 Thread({ acceptLoop(candidate) }, "gb-link-accept").apply {
@@ -83,6 +102,7 @@ class GbLinkBridge(
             socket = null
             peer = null
             heldBlocks.clear()
+            blocksForGame.clear()
         }
         outgoing.clear()
         // Wake the room's sending thread.
@@ -99,6 +119,7 @@ class GbLinkBridge(
             sent = 0
             received = 0
             blocksOwed = 0
+            blocksForGame.clear()
             peer = id
             // Linked now: blocks our game sent a moment ago go to the partner.
             if (id != null) {
@@ -120,8 +141,10 @@ class GbLinkBridge(
             synchronized(lock) {
                 if (from != peer) return
                 blocksOwed--
+                attemptFromPeer++
                 // Padded to whole 2-byte messages, as Gambatte reads them.
-                writeToGame(if (data.size % 2 == 0) data else data + 0)
+                val padded = if (data.size % 2 == 0) data else data + 0
+                if (socket == null) blocksForGame += now() to padded else writeToGame(padded)
             }
             return
         }
@@ -162,6 +185,11 @@ class GbLinkBridge(
                 socket = client
                 sent = 0
                 received = 0
+                // The partner's blocks that came while the game was away.
+                val fresh = blocksForGame.filter { now() - it.first <= holdBlocksMs }
+                attemptLost += blocksForGame.size - fresh.size
+                blocksForGame.clear()
+                fresh.forEach { writeToGame(it.second) }
             }
             Thread({ readLoop(client) }, "gb-link-read").apply {
                 isDaemon = true
@@ -184,6 +212,7 @@ class GbLinkBridge(
                     input.readFully(body)
                     val block = message + header + body.copyOf(length)
                     synchronized(lock) {
+                        attemptFromGame++
                         val target = peer
                         if (target == null) {
                             heldBlocks += now() to block
@@ -224,9 +253,27 @@ class GbLinkBridge(
                     heldBlocks.removeAll(expired.toSet())
                     expired.forEach { writeToGame(NO_PARTNER_BLOCK) }
                 }
+                // Stale by now: a game that comes back later must not take them for new ones.
+                val stale = blocksForGame.filter { now() - it.first > holdBlocksMs }
+                if (stale.isNotEmpty()) {
+                    blocksForGame.removeAll(stale.toSet())
+                    attemptLost += stale.size
+                }
             }
         }
     }
+
+    /** Starts counting for a new trade or battle (see [attemptStats]). */
+    fun markAttempt() {
+        synchronized(lock) {
+            attemptFromGame = 0
+            attemptFromPeer = 0
+            attemptLost = 0
+        }
+    }
+
+    fun attemptStats(): AttemptStats =
+        synchronized(lock) { AttemptStats(socket != null, attemptFromGame, attemptFromPeer, attemptLost) }
 
     private fun now(): Long = System.nanoTime() / 1_000_000
 
@@ -248,6 +295,10 @@ class GbLinkBridge(
     companion object {
         // The ports Gambatte's link option offers.
         val DEFAULT_PORTS = 56400..56420
+
+        // Gambatte connects to IPv4 127.0.0.1 (see [coreVariables]). Not getLoopbackAddress(): on
+        // Android that is IPv6 ::1, which refuses 127.0.0.1, so the game's cable never plugged in.
+        val LOOPBACK: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
 
         const val MESSAGE_SIZE = 2
 

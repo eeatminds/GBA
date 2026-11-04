@@ -161,6 +161,16 @@ class OnlineSession(
     /** The room's code once known (the one we joined, or the one the server gave our room). */
     val roomCode: String? get() = seat?.code ?: config.roomCode
 
+    // A Game Boy trade or battle starts (we said yes, or heard their yes): count what crosses
+    // the cable from now on. Done as the answer goes out or comes in, before their game's first
+    // block (which follows the answer on the same connection) can arrive.
+    private fun markLinkAttempt() {
+        (transport as? GameBoyLinkTransport)?.bridge?.markAttempt()
+    }
+
+    /** What crossed the Game Boy cable since the last trade or battle started (null in other rooms). */
+    fun linkAttemptStats(): GbLinkBridge.AttemptStats? = (transport as? GameBoyLinkTransport)?.bridge?.attemptStats()
+
     /** Where other players are in their game ("pos" messages), for sharing the world. */
     @Volatile var onPresence: ((from: Int, message: JSONObject) -> Unit)? = null
 
@@ -302,6 +312,7 @@ class OnlineSession(
         playerId: Int,
         accept: Boolean,
     ) {
+        if (accept) markLinkAttempt()
         sendControl(JSONObject().put("t", "invite_reply").put("id", playerId).put("accept", accept))
     }
 
@@ -614,6 +625,7 @@ class OnlineSession(
             "invite_reply" -> {
                 val from = message.optInt("from", -1)
                 val name = (mutableState.value as? State.InRoom)?.playerName(from).orEmpty()
+                if (message.optBoolean("accept", false)) markLinkAttempt()
                 mutableEvents.tryEmit(
                     Event.InviteAnswered(from, name, message.optString("kind", "trade"), message.optBoolean("accept", false)),
                 )
@@ -819,7 +831,7 @@ class OnlineSession(
 
     /** Game Boy link through Gambatte's network link and a local bridge. */
     private inner class GameBoyLinkTransport : Transport {
-        private val bridge = GbLinkBridge()
+        val bridge = GbLinkBridge()
 
         /** Starts the bridge and points Gambatte at it. */
         fun plugIn(): Boolean {
