@@ -1,0 +1,234 @@
+package com.swordfish.lemuroid.app.mobile.feature.online
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.swordfish.lemuroid.app.shared.online.LinkMode
+import com.swordfish.lemuroid.app.shared.online.LinkSystems
+import com.swordfish.lemuroid.app.shared.online.NetplaySystems
+import com.swordfish.lemuroid.app.shared.online.OnlineSettings
+import com.swordfish.lemuroid.app.shared.online.RoomInfo
+import com.swordfish.lemuroid.app.shared.online.RoomsApi
+import com.swordfish.lemuroid.lib.library.SystemID
+import com.swordfish.lemuroid.lib.library.db.RetrogradeDatabase
+import com.swordfish.lemuroid.lib.library.db.entity.Game
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import timber.log.Timber
+
+/**
+ * The Online tab ([sameWorld] false: link cable rooms and play together rooms) or the Same World
+ * tab (rooms where players share the map, talk, and trade or battle where they meet).
+ */
+class OnlineViewModel(
+    appContext: Context,
+    private val retrogradeDb: RetrogradeDatabase,
+    val sameWorld: Boolean = false,
+    private val roomsApi: RoomsApi = RoomsApi(),
+) : ViewModel() {
+    class Factory(
+        private val appContext: Context,
+        private val retrogradeDb: RetrogradeDatabase,
+        private val sameWorld: Boolean = false,
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return OnlineViewModel(appContext, retrogradeDb, sameWorld) as T
+        }
+    }
+
+    sealed interface Dialog {
+        data object Host : Dialog
+
+        data class JoinCode(
+            val code: String = "",
+            val checking: Boolean = false,
+            val error: JoinError? = null,
+        ) : Dialog
+
+        data class PickGame(val room: RoomInfo) : Dialog
+
+        data object Server : Dialog
+
+        data class Report(val room: RoomInfo) : Dialog
+    }
+
+    enum class JoinError { INVALID_CODE, NOT_FOUND, FULL, NETWORK }
+
+    enum class RoomsStatus { IDLE, LOADING, ERROR }
+
+    data class UiState(
+        val playerName: String = "",
+        val serverUrl: String = "",
+        val publicRooms: List<RoomInfo> = emptyList(),
+        val roomsStatus: RoomsStatus = RoomsStatus.IDLE,
+        // GBA, Game Boy and Game Boy Color games, for trade & battle rooms.
+        val linkGames: List<Game> = emptyList(),
+        // Games on systems that support "play together" rooms.
+        val netplayGames: List<Game> = emptyList(),
+        val dialog: Dialog? = null,
+        val message: Message? = null,
+        // Games whose world can be shared (the Pokémon games), for Same World rooms.
+        val worldGames: List<Game> = emptyList(),
+        // A trade & battle room we were in lately, to go back to.
+        val recentRoom: String? = null,
+    ) {
+        val serverConfigured: Boolean get() = serverUrl.isNotBlank()
+    }
+
+    enum class Message { REPORT_SENT, REPORT_FAILED }
+
+    private val settings = OnlineSettings(appContext)
+
+    private val mutableState =
+        MutableStateFlow(
+            UiState(playerName = settings.playerName, serverUrl = settings.serverUrl, recentRoom = settings.recentRoom),
+        )
+    val state: StateFlow<UiState> = mutableState.asStateFlow()
+
+    private var refreshJob: Job? = null
+
+    init {
+        loadGames()
+        refreshRooms()
+    }
+
+    fun loadGames() {
+        viewModelScope.launch {
+            val dao = retrogradeDb.gameDao()
+            val link =
+                runCatching { dao.asyncSelectBySystems(LinkSystems.systemIds) }
+                    .onFailure { Timber.e(it, "Could not load link games") }
+                    .getOrDefault(emptyList())
+            val netplay =
+                runCatching { dao.asyncSelectBySystems(NetplaySystems.systemIds) }
+                    .onFailure { Timber.e(it, "Could not load multiplayer games") }
+                    .getOrDefault(emptyList())
+            val world = link.filter { POKEMON.containsMatchIn(it.customName ?: it.title) }
+            mutableState.update { it.copy(linkGames = link, netplayGames = netplay, worldGames = world) }
+        }
+    }
+
+    fun refreshRooms() {
+        val serverUrl = mutableState.value.serverUrl
+        if (serverUrl.isBlank()) return
+        refreshJob?.cancel()
+        refreshJob =
+            viewModelScope.launch {
+                mutableState.update { it.copy(roomsStatus = RoomsStatus.LOADING) }
+                // Each tab lists its own kind of room.
+                val result = runCatching { roomsApi.listPublicRooms(serverUrl).filter { it.world == sameWorld } }
+                mutableState.update {
+                    it.copy(
+                        publicRooms = result.getOrDefault(it.publicRooms),
+                        roomsStatus = if (result.isSuccess) RoomsStatus.IDLE else RoomsStatus.ERROR,
+                    )
+                }
+            }
+    }
+
+    /** The Online tab is on screen again (for example after a game): check for a room to go back to. */
+    fun refreshRecentRoom() {
+        mutableState.update { it.copy(recentRoom = settings.recentRoom) }
+    }
+
+    fun forgetRecentRoom() {
+        settings.forgetRoom()
+        mutableState.update { it.copy(recentRoom = null) }
+    }
+
+    fun setPlayerName(name: String) {
+        val trimmed = name.take(OnlineSettings.MAX_NAME_LENGTH)
+        settings.playerName = trimmed
+        mutableState.update { it.copy(playerName = trimmed) }
+    }
+
+    fun setServerUrl(url: String?) {
+        if (url == null) settings.resetServerUrl() else settings.serverUrl = url
+        mutableState.update { it.copy(serverUrl = settings.serverUrl, publicRooms = emptyList(), dialog = null) }
+        refreshRooms()
+    }
+
+    fun showDialog(dialog: Dialog?) {
+        mutableState.update { it.copy(dialog = dialog) }
+        if (dialog is Dialog.Host || dialog is Dialog.PickGame) loadGames()
+    }
+
+    fun clearMessage() {
+        mutableState.update { it.copy(message = null) }
+    }
+
+    /** Opens the join flow for an invite link or a typed code. */
+    fun openInvite(code: String) {
+        showDialog(Dialog.JoinCode(code = code))
+        lookupRoom(code)
+    }
+
+    fun updateJoinCode(code: String) {
+        val cleaned = code.uppercase().filter { it.isLetterOrDigit() }.take(OnlineSettings.ROOM_CODE_LENGTH)
+        mutableState.update { it.copy(dialog = Dialog.JoinCode(code = cleaned)) }
+    }
+
+    fun lookupRoom(code: String) {
+        val cleaned = OnlineSettings.parseRoomCode(code)
+        if (cleaned == null) {
+            mutableState.update { it.copy(dialog = Dialog.JoinCode(code, error = JoinError.INVALID_CODE)) }
+            return
+        }
+        val serverUrl = mutableState.value.serverUrl
+        mutableState.update { it.copy(dialog = Dialog.JoinCode(cleaned, checking = true)) }
+        viewModelScope.launch {
+            val result = runCatching { roomsApi.findRoom(serverUrl, cleaned) }
+            val room = result.getOrNull()
+            val dialog =
+                when {
+                    result.isFailure -> Dialog.JoinCode(cleaned, error = JoinError.NETWORK)
+                    room == null -> Dialog.JoinCode(cleaned, error = JoinError.NOT_FOUND)
+                    room.players >= room.maxPlayers -> Dialog.JoinCode(cleaned, error = JoinError.FULL)
+                    else -> Dialog.PickGame(room)
+                }
+            mutableState.update { it.copy(dialog = dialog) }
+            if (dialog is Dialog.PickGame) loadGames()
+        }
+    }
+
+    fun reportRoom(
+        room: RoomInfo,
+        reason: String,
+    ) {
+        val serverUrl = mutableState.value.serverUrl
+        mutableState.update { it.copy(dialog = null) }
+        viewModelScope.launch {
+            val result = runCatching { roomsApi.reportRoom(serverUrl, room.code, reason) }
+            mutableState.update {
+                it.copy(
+                    message = if (result.isSuccess) Message.REPORT_SENT else Message.REPORT_FAILED,
+                    publicRooms = it.publicRooms.filterNot { r -> r.code == room.code },
+                )
+            }
+        }
+    }
+
+    companion object {
+        private val POKEMON = Regex("pok[eé]mon", RegexOption.IGNORE_CASE)
+
+        val HOST_MODES = listOf(LinkMode.LINK_CABLE, LinkMode.WIRELESS, LinkMode.AUTO, LinkMode.ADVANCE_WARS, LinkMode.ADVANCE_WARS_2)
+    }
+}
+
+/**
+ * Games a player can use for a room: for trade & battle, games from the same family (GBA, or
+ * Game Boy and Game Boy Color); otherwise games for the same system.
+ */
+fun OnlineViewModel.UiState.gamesFor(room: RoomInfo): List<Game> {
+    return when (room.kind) {
+        com.swordfish.lemuroid.app.shared.online.RoomKind.LINK ->
+            linkGames.filter { LinkSystems.family(it.systemId) == room.system }
+        com.swordfish.lemuroid.app.shared.online.RoomKind.NETPLAY -> netplayGames.filter { it.systemId == room.system }
+    }
+}
