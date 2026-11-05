@@ -35,12 +35,21 @@ import java.net.Socket
  * the delay each way (default 80), LINK_E2E_KIND trade or battle, LINK_E2E_ASKER_DELAY_MS how much
  * later the asker's game starts linking, LINK_E2E_GAME crystal for two Crystal games (CRYSTAL_ROM, as
  * a .gbc, with crystal-cr_c.state and crystal-cr_a.state).
+ *
+ * LINK_E2E_OUTAGE ("words|seconds|server or client") cuts that phone's connection for that long
+ * once its log says those words (the room keeps its seat; the games must carry on after).
+ * LINK_E2E_LEAVE ("words|server or client[|ms]") makes that player leave the room for good then
+ * (or that many ms later):
+ * the other game must not wait forever (a battle ends, as if they ran).
+ * LINK_E2E_RETRY (server or client): that game asks again if its first try doesn't link up
+ * (with a long LINK_E2E_ASKER_DELAY_MS, the first try is alone and fails).
  */
 @RunWith(AndroidJUnit4::class)
 @Config(application = Application::class, sdk = [34])
 class LinkEndToEndTest {
     private val processes = ArrayList<Process>()
     private val drivers = java.util.Collections.synchronizedList(ArrayList<Process>())
+    private val driverOf = java.util.concurrent.ConcurrentHashMap<String, Process>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @After
@@ -91,12 +100,16 @@ class LinkEndToEndTest {
             // The room server, and a slow network in front of it for each phone.
             val serverPort = freePort()
             val serverDir = File(System.getProperty("user.dir")).let { if (File(it, "server").exists()) File(it, "server") else File(it.parentFile, "server") }
-            start(listOf("node", "src/server.js"), serverDir, File(out, "server.log"), mapOf("PORT" to "$serverPort", "HOST" to "127.0.0.1"))
+            start(listOf("node", "src/server.js"), serverDir, File(out, "room-server.log"), mapOf("PORT" to "$serverPort", "HOST" to "127.0.0.1"))
             waitForPort(serverPort)
             val proxies =
                 List(2) {
                     freePort().also { port ->
-                        start(listOf("python3", "-I", "tcp_delay_proxy.py", "$port", "$serverPort", delay), rig!!, File(out, "proxy$it.log"))
+                        start(
+                            listOf("python3", "-I", "tcp_delay_proxy.py", "$port", "$serverPort", delay, File(out, "outage-$it").path),
+                            rig!!,
+                            File(out, "proxy$it.log"),
+                        )
                         waitForPort(port)
                     }
                 }
@@ -130,10 +143,10 @@ class LinkEndToEndTest {
                 return OnlineSession(config, scope) { variables ->
                     val port = variables.toMap()["gambatte_gb_link_network_port"] ?: return@OnlineSession
                     val work = File(out, "work-$role").apply { mkdirs() }
-                    drivers += start(
+                    val driver = start(
                         listOf(
                             "python3", "-I", "link_session.py", rig!!.path, cores.path, work.path, rom, state, role, kind,
-                            File(out, "shot").path, "150", "2", if (crystal) "crystal" else "gold",
+                            File(out, "shot").path, env("LINK_E2E_SECONDS") ?: "150", "2", if (crystal) "crystal" else "gold",
                         ),
                         rig,
                         File(out, "$role.log"),
@@ -144,8 +157,12 @@ class LinkEndToEndTest {
                             "START_FILE" to File(out, "start-$role").path,
                             "GAMBATTE_LINK_TRACE" to "1",
                             "WEAK" to if (kind == "battle" && host) "1" else "0",
+                            "RETRY" to if (env("LINK_E2E_RETRY") == role) "1" else "0",
+                            "NO_CONFIRM" to if (env("LINK_E2E_NO_CONFIRM") == role) "1" else "0",
                         ),
                     )
+                    driverOf[role] = driver
+                    drivers += driver
                 }
             }
 
@@ -175,6 +192,41 @@ class LinkEndToEndTest {
                     }
                 }
             }
+            // A phone loses its connection for a while, or a player leaves, when its log says so.
+            fun whenLogSays(
+                role: String,
+                words: String,
+                action: () -> Unit,
+            ) = Thread {
+                val log = File(out, "$role.log")
+                while (!(log.exists() && words in log.readText())) Thread.sleep(200)
+                action()
+            }.apply {
+                isDaemon = true
+                start()
+            }
+            env("LINK_E2E_OUTAGE")?.split('|')?.let { (words, seconds, role) ->
+                whenLogSays(role, words) {
+                    val outage = File(out, "outage-${if (role == "server") 0 else 1}")
+                    println("---- $role's connection is down for $seconds s")
+                    outage.createNewFile()
+                    Thread.sleep(seconds.toLong() * 1000)
+                    outage.delete()
+                    println("---- $role's connection is back")
+                }
+            }
+            val leaveAfter = env("LINK_E2E_LEAVE")?.split('|')?.getOrNull(2)?.toLong() ?: 0
+            val leaver = env("LINK_E2E_LEAVE")?.split('|')?.let { (words, role) -> role to words }
+            leaver?.let { (role, words) ->
+                whenLogSays(role, words) {
+                    Thread.sleep(leaveAfter)
+                    println("---- $role leaves the room")
+                    (if (role == "server") gold else silver).close()
+                    driverOf[role]?.destroy()
+                    File(out, "left-$role").createNewFile()
+                }
+            }
+
             // Give the emulators time to boot, then ask.
             Thread.sleep(8_000)
             gold.invite(joined.clientId, kind)
@@ -186,12 +238,11 @@ class LinkEndToEndTest {
             val client = File(out, "client.log").readText()
             println("---- server\n" + server.lines().filter { "screen" !in it }.joinToString("\n"))
             println("---- client\n" + client.lines().filter { "screen" !in it }.joinToString("\n"))
-            if (kind == "trade") {
-                assertTrue("server traded", "trade done" in server)
-                assertTrue("client traded", "trade done" in client)
-            } else {
-                assertTrue("server battled", "battle over" in server)
-                assertTrue("client battled", "battle over" in client)
+            (0..1).forEach { println("---- proxy $it\n" + File(out, "proxy$it.log").readText()) }
+            // A player who left has no say; the one who stayed must finish.
+            val stayed = listOf("server" to server, "client" to client).filter { it.first != leaver?.first }
+            stayed.forEach { (role, log) ->
+                if (kind == "trade") assertTrue("$role traded", "trade done" in log) else assertTrue("$role battled", "battle over" in log)
             }
             gold.close()
             silver.close()

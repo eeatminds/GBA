@@ -532,6 +532,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
                 }
             session.onPresence = world::onPresence
             session.onPlayerLeft = world::onPlayerLeft
+            world.onLinkEnded = session::gameLeftLink
             worldSession.value = world
             world.start()
             if (adapter != NoWorld) startVisit(session, world, adapter)

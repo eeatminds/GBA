@@ -8,6 +8,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /**
  * A Game Boy link cable that runs through the room server.
@@ -26,10 +27,15 @@ import java.util.concurrent.TimeUnit
  * each instead of one round trip per byte. A block sent before we are linked is held for a few
  * seconds (the room links two players a moment after one accepts the other's invitation), then
  * forwarded; with still nobody to answer it, the game gets [0, NO_PARTNER_MARK] and gives up.
+ *
+ * Nothing is lost when a phone's connection drops for a while (a train, a lift, a weak signal):
+ * between the two bridges every message is numbered and sent again until the other bridge
+ * says it has it, and repeats are dropped. The games just wait meanwhile, as on a cable.
  */
 class GbLinkBridge(
     private val ports: IntRange = DEFAULT_PORTS,
     private val holdBlocksMs: Long = HOLD_BLOCKS_MS,
+    private val resendMs: Long = RESEND_MS,
 ) {
     private val lock = Any()
     private val outgoing = LinkedBlockingQueue<ByteArray>()
@@ -39,16 +45,24 @@ class GbLinkBridge(
     private var socket: Socket? = null
     private var peer: Int? = null
 
-    // Messages since the current link started: sent by our game, and received from the peer.
-    // If the link breaks while our game still waits for answers, we answer for the peer.
+    // Single byte transfers since the current link started: sent by our game, and answered
+    // by the peer. If the link breaks while our game still waits for answers, we answer.
     private var sent = 0
     private var received = 0
 
-    // Our blocks still waiting for the peer's.
-    private var blocksOwed = 0
-
-    // Blocks our game sent while unlinked, with when (SystemClock-free: System.nanoTime ms).
+    // Blocks our game sent while unlinked, with when (System.nanoTime ms).
     private val heldBlocks = ArrayList<Pair<Long, ByteArray>>()
+
+    // Our numbered messages to the peer ([stream], from 0), kept until the peer has them.
+    private class Unacked(val seq: Int, val frame: ByteArray, var sentAt: Long)
+
+    private var stream = newStream()
+    private var nextSeq = 0
+    private val unacked = ArrayDeque<Unacked>()
+
+    // The peer's numbered messages: their stream, and the next number we expect.
+    private var peerStream: Int? = null
+    private var expected = 0
 
     /** Starts listening and returns the port Gambatte should connect to, or null. */
     fun start(): Int? {
@@ -63,7 +77,7 @@ class GbLinkBridge(
                     isDaemon = true
                     start()
                 }
-                Thread({ heldBlocksLoop() }, "gb-link-held").apply {
+                Thread({ timerLoop() }, "gb-link-timer").apply {
                     isDaemon = true
                     start()
                 }
@@ -83,6 +97,7 @@ class GbLinkBridge(
             socket = null
             peer = null
             heldBlocks.clear()
+            unacked.clear()
         }
         outgoing.clear()
         // Wake the room's sending thread.
@@ -93,21 +108,38 @@ class GbLinkBridge(
     fun setPeer(id: Int?) {
         synchronized(lock) {
             if (id == peer) return
-            val owed = sent - received
-            repeat(owed.coerceAtLeast(0)) { writeToGame(NO_PARTNER) }
-            repeat(blocksOwed.coerceAtLeast(0)) { writeToGame(NO_PARTNER_BLOCK) }
+            val old = peer
+            Timber.i("Game Boy link: plugged into ${id ?: "nobody"} (was ${old ?: "nobody"})")
+            // Our game may still wait for the old partner: answer for them, and tell any link
+            // exchange waiting on them that they are gone.
+            repeat((sent - received).coerceAtLeast(0)) { writeToGame(NO_PARTNER) }
+            if (old != null) writeToGame(NO_PARTNER_BLOCK)
             sent = 0
             received = 0
-            blocksOwed = 0
             peer = id
+            restartStreams()
             // Linked now: blocks our game sent a moment ago go to the partner.
             if (id != null) {
-                heldBlocks.forEach { (_, block) ->
-                    blocksOwed++
-                    outgoing.offer(roomPacket(id, block))
-                }
+                heldBlocks.forEach { (_, block) -> sendToPeer(block) }
                 heldBlocks.clear()
             }
+        }
+    }
+
+    /**
+     * Our game left the link (its trade or battle ended, or never got going): the partner's
+     * game, if it still waits for ours, gives up instead of waiting on.
+     */
+    fun gameLeftLink() {
+        synchronized(lock) {
+            if (peer != null) sendToPeer(GAME_LEFT)
+        }
+    }
+
+    /** The room connection is back: whatever the peer may not have yet goes again now. */
+    fun resendNow() {
+        synchronized(lock) {
+            resend(force = true)
         }
     }
 
@@ -116,25 +148,33 @@ class GbLinkBridge(
         from: Int,
         data: ByteArray,
     ) {
-        if (isBlock(data)) {
-            synchronized(lock) {
-                if (from != peer) return
-                blocksOwed--
-                // Padded to whole 2-byte messages, as Gambatte reads them.
-                writeToGame(if (data.size % 2 == 0) data else data + 0)
-            }
-            return
-        }
-        if (data.size != MESSAGE_SIZE) return
         synchronized(lock) {
-            if (from != peer) return
-            if (socket == null) {
-                // Our game isn't connected (yet): answer like an unplugged cable.
-                outgoing.offer(roomPacket(from, NO_PARTNER))
-                return
+            if (from != peer || data.size < FRAME_HEADER || data[0] != FRAME_MARK) return
+            val frameStream = readInt(data, 2)
+            val seq = readInt(data, 6)
+            when (data[1]) {
+                FRAME_ACK -> {
+                    if (frameStream != stream) return
+                    while (unacked.isNotEmpty() && unacked.first().seq <= seq) unacked.removeFirst()
+                }
+
+                FRAME_DATA -> {
+                    if (frameStream != peerStream) {
+                        // Their numbering starts over (a new link, or their app started again):
+                        // wait for its first message, then start ours over too.
+                        if (seq != 0) return
+                        if (peerStream != null) restartOurStream()
+                        peerStream = frameStream
+                        expected = 0
+                    }
+                    if (seq == expected) {
+                        expected++
+                        deliver(data.copyOfRange(FRAME_HEADER, data.size))
+                    }
+                    // What we have so far (repeats too, so they stop sending it).
+                    if (expected > 0) outgoing.offer(roomPacket(from, frame(FRAME_ACK, frameStream, expected - 1)))
+                }
             }
-            received++
-            writeToGame(data)
         }
     }
 
@@ -145,6 +185,28 @@ class GbLinkBridge(
     fun takeOutgoing(timeoutMs: Int): ByteArray? {
         val packet = outgoing.poll(timeoutMs.toLong(), TimeUnit.MILLISECONDS) ?: return null
         return packet.takeIf { it.isNotEmpty() }
+    }
+
+    // A message from the peer, in order, once: to our game.
+    private fun deliver(message: ByteArray) {
+        if (message.contentEquals(GAME_LEFT)) {
+            Timber.i("Game Boy link: the partner's game left the link")
+            writeToGame(NO_PARTNER_BLOCK)
+            return
+        }
+        if (isBlock(message)) {
+            // Padded to whole 2-byte messages, as Gambatte reads them.
+            writeToGame(if (message.size % 2 == 0) message else message + 0)
+            return
+        }
+        if (message.size != MESSAGE_SIZE) return
+        if (socket == null) {
+            // Our game isn't connected (yet): answer like an unplugged cable.
+            sendToPeer(NO_PARTNER)
+            return
+        }
+        received++
+        writeToGame(message)
     }
 
     private fun acceptLoop(server: ServerSocket) {
@@ -163,6 +225,7 @@ class GbLinkBridge(
                 sent = 0
                 received = 0
             }
+            Timber.i("Game Boy link: the emulator is connected")
             Thread({ readLoop(client) }, "gb-link-read").apply {
                 isDaemon = true
                 start()
@@ -184,23 +247,16 @@ class GbLinkBridge(
                     input.readFully(body)
                     val block = message + header + body.copyOf(length)
                     synchronized(lock) {
-                        val target = peer
-                        if (target == null) {
-                            heldBlocks += now() to block
-                        } else {
-                            blocksOwed++
-                            outgoing.offer(roomPacket(target, block))
-                        }
+                        if (peer == null) heldBlocks += now() to block else sendToPeer(block)
                     }
                     continue
                 }
                 synchronized(lock) {
-                    val target = peer
-                    if (target == null) {
+                    if (peer == null) {
                         writeToGame(NO_PARTNER)
                     } else {
                         sent++
-                        outgoing.offer(roomPacket(target, message.copyOf()))
+                        sendToPeer(message.copyOf())
                     }
                 }
             }
@@ -214,18 +270,56 @@ class GbLinkBridge(
         }
     }
 
-    // Held blocks nobody came for get "no partner".
-    private fun heldBlocksLoop() {
+    // Held blocks nobody came for get "no partner"; messages the peer hasn't confirmed go again.
+    private fun timerLoop() {
         while (running) {
-            Thread.sleep(HELD_CHECK_MS)
+            Thread.sleep(TIMER_MS)
             synchronized(lock) {
                 val expired = heldBlocks.filter { now() - it.first > holdBlocksMs }
                 if (expired.isNotEmpty()) {
                     heldBlocks.removeAll(expired.toSet())
                     expired.forEach { writeToGame(NO_PARTNER_BLOCK) }
                 }
+                resend(force = false)
             }
         }
+    }
+
+    // Call with the lock held.
+    private fun sendToPeer(message: ByteArray) {
+        val target = peer ?: return
+        val frame = frame(FRAME_DATA, stream, nextSeq) + message
+        unacked.addLast(Unacked(nextSeq, frame, now()))
+        nextSeq++
+        // A peer that never answers (gone for good) can't make us keep everything forever.
+        while (unacked.size > MAX_UNACKED) unacked.removeFirst()
+        outgoing.offer(roomPacket(target, frame))
+    }
+
+    // Call with the lock held. Sends again, in order, everything the peer hasn't confirmed
+    // once the oldest has waited [resendMs] (or at once with [force]).
+    private fun resend(force: Boolean) {
+        val target = peer ?: return
+        val oldest = unacked.firstOrNull() ?: return
+        val now = now()
+        if (!force && now - oldest.sentAt < resendMs) return
+        unacked.forEach {
+            it.sentAt = now
+            outgoing.offer(roomPacket(target, it.frame))
+        }
+    }
+
+    // Call with the lock held: a new link starts both numberings over.
+    private fun restartStreams() {
+        restartOurStream()
+        peerStream = null
+        expected = 0
+    }
+
+    private fun restartOurStream() {
+        stream = newStream()
+        nextSeq = 0
+        unacked.clear()
     }
 
     private fun now(): Long = System.nanoTime() / 1_000_000
@@ -256,13 +350,48 @@ class GbLinkBridge(
 
         // How long a block sent before we are linked waits for the partner.
         const val HOLD_BLOCKS_MS = 10_000L
-        private const val HELD_CHECK_MS = 200L
+
+        // How long a message waits for the peer to confirm it before it goes again.
+        const val RESEND_MS = 1_500L
+        private const val TIMER_MS = 200L
+        private const val MAX_UNACKED = 20_000
 
         // Block messages (see the class comment); the marks match our Gambatte's.
         const val BLOCK_MARK: Byte = 0xB5.toByte()
         private val NO_PARTNER_BLOCK = byteArrayOf(0, 0xB6.toByte())
 
+        // Between bridges only: "my game left the link".
+        private val GAME_LEFT = byteArrayOf(0, 0xB7.toByte())
+
+        // Between bridges every message is framed: [FRAME_MARK, kind, stream (4 bytes),
+        // number (4 bytes)], then the message (for DATA). An ACK confirms every number up to
+        // its own.
+        private const val FRAME_MARK: Byte = 0xA7.toByte()
+        private const val FRAME_DATA: Byte = 1
+        private const val FRAME_ACK: Byte = 2
+        private const val FRAME_HEADER = 10
+
         fun isBlock(data: ByteArray): Boolean = data.size >= 4 && data[1] == BLOCK_MARK
+
+        private fun newStream(): Int = Random.nextInt().let { if (it == 0) 1 else it }
+
+        private fun frame(
+            kind: Byte,
+            stream: Int,
+            seq: Int,
+        ): ByteArray =
+            byteArrayOf(
+                FRAME_MARK, kind,
+                (stream shr 24).toByte(), (stream shr 16).toByte(), (stream shr 8).toByte(), stream.toByte(),
+                (seq shr 24).toByte(), (seq shr 16).toByte(), (seq shr 8).toByte(), seq.toByte(),
+            )
+
+        private fun readInt(
+            data: ByteArray,
+            at: Int,
+        ): Int =
+            ((data[at].toInt() and 0xFF) shl 24) or ((data[at + 1].toInt() and 0xFF) shl 16) or
+                ((data[at + 2].toInt() and 0xFF) shl 8) or (data[at + 3].toInt() and 0xFF)
 
         fun roomPacket(
             target: Int,

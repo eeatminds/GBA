@@ -305,6 +305,11 @@ class OnlineSession(
         sendControl(JSONObject().put("t", "invite_reply").put("id", playerId).put("accept", accept))
     }
 
+    /** Our game left an in-place trade or battle: the other player's game stops waiting for it. */
+    fun gameLeftLink() {
+        (transport as? GameBoyLinkTransport)?.gameLeftLink()
+    }
+
     private fun sendControl(message: JSONObject) {
         runCatching { webSocket?.send(message.toString()) }
     }
@@ -500,6 +505,8 @@ class OnlineSession(
                 if (reconnecting.getAndSet(false)) {
                     attemptResults.trySend(true)
                     mutableEvents.tryEmit(Event.Reconnected)
+                    // Link messages the other player may have missed meanwhile go again now.
+                    transport.connectionBack()
                 }
                 val inputDelay = room.optInt("delay", config.inputDelayFrames)
                 startTransport(clientId, inputDelay)
@@ -786,6 +793,9 @@ class OnlineSession(
         /** Packet target as the emulator numbers players -> room player id (or broadcast). */
         fun roomTarget(localTarget: Int): Int? = localTarget
 
+        /** Our connection to the room is back after a drop. */
+        fun connectionBack() {}
+
         fun take(timeoutMs: Int): ByteArray?
     }
 
@@ -851,6 +861,10 @@ class OnlineSession(
         ) = bridge.fromPeer(from, data)
 
         override fun take(timeoutMs: Int): ByteArray? = bridge.takeOutgoing(timeoutMs)
+
+        override fun connectionBack() = bridge.resendNow()
+
+        fun gameLeftLink() = bridge.gameLeftLink()
     }
 
     private class NetplayTransport : Transport {

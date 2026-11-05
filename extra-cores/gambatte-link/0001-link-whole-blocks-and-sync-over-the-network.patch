@@ -1,7 +1,7 @@
 From bdbdce473a6f9d0f1c97f3e0467fe690b00e520c Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 12:23:38 +0000
-Subject: [PATCH 1/2] Link: whole-block exchanges and sync rendezvous for Gen 2
+Subject: [PATCH 1/3] Link: whole-block exchanges and sync rendezvous for Gen 2
  Pokemon over the network
 
 ---
@@ -717,7 +717,7 @@ index ad94255..80cdbb9 100644
 From 84e4597cbd73f6e1dc1e90bcc640ae27f96248b7 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 15:54:45 +0000
-Subject: [PATCH 2/2] Link: non-blocking hooks, battle move and friend
+Subject: [PATCH 2/3] Link: non-blocking hooks, battle move and friend
  rendezvous for Gen 2 Pokemon
 
 The block, sync and battle hooks no longer stall the frame while waiting
@@ -1359,6 +1359,778 @@ index 80cdbb9..43649c3 100644
 +		enum { LINK_BLOCK_FAILED = -1, LINK_BLOCK_WAITING = 0, LINK_BLOCK_DONE = 1 };
 +		virtual int exchangeBlockStep(unsigned char const *out, unsigned len, unsigned char sb,
 +		                              std::vector<unsigned char> &in) { return LINK_BLOCK_FAILED; }
+ };
+ 
+ }
+-- 
+2.43.0
+
+
+From f60d36e419705b9e8b34688f1a423f7c2db8d0e0 Mon Sep 17 00:00:00 2001
+From: eeatminds <12shreyas86@gmail.com>
+Date: Thu, 5 Nov 2026 07:52:13 +0000
+Subject: [PATCH 3/3] Link: survive dropped connections; safe exits when the
+ partner is gone
+
+- The friend meeting sends each side's number back, so leftovers from an
+  earlier try can't pass for the partner; better random numbers.
+- Blocks wait in an outbox while the connection to the app is down and
+  go once it's back (reconnects twice a second, by the wall clock).
+- Once linked the games wait as long as on a cable; a partner gone for
+  good is reported by the app ("no partner") and kept until the next
+  session.
+- Partner gone: a link battle ends as if they ran; in the trade center
+  their answer reads as no / cancel, so nothing is traded without their
+  own yes.
+- Option changes no longer restart the link unless its own settings
+  change.
+- Link events go to the frontend's log.
+---
+ libgambatte/libretro/libretro.cpp   |   9 +-
+ libgambatte/libretro/net_serial.cpp | 197 +++++++++++++++++-----------
+ libgambatte/libretro/net_serial.h   |  21 ++-
+ libgambatte/src/cpu.cpp             | 170 ++++++++++++++++++++----
+ libgambatte/src/cpu.h               |  14 +-
+ libgambatte/src/gambatte-memory.cpp |  19 ++-
+ libgambatte/src/gambatte-memory.h   |   5 +-
+ libgambatte/src/serial_io.h         |  29 +++-
+ 8 files changed, 344 insertions(+), 120 deletions(-)
+
+diff --git a/libgambatte/libretro/libretro.cpp b/libgambatte/libretro/libretro.cpp
+index a3416ed..9647a4c 100644
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -2385,14 +2385,19 @@ static void check_variables(bool startup)
+       gb_NetworkClientAddr += octet;
+    }
+ 
++   /* Any option change comes here (the app sets its options again each time it comes
++    * back to the front): the link restarts only when its own settings change, or a trade
++    * or battle going on would lose its connection. */
+    switch(gb_serialMode)
+    {
+       case SERIAL_SERVER:
+-         gb_net_serial.start(true, gb_NetworkPort, gb_NetworkClientAddr);
++         if (!gb_net_serial.runningWith(true, gb_NetworkPort, gb_NetworkClientAddr))
++            gb_net_serial.start(true, gb_NetworkPort, gb_NetworkClientAddr);
+          gb.setSerialIO(&gb_net_serial);
+          break;
+       case SERIAL_CLIENT:
+-         gb_net_serial.start(false, gb_NetworkPort, gb_NetworkClientAddr);
++         if (!gb_net_serial.runningWith(false, gb_NetworkPort, gb_NetworkClientAddr))
++            gb_net_serial.start(false, gb_NetworkPort, gb_NetworkClientAddr);
+          gb.setSerialIO(&gb_net_serial);
+          break;
+       default:
+diff --git a/libgambatte/libretro/net_serial.cpp b/libgambatte/libretro/net_serial.cpp
+index cc60c6d..bc28b1c 100644
+--- a/libgambatte/libretro/net_serial.cpp
++++ b/libgambatte/libretro/net_serial.cpp
+@@ -19,6 +19,27 @@
+ #include <netdb.h>
+ #endif
+ 
++static unsigned char const BLOCK_MARK = 0xB5;
++static long long const RECONNECT_MS = 500;
++// [0, NO_PARTNER_MARK]: nobody is on the other end to answer a block (the app's link bridge
++// says so when no friend is linked), so the waiting game gives up at once.
++static unsigned char const NO_PARTNER_MARK = 0xB6;
++// How long a single byte transfer waits for the other side. A real cable never waits: with
++// nobody answering the byte reads as $FF. The network needs a little time, but a game that has
++// already left the link (back on its map) never answers, and waiting on would freeze ours.
++static int const SEND_REPLY_TIMEOUT_MS = 2500;
++
++static long long nowMs()
++{
++#ifdef _WIN32
++	return (long long) GetTickCount64();
++#else
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
++#endif
++}
++
+ NetSerial::NetSerial()
+ : is_stopped_(true)
+ , is_server_(false)
+@@ -65,6 +86,10 @@ void NetSerial::stop()
+ 			server_fd_ = -1;
+ 		}
+ 	}
++	blocks_.clear();
++	outbox_.clear();
++	blockPending_ = false;
++	noPartner_ = false;
+ }
+ 
+ bool NetSerial::checkAndRestoreConnection(bool throttle)
+@@ -73,13 +98,13 @@ bool NetSerial::checkAndRestoreConnection(bool throttle)
+ 		return false;
+ 	}
+ 	if (sockfd_ < 0 && throttle) {
+-		clock_t now = clock();
+-		// Only attempt to establish the connection every 5 seconds
+-		if (((now - lastConnectAttempt_) / CLOCKS_PER_SEC) < 5) {
++		// Tries again twice a second (the other end is the app's link bridge on this phone,
++		// so a lost connection comes back at once).
++		if (nowMs() - lastConnectAttempt_ < RECONNECT_MS) {
+ 			return false;
+ 		}
+ 	}
+-	lastConnectAttempt_ = clock();
++	lastConnectAttempt_ = nowMs();
+ 	if (is_server_) {
+ 		if (!startServerSocket()) {
+ 			return false;
+@@ -194,17 +219,6 @@ bool NetSerial::startClientSocket()
+ 	return true;
+ }
+ 
+-static unsigned char const BLOCK_MARK = 0xB5;
+-// [0, NO_PARTNER_MARK]: nobody is on the other end to answer a block (the app's link bridge
+-// says so when no friend is linked), so the waiting game gives up at once.
+-static unsigned char const NO_PARTNER_MARK = 0xB6;
+-// How long to wait for the partner's block before giving up (the game then reports a link error).
+-static int const BLOCK_TIMEOUT_MS = 30000;
+-// How long a single byte transfer waits for the other side. A real cable never waits: with
+-// nobody answering the byte reads as $FF. The network needs a little time, but a game that has
+-// already left the link (back on its map) never answers, and waiting on would freeze ours.
+-static int const SEND_REPLY_TIMEOUT_MS = 2500;
+-
+ // Whether data arrives within ms milliseconds.
+ static bool waitReadable(int fd, int ms)
+ {
+@@ -217,15 +231,14 @@ static bool waitReadable(int fd, int ms)
+ 	return select(fd + 1, &rfds, NULL, NULL, &tv) > 0;
+ }
+ 
++// The partner's blocks we have, ours not yet sent, and what we wait for all stay: the
++// connection to the other end comes back in a moment.
+ void NetSerial::dropConnection()
+ {
+ 	if (sockfd_ >= 0) {
+ 		close(sockfd_);
+ 		sockfd_ = -1;
+ 	}
+-	blocks_.clear();
+-	blockPending_ = false;
+-	noPartner_ = false;
+ }
+ 
+ bool NetSerial::writeAll(unsigned char const *data, size_t len)
+@@ -321,8 +334,10 @@ unsigned char NetSerial::send(unsigned char data, bool fastCgb)
+ 				return 0xFF;
+ 			continue;
+ 		}
+-		if (buffer[1] == NO_PARTNER_MARK)
++		if (buffer[1] == NO_PARTNER_MARK) {
++			noPartner_ = true;
+ 			continue;
++		}
+ 		return buffer[0];
+ 	}
+ }
+@@ -365,8 +380,11 @@ bool NetSerial::check(unsigned char out, unsigned char& in, bool& fastCgb)
+ 		readBlockAfterMark();
+ 		return false;
+ 	}
+-	if (buffer[1] == NO_PARTNER_MARK)
++	if (buffer[1] == NO_PARTNER_MARK) {
++		// For the link hooks: the partner is gone.
++		noPartner_ = true;
+ 		return false;
++	}
+ 	// An answer (flag 128) that came after our transfer gave up waiting: old news, not a
+ 	// transfer the other side starts. Taking it for one would make the two sides answer each
+ 	// other's answers forever.
+@@ -381,41 +399,9 @@ bool NetSerial::check(unsigned char out, unsigned char& in, bool& fastCgb)
+ 	return writeAll(buffer, 2);
+ }
+ 
+-static long long nowMs()
++bool NetSerial::pumpIncoming(unsigned char sb)
+ {
+-#ifdef _WIN32
+-	return (long long) GetTickCount64();
+-#else
+-	struct timespec ts;
+-	clock_gettime(CLOCK_MONOTONIC, &ts);
+-	return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+-#endif
+-}
+-
+-int NetSerial::exchangeBlockStep(unsigned char const *out, unsigned len, unsigned char sb,
+-                                 std::vector<unsigned char> &in)
+-{
+-	if (is_stopped_ || len > 0xFFFF)
+-		return LINK_BLOCK_FAILED;
+-	if (sockfd_ < 0 && !checkAndRestoreConnection(true))
+-		return LINK_BLOCK_FAILED;
+-
+-	if (!blockPending_) {
+-		std::vector<unsigned char> frame(4 + len + (len & 1), 0);
+-		frame[1] = BLOCK_MARK;
+-		frame[2] = len & 0xFF;
+-		frame[3] = (len >> 8) & 0xFF;
+-		for (unsigned i = 0; i < len; ++i)
+-			frame[4 + i] = out[i];
+-		if (!writeAll(&frame[0], frame.size()))
+-			return LINK_BLOCK_FAILED;
+-		blockPending_ = true;
+-		noPartner_ = false;
+-		blockSentAt_ = nowMs();
+-	}
+-
+-	// Whatever has arrived, without waiting.
+-	while (blocks_.empty() && !noPartner_) {
++	while (sockfd_ >= 0) {
+ #ifdef _WIN32
+ 		u_long avail = 0;
+ 		if (ioctlsocket(sockfd_, FIONREAD, &avail) < 0)
+@@ -423,43 +409,102 @@ int NetSerial::exchangeBlockStep(unsigned char const *out, unsigned len, unsigne
+ 		int avail = 0;
+ 		if (ioctl(sockfd_, FIONREAD, &avail) < 0)
+ #endif
+-			break;
++			return false;
+ 		if (avail < 2)
+-			break;
++			return true;
+ 		unsigned char message[2];
+-		if (!readAll(message, 2)) {
+-			blockPending_ = false;
+-			return LINK_BLOCK_FAILED;
+-		}
++		if (!readAll(message, 2))
++			return false;
+ 		if (message[1] == BLOCK_MARK) {
+-			if (!readBlockAfterMark()) {
+-				blockPending_ = false;
+-				return LINK_BLOCK_FAILED;
+-			}
++			if (!readBlockAfterMark())
++				return false;
+ 		} else if (message[1] == NO_PARTNER_MARK) {
+ 			noPartner_ = true;
+ 		} else if (message[1] != 128) {
+ 			// The partner started a single byte transfer before reaching its block: answer it
+ 			// as the cable would, with what our game last put out.
+ 			unsigned char reply[2] = { sb, 128 };
+-			if (!writeAll(reply, 2)) {
+-				blockPending_ = false;
+-				return LINK_BLOCK_FAILED;
+-			}
++			if (!writeAll(reply, 2))
++				return false;
+ 		}
+ 		// (A late answer to one of our own byte transfers is old news: dropped.)
+ 	}
++	return false;
++}
+ 
+-	if (!blocks_.empty()) {
+-		in = blocks_.front();
++void NetSerial::flushOutbox()
++{
++	if (outbox_.empty() || is_stopped_)
++		return;
++	if (sockfd_ < 0 && !checkAndRestoreConnection(true))
++		return;
++	while (!outbox_.empty()) {
++		std::vector<unsigned char> const &frame = outbox_.front();
++		if (!writeAll(&frame[0], frame.size()))
++			return;
++		outbox_.pop_front();
++	}
++}
++
++bool NetSerial::sendLinkBlock(unsigned char const *out, unsigned len)
++{
++	if (is_stopped_ || len > 0xFFFF)
++		return false;
++	std::vector<unsigned char> frame(4 + len + (len & 1), 0);
++	frame[1] = BLOCK_MARK;
++	frame[2] = len & 0xFF;
++	frame[3] = (len >> 8) & 0xFF;
++	for (unsigned i = 0; i < len; ++i)
++		frame[4 + i] = out[i];
++	outbox_.push_back(frame);
++	flushOutbox();
++	return true;
++}
++
++int NetSerial::receiveLinkBlock(unsigned char kind, unsigned char sb, std::vector<unsigned char> &in)
++{
++	if (is_stopped_)
++		return LINK_BLOCK_FAILED;
++	flushOutbox();
++	if (sockfd_ < 0)
++		checkAndRestoreConnection(true);
++	if (sockfd_ >= 0)
++		pumpIncoming(sb);
++	while (!blocks_.empty()) {
++		if (!blocks_.front().empty() && blocks_.front()[0] == kind) {
++			in = blocks_.front();
++			blocks_.pop_front();
++			return LINK_BLOCK_DONE;
++		}
+ 		blocks_.pop_front();
+-		blockPending_ = false;
+-		return LINK_BLOCK_DONE;
+ 	}
+-	if (noPartner_ || nowMs() - blockSentAt_ > BLOCK_TIMEOUT_MS) {
+-		blockPending_ = false;
+-		noPartner_ = false;
++	return noPartner_ ? LINK_BLOCK_FAILED : LINK_BLOCK_WAITING;
++}
++
++void NetSerial::clearLinkBlocks()
++{
++	if (sockfd_ >= 0)
++		pumpIncoming(0xFF);
++	blocks_.clear();
++	blockPending_ = false;
++	noPartner_ = false;
++}
++
++int NetSerial::exchangeBlockStep(unsigned char const *out, unsigned len, unsigned char sb,
++                                 std::vector<unsigned char> &in, long timeoutMs)
++{
++	if (len == 0)
+ 		return LINK_BLOCK_FAILED;
++	if (!blockPending_) {
++		if (!sendLinkBlock(out, len))
++			return LINK_BLOCK_FAILED;
++		blockPending_ = true;
++		blockSentAt_ = nowMs();
+ 	}
+-	return LINK_BLOCK_WAITING;
++	int step = receiveLinkBlock(out[0], sb, in);
++	if (step == LINK_BLOCK_WAITING && nowMs() - blockSentAt_ > timeoutMs)
++		step = LINK_BLOCK_FAILED;
++	if (step != LINK_BLOCK_WAITING)
++		blockPending_ = false;
++	return step;
+ }
+diff --git a/libgambatte/libretro/net_serial.h b/libgambatte/libretro/net_serial.h
+index 2fda462..f90ba29 100644
+--- a/libgambatte/libretro/net_serial.h
++++ b/libgambatte/libretro/net_serial.h
+@@ -22,8 +22,16 @@ class NetSerial : public gambatte::SerialIO
+ 
+ 		virtual bool check(unsigned char out, unsigned char& in, bool& fastCgb);
+ 		virtual unsigned char send(unsigned char data, bool fastCgb);
++		virtual bool sendLinkBlock(unsigned char const *out, unsigned len);
++		virtual int receiveLinkBlock(unsigned char kind, unsigned char sb, std::vector<unsigned char> &in);
++		virtual void clearLinkBlocks();
+ 		virtual int exchangeBlockStep(unsigned char const *out, unsigned len, unsigned char sb,
+-		                              std::vector<unsigned char> &in);
++		                              std::vector<unsigned char> &in, long timeoutMs);
++
++		// Whether start() with these settings would change nothing.
++		bool runningWith(bool is_server, int port, const std::string& hostname) const {
++			return !is_stopped_ && is_server == is_server_ && port == port_ && hostname == hostname_;
++		}
+ 
+ 	private:
+ 		bool startServerSocket();
+@@ -39,10 +47,19 @@ class NetSerial : public gambatte::SerialIO
+ 		bool readMessage(unsigned char message[2]);
+ 		bool readBlockAfterMark();
+ 		void dropConnection();
++		// Reads whatever has arrived, without waiting (see receiveLinkBlock).
++		bool pumpIncoming(unsigned char sb);
++		// Sends the blocks waiting in outbox_, if connected.
++		void flushOutbox();
+ 
++		// The partner's blocks, in order, not yet taken.
+ 		std::deque<std::vector<unsigned char> > blocks_;
++		// Our blocks (whole frames) not yet handed to the other end: kept if the connection
++		// drops, and sent once it's back.
++		std::deque<std::vector<unsigned char> > outbox_;
+ 		// Our block went out and we wait for the partner's (since blockSentAt_, in ms).
+ 		bool blockPending_;
++		// The other end said the partner is gone; kept until the next link session.
+ 		bool noPartner_;
+ 		long long blockSentAt_;
+ 
+@@ -54,7 +71,7 @@ class NetSerial : public gambatte::SerialIO
+ 		int server_fd_;
+ 		int sockfd_;
+ 
+-		clock_t lastConnectAttempt_;
++		long long lastConnectAttempt_;
+ };
+ 
+ #endif
+diff --git a/libgambatte/src/cpu.cpp b/libgambatte/src/cpu.cpp
+index 7c50c8a..d4232bf 100644
+--- a/libgambatte/src/cpu.cpp
++++ b/libgambatte/src/cpu.cpp
+@@ -20,7 +20,10 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <ctime>
++#include <cstdarg>
++#include <time.h>
+ #include "gambatte-memory.h"
++#include "gambatte_log.h"
+ #include "savestate.h"
+ 
+ namespace gambatte {
+@@ -59,6 +62,9 @@ CPU::CPU()
+ , linkConnectionStatus_(0)
+ , linkScriptVar_(0)
+ , linkFriendNonce_(0)
++, linkFriendTheirs_(0)
++, linkFriendStartedAt_(0)
++, linkFriendNeedSend_(false)
+ {
+ }
+ 
+@@ -512,11 +518,79 @@ static unsigned char const LINK_KIND_SYNC = 2;
+ static unsigned char const LINK_KIND_BATTLE = 3;
+ static unsigned char const LINK_KIND_FRIEND = 4;
+ 
++// How long the friend hook waits for the partner to turn up.
++static long long const LINK_FRIEND_WAIT_MS = 30000;
++// Once linked, the games wait for each other as long as on a cable (a player may think
++// over a move, or their connection may be back in a moment). A partner who is gone for
++// good is reported by the other end ("no partner"); this is only a last resort.
++static long const LINK_WAIT_MS = 600000;
++// What a link battle gets when the other player forfeits (their RUN).
++static unsigned char const LINK_BATTLE_FORFEIT = 0x0F;
++// Trade center answers: CANCEL in the trade menu, and no / yes to "Trade X for Y?".
++static unsigned char const LINK_CANCEL = 0x0F;
++static unsigned char const LINK_TRADE_NO = 1;
++static unsigned char const LINK_TRADE_YES = 2;
++
+ static bool linkTrace() {
+ 	static int const trace = getenv("GAMBATTE_LINK_TRACE") ? 1 : 0;
+ 	return trace != 0;
+ }
+ 
++// Link events go to the frontend's log (and to stderr with GAMBATTE_LINK_TRACE).
++static void linkLog(char const *format, ...) {
++	char text[256];
++	va_list args;
++	va_start(args, format);
++	vsnprintf(text, sizeof text, format, args);
++	va_end(args);
++	gambatte_log(RETRO_LOG_INFO, "[link] %s\n", text);
++	if (linkTrace())
++		fprintf(stderr, "[link] %s\n", text);
++}
++
++static long long linkNowMs() {
++#ifdef _WIN32
++	return (long long) clock() * 1000 / CLOCKS_PER_SEC;
++#else
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
++#endif
++}
++
++// A random number for a meeting, never 0. Two phones must not pick the same one, so it
++// mixes the clocks (to the nanosecond) and where this emulator sits in memory.
++static unsigned long linkFreshNonce(void const *self, unsigned long cycleCounter) {
++	unsigned long long x = (unsigned long long) (size_t) self ^ cycleCounter ^ ((unsigned long long) rand() << 21);
++#ifndef _WIN32
++	struct timespec ts;
++	clock_gettime(CLOCK_REALTIME, &ts);
++	x ^= (unsigned long long) ts.tv_sec * 1000000007ull ^ (unsigned long long) ts.tv_nsec << 17;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	x ^= (unsigned long long) ts.tv_nsec * 0x9E3779B97F4A7C15ull;
++#else
++	x ^= (unsigned long long) time(0) * 1000000007ull;
++#endif
++	// splitmix64
++	x += 0x9E3779B97F4A7C15ull;
++	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
++	x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
++	x ^= x >> 31;
++	unsigned long const nonce = (unsigned long) (x & 0x7FFFFFFF);
++	return nonce != 0 ? nonce : 1;
++}
++
++static unsigned long linkReadU32(unsigned char const *p) {
++	return (unsigned long) p[0] << 24 | (unsigned long) p[1] << 16 | (unsigned long) p[2] << 8 | p[3];
++}
++
++static void linkWriteU32(unsigned char *p, unsigned long value) {
++	p[0] = (unsigned char) (value >> 24);
++	p[1] = (unsigned char) (value >> 16);
++	p[2] = (unsigned char) (value >> 8);
++	p[3] = (unsigned char) value;
++}
++
+ // Sends bc bytes from hl and puts the partner's bc bytes at de, then leaves hl and de past
+ // them and bc at 0, as the game's own exchange routine does. With no partner block, the bytes
+ // read as "no data" so the game reports a link error instead of hanging.
+@@ -530,12 +604,11 @@ bool CPU::runLinkBlockHook(unsigned long &cycleCounter) {
+ 	for (unsigned i = 0; i < count; ++i)
+ 		out[1 + i] = mem_.read((from + i) & 0xFFFF, cycleCounter);
+ 	std::vector<unsigned char> in;
+-	int const step = mem_.exchangeLinkBlockStep(&out[0], count + 1, in);
++	int const step = mem_.exchangeLinkBlockStep(&out[0], count + 1, in, LINK_WAIT_MS);
+ 	if (step == SerialIO::LINK_BLOCK_WAITING)
+ 		return false;
+ 	bool const received = step == SerialIO::LINK_BLOCK_DONE && !in.empty() && in[0] == LINK_KIND_BLOCK;
+-	if (linkTrace())
+-		fprintf(stderr, "[link] block %u bytes, got %d\n", count, received ? (int) in.size() - 1 : -1);
++	linkLog("block %u bytes, got %d", count, received ? (int) in.size() - 1 : -1);
+ 	for (unsigned i = 0; i < count; ++i)
+ 		mem_.write((to + i) & 0xFFFF, received && i + 1 < in.size() ? in[i + 1] : 0xFE, cycleCounter);
+ 	unsigned const hlEnd = (from + count) & 0xFFFF;
+@@ -564,18 +637,22 @@ bool CPU::runLinkSyncHook(unsigned short &pc, unsigned long &cycleCounter) {
+ #ifdef HAVE_NETWORK
+ 	unsigned char out[2] = { LINK_KIND_SYNC, (unsigned char) (mem_.read(linkPlayerAction_, cycleCounter) & 0x0F) };
+ 	std::vector<unsigned char> in;
+-	int const step = mem_.exchangeLinkBlockStep(out, 2, in);
++	int const step = mem_.exchangeLinkBlockStep(out, 2, in, LINK_WAIT_MS);
+ 	if (step == SerialIO::LINK_BLOCK_WAITING)
+ 		return false;
+ 	bool const received = step == SerialIO::LINK_BLOCK_DONE && in.size() == 2 && in[0] == LINK_KIND_SYNC;
+-	if (linkTrace())
+-		fprintf(stderr, "[link] sync sent %u got %d (from %04x)\n", out[1], received ? in[1] : -1,
+-		        mem_.read(sp, cycleCounter) | (mem_.read((sp + 1) & 0xFFFF, cycleCounter) << 8));
++	linkLog("sync sent %u got %d (from %04x)", out[1], received ? in[1] : -1,
++	        mem_.read(sp, cycleCounter) | (mem_.read((sp + 1) & 0xFFFF, cycleCounter) << 8));
+ 	if (received) {
+ 		mem_.write(linkOtherAction_, in[1] & 0x0F, cycleCounter);
+ 		mem_.write(linkOtherMode_, in[1] & 0x0F, cycleCounter);
+ 	} else {
++		// The partner is gone. Like the game's own timeout: nothing came, and the timer ran
++		// out. Their answer reads as "no": at a trade's last question, where we said yes (2),
++		// that's 1 (they said no); anywhere else, CANCEL (15), which ends the trade center.
++		// So nothing is ever traded without the partner's own yes.
+ 		mem_.write(linkOtherAction_, 0xFF, cycleCounter);
++		mem_.write(linkOtherMode_, out[1] == LINK_TRADE_YES ? LINK_TRADE_NO : LINK_CANCEL, cycleCounter);
+ 		mem_.write(linkTimeoutFrames_, 0xFF, cycleCounter);
+ 		mem_.write(linkTimeoutFrames_ + 1, 0xFF, cycleCounter);
+ 	}
+@@ -588,14 +665,21 @@ bool CPU::runLinkBattleHook(unsigned short &pc, unsigned long &cycleCounter) {
+ #ifdef HAVE_NETWORK
+ 	unsigned char out[2] = { LINK_KIND_BATTLE, (unsigned char) (mem_.read(linkBattlePlayerAction_, cycleCounter) & 0x0F) };
+ 	std::vector<unsigned char> in;
+-	int const step = mem_.exchangeLinkBlockStep(out, 2, in);
++	int const step = mem_.exchangeLinkBlockStep(out, 2, in, LINK_WAIT_MS);
+ 	// Without the other's move the battle can't go on: wait, as the game itself would.
+-	if (step != SerialIO::LINK_BLOCK_DONE || in.size() != 2 || in[0] != LINK_KIND_BATTLE)
++	if (step == SerialIO::LINK_BLOCK_WAITING)
+ 		return false;
+-	if (linkTrace())
+-		fprintf(stderr, "[link] move sent %u got %u\n", out[1], in[1]);
+-	mem_.write(linkBattleOtherAction_, in[1] & 0x0F, cycleCounter);
+-	mem_.write(linkBattleAction_, in[1] & 0x0F, cycleCounter);
++	unsigned char other;
++	if (step == SerialIO::LINK_BLOCK_DONE && in.size() == 2) {
++		other = in[1] & 0x0F;
++		linkLog("move sent %u got %u", out[1], other);
++	} else {
++		// The other player is gone for good: they forfeit, and the battle ends.
++		other = LINK_BATTLE_FORFEIT;
++		linkLog("move sent %u, the other player is gone: they forfeit", out[1]);
++	}
++	mem_.write(linkBattleOtherAction_, other, cycleCounter);
++	mem_.write(linkBattleAction_, other, cycleCounter);
+ 	returnFromRoutine(pc, cycleCounter);
+ #endif
+ 	return true;
+@@ -604,25 +688,57 @@ bool CPU::runLinkBattleHook(unsigned short &pc, unsigned long &cycleCounter) {
+ bool CPU::runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter) {
+ #ifdef HAVE_NETWORK
+ 	if (linkFriendNonce_ == 0) {
+-		// A fresh random number for this meeting (never 0).
+-		linkFriendNonce_ = ((unsigned long) rand() << 16 ^ (unsigned long) rand() ^ (unsigned long) time(0) ^ cycleCounter) & 0x7FFFFFFF;
+-		if (linkFriendNonce_ == 0)
+-			linkFriendNonce_ = 1;
++		// A new meeting: anything left from an earlier one is old news.
++		linkFriendNonce_ = linkFreshNonce(this, cycleCounter);
++		linkFriendTheirs_ = 0;
++		linkFriendStartedAt_ = linkNowMs();
++		linkFriendNeedSend_ = true;
++		mem_.clearLinkBlocks();
++		linkLog("waiting for the friend (%lu)", linkFriendNonce_);
+ 	}
+-	unsigned char out[5] = { LINK_KIND_FRIEND,
+-		(unsigned char) (linkFriendNonce_ >> 24), (unsigned char) (linkFriendNonce_ >> 16),
+-		(unsigned char) (linkFriendNonce_ >> 8), (unsigned char) linkFriendNonce_ };
++	// Each message: [FRIEND, our number, the partner's number as we last heard it (0: none)].
++	// It's met once the partner sends ours back: then both know both, and agree who drives.
++	bool met = false;
++	bool gone = false;
+ 	std::vector<unsigned char> in;
+-	int const step = mem_.exchangeLinkBlockStep(out, 5, in);
+-	if (step == SerialIO::LINK_BLOCK_WAITING)
++	for (;;) {
++		int const step = mem_.receiveLinkBlock(LINK_KIND_FRIEND, in);
++		if (step == SerialIO::LINK_BLOCK_FAILED) {
++			gone = true;
++			break;
++		}
++		if (step != SerialIO::LINK_BLOCK_DONE)
++			break;
++		if (in.size() < 9)
++			continue;
++		unsigned long const theirs = linkReadU32(&in[1]);
++		unsigned long const echo = linkReadU32(&in[5]);
++		if (theirs == 0 || theirs == linkFriendNonce_)
++			continue;
++		linkFriendTheirs_ = theirs;
++		if (echo == linkFriendNonce_) {
++			met = true;
++			break;
++		}
++		// They don't know our number yet (or this is from an earlier try): tell them.
++		linkFriendNeedSend_ = true;
++	}
++	if (met || linkFriendNeedSend_) {
++		unsigned char out[9] = { LINK_KIND_FRIEND };
++		linkWriteU32(out + 1, linkFriendNonce_);
++		linkWriteU32(out + 5, linkFriendTheirs_);
++		mem_.sendLinkBlock(out, sizeof out);
++		linkFriendNeedSend_ = false;
++	}
++	if (!met && !gone && linkNowMs() - linkFriendStartedAt_ <= LINK_FRIEND_WAIT_MS)
+ 		return false;
++
+ 	unsigned long const ours = linkFriendNonce_;
++	unsigned long const theirs = linkFriendTheirs_;
+ 	linkFriendNonce_ = 0;
+-	bool const met = step == SerialIO::LINK_BLOCK_DONE && in.size() == 5 && in[0] == LINK_KIND_FRIEND;
+-	unsigned long const theirs = met ? ((unsigned long) in[1] << 24 | in[2] << 16 | in[3] << 8 | in[4]) : 0;
+-	if (linkTrace())
+-		fprintf(stderr, "[link] friend %s (%lu vs %lu)\n", met ? (ours < theirs ? "met, we drive" : "met, they drive") : "didn't come", ours, theirs);
+-	if (met && ours != theirs) {
++	linkLog("friend %s (%lu vs %lu)", met ? (ours < theirs ? "met, we drive" : "met, they drive")
++	        : gone ? "is gone" : "didn't come", ours, theirs);
++	if (met) {
+ 		mem_.write(linkConnectionStatus_, ours < theirs ? 2 : 1, cycleCounter);
+ 		mem_.write(linkScriptVar_, 1, cycleCounter);
+ 	} else {
+diff --git a/libgambatte/src/cpu.h b/libgambatte/src/cpu.h
+index 9f2fb25..c52c7a8 100644
+--- a/libgambatte/src/cpu.h
++++ b/libgambatte/src/cpu.h
+@@ -114,10 +114,11 @@ public:
+ 	/**
+ 	 * Link friend hook: the receptionist's "wait for your friend" routine ([entry] in ROM bank
+ 	 * [bank]), which settles which Game Boy drives the cable. Its wait is frame counted (about
+-	 * 8 seconds) and over a network one phone can start well after the other. Instead both
+-	 * swap a random number and wait (up to half a minute) for each other: the lower one drives
+-	 * the cable ([connectionStatus] = internal clock, 2), the other follows (1), and
+-	 * [scriptVar] says it worked (1) or not (0); then the routine returns.
++	 * 8 seconds) and over a network one phone can start well after the other. Instead each
++	 * picks a random number and they wait (up to half a minute) until each has seen the
++	 * other's number sent back, so nothing left from an earlier try can pass for the partner:
++	 * the lower number drives the cable ([connectionStatus] = internal clock, 2), the other
++	 * follows (1), and [scriptVar] says it worked (1) or not (0); then the routine returns.
+ 	 */
+ 	void setLinkFriendHook(unsigned bank, unsigned short entry, unsigned short connectionStatus,
+ 	                       unsigned short scriptVar) {
+@@ -176,7 +177,12 @@ private:
+ 	unsigned short linkBattlePlayerAction_, linkBattleOtherAction_, linkBattleAction_;
+ 	unsigned linkFriendBank_;
+ 	unsigned short linkFriendEntry_, linkConnectionStatus_, linkScriptVar_;
++	// The friend hook's meeting: our number (0 = none going on), the partner's latest, when
++	// it started (ms), and whether the partner should hear from us again.
+ 	unsigned long linkFriendNonce_;
++	unsigned long linkFriendTheirs_;
++	long long linkFriendStartedAt_;
++	bool linkFriendNeedSend_;
+ 
+ 	bool linkHookAt(unsigned short pc) const {
+ #ifdef HAVE_NETWORK
+diff --git a/libgambatte/src/gambatte-memory.cpp b/libgambatte/src/gambatte-memory.cpp
+index 1c953f6..a239370 100644
+--- a/libgambatte/src/gambatte-memory.cpp
++++ b/libgambatte/src/gambatte-memory.cpp
+@@ -162,10 +162,25 @@ void Memory::startSerialTransfer(unsigned long cc, unsigned char data, bool fast
+ 		: (cc & ~0xFFul) + 0x200 * 8);
+ }
+ 
+-int Memory::exchangeLinkBlockStep(unsigned char const *out, unsigned len, std::vector<unsigned char> &in) {
++int Memory::exchangeLinkBlockStep(unsigned char const *out, unsigned len, std::vector<unsigned char> &in, long timeoutMs) {
+ 	if (serial_io_ == 0)
+ 		return SerialIO::LINK_BLOCK_FAILED;
+-	return serial_io_->exchangeBlockStep(out, len, ioamhram_[0x101], in);
++	return serial_io_->exchangeBlockStep(out, len, ioamhram_[0x101], in, timeoutMs);
++}
++
++bool Memory::sendLinkBlock(unsigned char const *out, unsigned len) {
++	return serial_io_ != 0 && serial_io_->sendLinkBlock(out, len);
++}
++
++int Memory::receiveLinkBlock(unsigned char kind, std::vector<unsigned char> &in) {
++	if (serial_io_ == 0)
++		return SerialIO::LINK_BLOCK_FAILED;
++	return serial_io_->receiveLinkBlock(kind, ioamhram_[0x101], in);
++}
++
++void Memory::clearLinkBlocks() {
++	if (serial_io_ != 0)
++		serial_io_->clearLinkBlocks();
+ }
+ 
+ void Memory::checkSerial(unsigned long const cc) {
+diff --git a/libgambatte/src/gambatte-memory.h b/libgambatte/src/gambatte-memory.h
+index d289b72..322c65c 100644
+--- a/libgambatte/src/gambatte-memory.h
++++ b/libgambatte/src/gambatte-memory.h
+@@ -120,7 +120,10 @@ public:
+ 	void setInputGetter(InputGetter *getInput) { getInput_ = getInput; }
+ #ifdef HAVE_NETWORK
+ 	void setSerialIO(SerialIO* serial_io) { serial_io_ = serial_io; }
+-	int exchangeLinkBlockStep(unsigned char const *out, unsigned len, std::vector<unsigned char> &in);
++	int exchangeLinkBlockStep(unsigned char const *out, unsigned len, std::vector<unsigned char> &in, long timeoutMs);
++	bool sendLinkBlock(unsigned char const *out, unsigned len);
++	int receiveLinkBlock(unsigned char kind, std::vector<unsigned char> &in);
++	void clearLinkBlocks();
+ 	bool isRomBank(unsigned bank) const {
+ 		return cart_.romdata(1) + 0x4000 == cart_.romdata(0) + bank * 0x4000ul;
+ 	}
+diff --git a/libgambatte/src/serial_io.h b/libgambatte/src/serial_io.h
+index 43649c3..cb44231 100644
+--- a/libgambatte/src/serial_io.h
++++ b/libgambatte/src/serial_io.h
+@@ -31,14 +31,31 @@ class SerialIO
+ 		virtual bool check(unsigned char out, unsigned char& in, bool& fastCgb) = 0;
+ 		virtual unsigned char send(unsigned char data, bool fastCgb) = 0;
+ 
+-		// One whole block of a game's link exchange at once (see CPU::setLinkBlockHooks), a
+-		// step at a time so the emulator never waits on the network: the first call sends
+-		// out[0..len), then each call checks for the partner's block. "sb" answers any single
+-		// byte transfer the partner starts meanwhile. Returns LINK_BLOCK_DONE (the partner's
+-		// block is in "in"), LINK_BLOCK_WAITING, or LINK_BLOCK_FAILED (nobody answered).
++		// Whole blocks of a game's link exchange (see CPU::setLinkBlockHooks), so the emulator
++		// never waits on the network. A block starts with its kind (one byte).
+ 		enum { LINK_BLOCK_FAILED = -1, LINK_BLOCK_WAITING = 0, LINK_BLOCK_DONE = 1 };
++
++		// Sends a block to the partner (kept, and sent once connected, if the link is down
++		// for a moment). Returns false when the link is off.
++		virtual bool sendLinkBlock(unsigned char const *out, unsigned len) { return false; }
++
++		// Takes the partner's next block of [kind] into "in" (DONE); blocks of other kinds
++		// ahead of it are old news and dropped. WAITING while nothing has come yet; FAILED
++		// once the partner is gone. "sb" answers any single byte transfer the partner starts
++		// meanwhile.
++		virtual int receiveLinkBlock(unsigned char kind, unsigned char sb, std::vector<unsigned char> &in) {
++			return LINK_BLOCK_FAILED;
++		}
++
++		// A new link session: forgets blocks and "partner gone" notes left from before.
++		virtual void clearLinkBlocks() {}
++
++		// Sends out[0..len) once, then each call checks for the partner's block of the same
++		// kind (see receiveLinkBlock); FAILED too after timeoutMs without it.
+ 		virtual int exchangeBlockStep(unsigned char const *out, unsigned len, unsigned char sb,
+-		                              std::vector<unsigned char> &in) { return LINK_BLOCK_FAILED; }
++		                              std::vector<unsigned char> &in, long timeoutMs) {
++			return LINK_BLOCK_FAILED;
++		}
  };
  
  }

@@ -166,6 +166,9 @@ class WorldSession(
     private val mutableLinkStatus = MutableStateFlow<LinkStatus>(LinkStatus.Idle)
     val linkStatus: StateFlow<LinkStatus> = mutableLinkStatus.asStateFlow()
 
+    /** Our game left an in-place trade or battle (it ended, or never got going). */
+    @Volatile var onLinkEnded: () -> Unit = {}
+
     @Volatile private var inPlace: InPlace? = null
     @Volatile private var gameMemory: GameMemory? = null
 
@@ -267,6 +270,8 @@ class WorldSession(
     ) {
         inPlace = null
         adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
+        // The other game, if it still waits for ours, stops waiting.
+        onLinkEnded()
         mutableLinkStatus.value = status
     }
 
