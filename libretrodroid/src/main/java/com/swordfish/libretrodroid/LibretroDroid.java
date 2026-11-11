@@ -173,6 +173,10 @@ public class LibretroDroid {
     /** Returns [type: u8][target client id: u16 big endian][payload...], or null on timeout. */
     public static native byte[] netpacketTakeOutgoing(int timeoutMs);
     public static native void netpacketWakeTakers();
+    /** While held, the game doesn't run: it waits for a link partner whose data is late. */
+    public static native void netpacketSetHold(boolean hold);
+    /** Frames the game has run since it last sent a packet. */
+    public static native int netpacketFramesSinceSend();
 
     // Netplay (online "play together"): every player runs the game, inputs are synced.
     public static final int NETPLAY_STATUS_INACTIVE = 0;

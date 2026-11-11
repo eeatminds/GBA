@@ -870,9 +870,9 @@ class OnlineSession(
             data: ByteArray,
         ) = link.push(from, data)
 
-        override fun roomTarget(localTarget: Int): Int? = link.roomTarget(localTarget)
+        override fun take(timeoutMs: Int): ByteArray? = link.takeOutgoing(timeoutMs)
 
-        override fun take(timeoutMs: Int): ByteArray? = LibretroDroid.netpacketTakeOutgoing(timeoutMs)
+        override fun connectionBack() = link.resendNow()
     }
 
     /** Game Boy link through Gambatte's network link and a local bridge. */

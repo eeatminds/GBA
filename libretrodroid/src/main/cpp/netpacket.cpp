@@ -118,6 +118,7 @@ void NetPacket::sendFn(int flags, const void* buf, size_t len, uint16_t clientId
         return;
     }
     auto bytes = static_cast<const uint8_t*>(buf);
+    getInstance().sinceSend = 0;
     getInstance().pushOutgoing(Outgoing { OUTGOING_DATA, clientId, std::vector<uint8_t>(bytes, bytes + len) });
 }
 
@@ -180,7 +181,21 @@ void NetPacket::processEvents(bool allowStart) {
     }
 }
 
+void NetPacket::setHold(bool hold) {
+    held = hold;
+}
+
+bool NetPacket::isHeld() const {
+    return held;
+}
+
+uint32_t NetPacket::framesSinceSend() const {
+    return sinceSend;
+}
+
 void NetPacket::onFrame() {
+    uint32_t frames = sinceSend;
+    if (frames < NEVER_SENT) sinceSend = frames + 1;
     processEvents(true);
 
     if (!started) return;
@@ -212,6 +227,8 @@ void NetPacket::reset() {
         std::lock_guard<std::mutex> lock(outgoingMutex);
         outgoing.clear();
     }
+    held = false;
+    sinceSend = NEVER_SENT;
     wakeTakers();
 }
 

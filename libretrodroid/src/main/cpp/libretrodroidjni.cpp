@@ -718,6 +718,21 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netpacketW
     NetPacket::getInstance().wakeTakers();
 }
 
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netpacketSetHold(
+    JNIEnv* env,
+    jclass obj,
+    jboolean hold
+) {
+    NetPacket::getInstance().setHold(hold);
+}
+
+JNIEXPORT jint JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netpacketFramesSinceSend(
+    JNIEnv* env,
+    jclass obj
+) {
+    return static_cast<jint>(NetPacket::getInstance().framesSinceSend());
+}
+
 JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netplayStart(
     JNIEnv* env,
     jclass obj,

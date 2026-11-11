@@ -18,6 +18,7 @@
 #ifndef LIBRETRODROID_NETPACKET_H
 #define LIBRETRODROID_NETPACKET_H
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -99,6 +100,14 @@ public:
     // Emulation thread: called before every retro_run.
     void onFrame();
 
+    // Thread-safe. While held, the game doesn't run (it waits for a link partner whose data is
+    // late, as over a network gap): set and cleared from Java.
+    void setHold(bool hold);
+    bool isHeld() const;
+
+    // Thread-safe: frames the game has run since it last sent a packet.
+    uint32_t framesSinceSend() const;
+
     // Emulation thread: called before the game is unloaded.
     void reset();
 
@@ -136,6 +145,10 @@ private:
 
     // Only touched from the emulation thread.
     bool started = false;
+
+    std::atomic<bool> held { false };
+    std::atomic<uint32_t> sinceSend { NEVER_SENT };
+    static constexpr uint32_t NEVER_SENT = 0x7FFFFFFF;
 
     std::mutex eventsMutex;
     std::deque<Event> events;

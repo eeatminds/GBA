@@ -159,6 +159,7 @@ data class OnlineConfig(
             when {
                 kind == RoomKind.NETPLAY -> "retrolink-netplay-1/$coreName"
                 mode == LinkMode.GAME_BOY -> GB_LINK_PROTOCOL
+                kind == RoomKind.LINK -> GBA_LINK_PROTOCOL
                 else -> ""
             }
 
@@ -169,6 +170,10 @@ data class OnlineConfig(
         // link hooks, the bridge's messages), so a room only takes players who can link.
         // 3: numbered messages between bridges, the friend meeting with numbers sent back.
         const val GB_LINK_PROTOCOL = "retrolink-gblink-3"
+
+        // GBA links: numbered packets between apps, and games held through network gaps
+        // (see NetpacketLink).
+        const val GBA_LINK_PROTOCOL = "retrolink-gbalink-2"
 
         /** Game Boy rooms use Gambatte, which has a link cable over a network socket. */
         fun gbLinkCoreConfig(systemId: String): SystemCoreConfig? {

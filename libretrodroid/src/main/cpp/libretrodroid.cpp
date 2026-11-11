@@ -470,6 +470,9 @@ void LibretroDroid::step() {
 
     Netplay::Hooks netplayHooks = buildNetplayHooks();
     for (size_t i = 0; i < frames * frameSpeed; i++) {
+        // A link partner's data is late (a network gap): the game waits, as over a slow cable,
+        // so its own link timers don't run out. The screen keeps the last frame.
+        if (NetPacket::getInstance().isHeld()) break;
         NetPacket::getInstance().onFrame();
         // In an online "play together" room, a frame waits until every player's input is in.
         if (!Netplay::getInstance().beginFrame(netplayHooks)) break;

@@ -200,6 +200,29 @@ void testOversizedPacketsAreDropped() {
     std::puts("ok - oversized packets dropped");
 }
 
+void testHoldAndFramesSinceSend() {
+    NetPacket& np = NetPacket::getInstance();
+    np.reset();
+    np.setCallback(&callbacks);
+    np.requestStart(0);
+    np.onFrame();
+    // Nothing sent yet: as long ago as can be.
+    assert(np.framesSinceSend() > 1000000);
+    core.send(1, "x", 1, 1);
+    assert(np.framesSinceSend() == 0);
+    np.onFrame();
+    np.onFrame();
+    assert(np.framesSinceSend() == 2);
+    np.setHold(true);
+    assert(np.isHeld());
+    np.setHold(false);
+    assert(!np.isHeld());
+    np.setHold(true);
+    np.reset();
+    assert(!np.isHeld());
+    std::puts("ok - hold and frames since the last packet sent");
+}
+
 } // namespace
 
 int main() {
@@ -208,6 +231,7 @@ int main() {
     testPollReceiveAndEcho();
     testWakeAndReset();
     testOversizedPacketsAreDropped();
+    testHoldAndFramesSinceSend();
     std::puts("all netpacket tests passed");
     return 0;
 }
