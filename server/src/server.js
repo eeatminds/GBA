@@ -21,7 +21,9 @@
 // RESUME_GRACE_MS, and an empty room stays open for EMPTY_ROOM_MS, so a phone that briefly
 // loses its connection, or a creator who steps out, doesn't end the room.
 
+import fs from 'node:fs';
 import http from 'node:http';
+import nodePath from 'node:path';
 import { WebSocketServer } from 'ws';
 import {
   BROADCAST,
@@ -52,6 +54,8 @@ export function createRelayServer(options = {}) {
     androidPackage: options.androidPackage ?? process.env.ANDROID_PACKAGE ?? '',
     androidCertSha256: options.androidCertSha256 ?? process.env.ANDROID_CERT_SHA256 ?? '',
     log: options.log ?? ((...args) => console.log(new Date().toISOString(), ...args)),
+    // Pictures for the games page the server's owner may add: <game id>.webp, .png or .jpg.
+    coversDir: options.coversDir ?? process.env.COVERS_DIR ?? '/etc/gba-rooms/covers',
     resumeGraceMs: options.resumeGraceMs ?? RESUME_GRACE_MS,
   };
   const registry = options.registry ?? new RoomRegistry({ emptyRoomMs: options.emptyRoomMs });
@@ -544,7 +548,12 @@ function handleHttp(req, res, registry, config) {
   }
 
   if (req.method === 'GET' && (path === '/games' || path === '/games/')) {
-    sendHtml(res, 200, gamesPage(config));
+    sendHtml(res, 200, gamesPage(config, registry), "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'");
+    return;
+  }
+
+  if (req.method === 'GET' && path.startsWith('/covers/')) {
+    serveCover(res, config, path.slice('/covers/'.length));
     return;
   }
 
@@ -569,10 +578,10 @@ function sendJsonResponse(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function sendHtml(res, status, html) {
+function sendHtml(res, status, html, csp = "default-src 'none'; style-src 'unsafe-inline'") {
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+    'Content-Security-Policy': csp,
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(html);
@@ -651,82 +660,148 @@ h1{font-size:22px;margin:0 0 12px}p{color:var(--muted);margin:6px 0}.game{color:
 
 // The games players can play together, grouped as the real games link: every game in a
 // family trades and battles with the others in it. A game is listed here only once trading
-// and battling have been tested on real phones.
+// and battling have been tested.
 const GAME_FAMILIES = [
   {
-    console: 'Game Boy Color',
-    region: 'Johto',
+    console: 'Game Boy Color games',
+    short: 'GBC',
     blurb:
-      'Gold, Silver and Crystal players share a room. On the map you see each other in Johto, ' +
-      'and any two of you can trade or battle, just as over a real link cable.',
+      'Gold, Silver and Crystal players share a room and can all trade and battle each other, ' +
+      'just as over a real link cable. On the map you see everyone in Johto.',
+    regions: [{ name: 'Johto', games: ['gold', 'silver', 'crystal'] }],
     games: [
-      { name: 'Gold', color: '#c9a227', versions: 'USA / Europe' },
-      { name: 'Silver', color: '#9aa5b1', versions: 'USA / Europe' },
-      { name: 'Crystal', color: '#3fa7d6', versions: 'USA / Europe, Rev 1' },
+      { id: 'gold', name: 'Gold', match: 'gold', emblem: 'sun', colors: ['#7a5a00', '#e0b62c'], versions: 'USA / Europe' },
+      { id: 'silver', name: 'Silver', match: 'silver', emblem: 'moon', colors: ['#3d4652', '#b9c3cd'], versions: 'USA / Europe' },
+      { id: 'crystal', name: 'Crystal', match: 'crystal', emblem: 'gem', colors: ['#0f4c6e', '#55c1e8'], versions: 'USA / Europe, Rev 1' },
     ],
   },
 ];
 
-function gamesPage(config) {
+const COVER_TYPES = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg' };
+
+// A picture the server's owner put in the covers folder for this game, if any.
+function coverFile(config, id) {
+  for (const ext of Object.keys(COVER_TYPES)) {
+    const file = nodePath.join(config.coversDir, `${id}.${ext}`);
+    if (fs.existsSync(file)) return { file, ext };
+  }
+  return null;
+}
+
+function serveCover(res, config, name) {
+  const match = /^([a-z]+)\.(webp|png|jpg)$/.exec(name);
+  const known = match && GAME_FAMILIES.some((f) => f.games.some((g) => g.id === match[1]));
+  const cover = known ? coverFile(config, match[1]) : null;
+  if (!cover || cover.ext !== match[2]) {
+    sendText(res, 404, 'not found');
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': COVER_TYPES[cover.ext], 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+  fs.createReadStream(cover.file).pipe(res);
+}
+
+// Open rooms per game (any room with someone in it), for the "N open" badges.
+function openRooms(registry, game) {
+  let count = 0;
+  for (const room of registry.rooms.values()) {
+    const title = String(room.game || '').toLowerCase();
+    if (room.players.size > 0 && (room.system === 'gb' || room.system === 'gbc') && title.includes(game.match)) count++;
+  }
+  return count;
+}
+
+// Original tile art: the game's colours and a simple emblem (no game artwork).
+const EMBLEMS = {
+  sun:
+    '<circle cx="50" cy="52" r="15" fill="#fff6d6"/>' +
+    [0, 45, 90, 135, 180, 225, 270, 315]
+      .map((a) => `<rect x="48" y="20" width="4" height="12" rx="2" fill="#fff6d6" transform="rotate(${a} 50 52)"/>`)
+      .join(''),
+  moon:
+    '<mask id="moon-cut"><rect width="100" height="100" fill="#fff"/><circle cx="61" cy="44" r="18" fill="#000"/></mask>' +
+    '<circle cx="50" cy="52" r="22" fill="#f4f7fa" mask="url(#moon-cut)"/><circle cx="70" cy="30" r="2" fill="#fff"/><circle cx="76" cy="44" r="1.5" fill="#fff"/>',
+  gem:
+    '<path d="M50 24l20 14v28l-20 14l-20-14V38z" fill="#e8f8ff"/>' +
+    '<path d="M50 24v56M30 38l20 14l20-14M30 66l20-14l20 14" stroke="#55c1e8" stroke-width="2" fill="none" opacity=".7"/>',
+};
+
+function tileArt(game, short) {
+  const [dark, light] = game.colors;
+  return `<svg viewBox="0 0 100 100" role="img" aria-label="${escapeHtml(game.name)}">
+<defs><linearGradient id="g-${game.id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${light}"/><stop offset="1" stop-color="${dark}"/></linearGradient></defs>
+<rect width="100" height="100" fill="url(#g-${game.id})"/>
+<circle cx="50" cy="52" r="34" fill="#fff" opacity=".12"/>${EMBLEMS[game.emblem]}
+<text x="8" y="14" font-family="system-ui,sans-serif" font-size="8" font-weight="700" fill="#fff" opacity=".85">${short}</text>
+<text x="50" y="93" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="800" fill="#fff" letter-spacing=".5">${escapeHtml(game.name.toUpperCase())}</text></svg>`;
+}
+
+function listNames(names) {
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+}
+
+function gamesPage(config, registry) {
   const appName = escapeHtml(config.appName);
-  const cartridge = (color) =>
-    `<svg class="cart" viewBox="0 0 40 48" aria-hidden="true"><path d="M4 2h26l6 6v36a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="${color}"/>` +
-    `<rect x="8" y="9" width="24" height="18" rx="2" fill="#fff" opacity=".85"/>` +
-    `<rect x="8" y="38" width="3" height="6" fill="#000" opacity=".25"/><rect x="14" y="38" width="3" height="6" fill="#000" opacity=".25"/>` +
-    `<rect x="20" y="38" width="3" height="6" fill="#000" opacity=".25"/><rect x="26" y="38" width="3" height="6" fill="#000" opacity=".25"/></svg>`;
+  const linkIcon =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" ' +
+    'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const families = GAME_FAMILIES.map((family) => {
-    const names = family.games.map((g) => g.name);
-    const together = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
-    const cards = family.games
-      .map(
-        (game) => `<li class="card" style="--game:${game.color}">${cartridge(game.color)}<div>
-<h3>${escapeHtml(game.name)}</h3><p class="versions">${escapeHtml(game.versions)}</p></div></li>`,
-      )
+    const tiles = family.games
+      .map((game) => {
+        const cover = coverFile(config, game.id);
+        const art = cover ? `<img src="/covers/${game.id}.${cover.ext}" alt="${escapeHtml(game.name)}">` : tileArt(game, family.short);
+        const open = openRooms(registry, game);
+        const badge = open > 0 ? `<span class="open"><i></i>${open} open</span>` : '';
+        return `<li class="tile"><div class="art">${art}${badge}</div><b>${escapeHtml(game.name)}</b><small>${escapeHtml(game.versions)}</small></li>`;
+      })
       .join('');
-    return `<section class="family"><h2>${escapeHtml(family.console)}</h2>
-<p class="blurb">${escapeHtml(family.blurb)}</p>
-<ul class="cards">${cards}</ul>
-<ul class="can">
-<li><b>See each other</b><span>Everyone in ${escapeHtml(family.region)}, moving in real time</span></li>
-<li><b>Trade</b><span>${escapeHtml(together)}, any pair</span></li>
-<li><b>Battle</b><span>${escapeHtml(together)}, any pair</span></li>
-</ul></section>`;
+    const regions = family.regions
+      .map((region) => `<p class="region" style="--span:${region.games.length}"><span>See each other in ${escapeHtml(region.name)}</span></p>`)
+      .join('');
+    const all = family.games.length === 2 ? 'Both' : family.games.length === 3 ? 'All three' : `All ${family.games.length}`;
+    return `<section class="family">
+<div class="side"><h2>${escapeHtml(family.console)}</h2><p>${escapeHtml(family.blurb)}</p></div>
+<div class="main"><ul class="tiles">${tiles}</ul>${regions}
+<p class="together">${linkIcon}<span>${all} trade and battle</span></p></div></section>`;
   }).join('');
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Games you can play together - ${appName}</title>
+<title>Games - ${appName}</title>
 <meta name="description" content="The games you can play together in ${appName}: see each other on the map, trade and battle.">
 <style>
-:root{color-scheme:light dark;--bg:#f6f5f2;--fg:#1d1c1a;--muted:#6b6862;--line:#e3e1dc;--accent:#3b5bdb;--card:#fff;--chip:#eef1fb}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#f2f1ee;--muted:#a3a09a;--line:#2e2d2a;--accent:#91a7ff;--card:#1f1e1c;--chip:#252a3d}}
+:root{color-scheme:light dark;--bg:#f6f5f2;--fg:#1d1c1a;--muted:#6b6862;--line:#e3e1dc;--accent:#3b5bdb;--link:#c2410c;--card:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#f2f1ee;--muted:#a3a09a;--line:#2e2d2a;--accent:#91a7ff;--link:#fb923c;--card:#1f1e1c}}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.5}
-.wrap{max-width:880px;margin:0 auto;padding:40px 16px 56px}
+.wrap{max-width:1040px;margin:0 auto;padding:40px 16px 56px}
 .back{color:var(--accent);text-decoration:none;font-size:14px}
-header h1{font-size:clamp(28px,5vw,40px);line-height:1.15;margin:16px 0 10px;letter-spacing:-.01em}
-header p{color:var(--muted);margin:0;max-width:62ch}
+header h1{font-size:clamp(28px,5vw,40px);line-height:1.15;margin:16px 0 6px;letter-spacing:-.01em}
+header p{color:var(--muted);margin:0;max-width:64ch}
 .rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:28px 0 8px;padding:0;list-style:none}
 .rules li{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
 .rules b{display:block;margin-bottom:2px}.rules span{color:var(--muted);font-size:14px}
-.family{margin-top:40px}
-.family h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 6px}
-.blurb{margin:0 0 16px;max-width:62ch}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:0;padding:0;list-style:none}
-.card{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--game);border-radius:14px;padding:14px 16px}
-.cart{width:34px;height:41px;flex:none}
-.card h3{margin:0;font-size:18px}.versions{margin:0;color:var(--muted);font-size:13px}
-.can{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0;padding:0;list-style:none}
-.can li{background:var(--chip);border-radius:999px;padding:6px 12px;font-size:13px}
-.can b{margin-right:6px}.can span{color:var(--muted)}
-.how{margin-top:48px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+.family{display:grid;grid-template-columns:240px 1fr;gap:28px;border-top:1px solid var(--line);margin-top:32px;padding-top:28px}
+.side h2{margin:0 0 8px;font-size:20px}.side p{margin:0;color:var(--muted);font-size:15px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:16px;margin:0;padding:0;list-style:none}
+.tile b{display:block;margin-top:8px}.tile small{display:block;color:var(--muted);font-size:13px;line-height:1.35}
+.art{position:relative;aspect-ratio:1;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.art svg,.art img{display:block;width:100%;height:100%;object-fit:cover}
+.open{position:absolute;right:8px;bottom:8px;background:rgba(20,20,20,.78);color:#fff;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px}
+.open i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:5px;vertical-align:1px}
+.region{display:flex;align-items:center;gap:10px;margin:18px 0 0;color:var(--muted);font-size:13px;font-weight:600}
+.region::before,.region::after{content:"";flex:1;height:1px;background:var(--line)}
+.together{display:flex;align-items:center;gap:10px;margin:10px 0 0;color:var(--link);font-size:14px;font-weight:600}
+.together::before,.together::after{content:"";flex:1;border-top:2px dashed currentColor;opacity:.55}
+.together svg{width:18px;height:18px;flex:none}
+.how{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
 .how h2{margin:0 0 10px;font-size:20px}.how ol{margin:0;padding-left:20px}.how li{margin:6px 0}
 .note{color:var(--muted);font-size:14px;margin-top:28px}
+@media (max-width:700px){.family{grid-template-columns:1fr;gap:16px}.tiles{grid-template-columns:repeat(3,1fr);gap:12px}}
 </style></head>
 <body><div class="wrap">
 <a class="back" href="/">&larr; ${appName}</a>
-<header><h1>Games you can play together</h1>
-<p>Explore the same world as your friends, then walk up to them to trade or battle, using each game's own trade and battle screens. Every game listed here has been tested trading and battling.</p></header>
+<header><h1>Games</h1>
+<p>Play with friends in the same world, then walk up to each other to trade or battle with each game's own trade and battle screens. Every game here has been tested trading and battling.</p></header>
 <ul class="rules">
 <li><b>Your own game</b><span>Each player needs their own copy of a supported game on their phone.</span></li>
 <li><b>Same family</b><span>Games trade and battle with the games they link with on real hardware.</span></li>

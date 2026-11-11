@@ -383,8 +383,35 @@ test('the games page lists the games players can trade and battle in, and the ho
   const page = await fetch(`http://${base}/games`);
   assert.equal(page.status, 200);
   const html = await page.text();
-  for (const name of ['Gold', 'Silver', 'Crystal', 'Trade', 'Battle', 'Same World']) assert.ok(html.includes(name), name);
+  for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Same World']) assert.ok(html.includes(name), name);
   assert.ok(!html.includes('<script'));
   const home = await (await fetch(`http://${base}/`)).text();
   assert.ok(home.includes('href="/games"'));
+});
+
+test('the games page counts open rooms per game and shows a cover the owner added', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'covers-'));
+  writeFileSync(join(dir, 'crystal.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const own = createRelayServer({ log: () => {}, coversDir: dir });
+  const address = await own.listen(0, '127.0.0.1');
+  const url = `http://127.0.0.1:${address.port}`;
+  const host = new WebSocket(`ws://127.0.0.1:${address.port}/ws`);
+  await new Promise((resolve) => host.on('open', resolve));
+  host.send(JSON.stringify({ t: 'host', kind: 'link', system: 'gbc', game: 'Pokemon - Crystal Version (USA, Europe) (Rev 1)', name: 'Kris' }));
+  await new Promise((resolve) => host.on('message', resolve));
+
+  const html = await (await fetch(`${url}/games`)).text();
+  assert.ok(html.includes('<img src="/covers/crystal.png"'));
+  assert.ok(html.includes('1 open'));
+  assert.equal(html.match(/ open</g).length, 1);
+  const cover = await fetch(`${url}/covers/crystal.png`);
+  assert.equal(cover.status, 200);
+  assert.equal(cover.headers.get('content-type'), 'image/png');
+  assert.equal((await fetch(`${url}/covers/gold.png`)).status, 404);
+  assert.equal((await fetch(`${url}/covers/..%2Fpasswd`)).status, 404);
+  host.close();
+  await own.close();
 });

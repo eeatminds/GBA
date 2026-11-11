@@ -91,6 +91,9 @@ PLAY_STORE_URL=
 EOF
 fi
 
+# Pictures for the games page (optional): <game>.webp, .png or .jpg, e.g. crystal.png.
+install -d -m 755 /etc/gba-rooms/covers
+
 say "Starting the room server"
 cat > "/etc/systemd/system/$SERVICE.service" <<EOF
 [Unit]
