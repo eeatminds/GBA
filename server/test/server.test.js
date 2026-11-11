@@ -378,3 +378,13 @@ test('link reports are kept by room code and can be read back', async () => {
   assert.ok(text.includes('player 1 (Gold): FAILED: our script never ran\nline one\nline two'));
   assert.ok(text.includes('player 0 (Silver): done\nok'));
 });
+
+test('the games page lists the games players can trade and battle in, and the home page links to it', async () => {
+  const page = await fetch(`http://${base}/games`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  for (const name of ['Gold', 'Silver', 'Crystal', 'Trade', 'Battle', 'Same World']) assert.ok(html.includes(name), name);
+  assert.ok(!html.includes('<script'));
+  const home = await (await fetch(`http://${base}/`)).text();
+  assert.ok(home.includes('href="/games"'));
+});

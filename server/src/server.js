@@ -543,6 +543,11 @@ function handleHttp(req, res, registry, config) {
     return;
   }
 
+  if (req.method === 'GET' && (path === '/games' || path === '/games/')) {
+    sendHtml(res, 200, gamesPage(config));
+    return;
+  }
+
   sendText(res, 404, 'not found');
 }
 
@@ -626,6 +631,7 @@ function invitePage(config, code, registry) {
   const openLink = code ? `<a class="button" href="${escapeHtml(config.appScheme)}://join/${code}">Open in ${appName}</a>` : '';
   const store = config.playStoreUrl ? `<a class="link" href="${escapeHtml(config.playStoreUrl)}">Get ${appName} on Google Play</a>` : '';
   const codeBox = code ? `<p>Room code</p><p class="code">${code}</p>` : '';
+  const gamesLink = `<a class="link games" href="/games">Games you can play together</a>`;
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -638,9 +644,103 @@ main{background:var(--card);padding:32px 24px;border-radius:16px;max-width:360px
 h1{font-size:22px;margin:0 0 12px}p{color:var(--muted);margin:6px 0}.game{color:var(--fg);font-weight:600}
 .code{font:700 32px ui-monospace,monospace;letter-spacing:4px;color:var(--fg)}
 .button{display:block;margin:20px 0 12px;padding:14px;border-radius:10px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
-.link{color:var(--accent)}
+.link{color:var(--accent)}.games{display:block;margin-top:16px}
 </style></head>
-<body><main><h1>${escapeHtml(title)}</h1>${details}${codeBox}${openLink}${store}</main></body></html>`;
+<body><main><h1>${escapeHtml(title)}</h1>${details}${codeBox}${openLink}${store}${gamesLink}</main></body></html>`;
+}
+
+// The games players can play together, grouped as the real games link: every game in a
+// family trades and battles with the others in it. A game is listed here only once trading
+// and battling have been tested on real phones.
+const GAME_FAMILIES = [
+  {
+    console: 'Game Boy Color',
+    region: 'Johto',
+    blurb:
+      'Gold, Silver and Crystal players share a room. On the map you see each other in Johto, ' +
+      'and any two of you can trade or battle, just as over a real link cable.',
+    games: [
+      { name: 'Gold', color: '#c9a227', versions: 'USA / Europe' },
+      { name: 'Silver', color: '#9aa5b1', versions: 'USA / Europe' },
+      { name: 'Crystal', color: '#3fa7d6', versions: 'USA / Europe, Rev 1' },
+    ],
+  },
+];
+
+function gamesPage(config) {
+  const appName = escapeHtml(config.appName);
+  const cartridge = (color) =>
+    `<svg class="cart" viewBox="0 0 40 48" aria-hidden="true"><path d="M4 2h26l6 6v36a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="${color}"/>` +
+    `<rect x="8" y="9" width="24" height="18" rx="2" fill="#fff" opacity=".85"/>` +
+    `<rect x="8" y="38" width="3" height="6" fill="#000" opacity=".25"/><rect x="14" y="38" width="3" height="6" fill="#000" opacity=".25"/>` +
+    `<rect x="20" y="38" width="3" height="6" fill="#000" opacity=".25"/><rect x="26" y="38" width="3" height="6" fill="#000" opacity=".25"/></svg>`;
+  const families = GAME_FAMILIES.map((family) => {
+    const names = family.games.map((g) => g.name);
+    const together = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+    const cards = family.games
+      .map(
+        (game) => `<li class="card" style="--game:${game.color}">${cartridge(game.color)}<div>
+<h3>${escapeHtml(game.name)}</h3><p class="versions">${escapeHtml(game.versions)}</p></div></li>`,
+      )
+      .join('');
+    return `<section class="family"><h2>${escapeHtml(family.console)}</h2>
+<p class="blurb">${escapeHtml(family.blurb)}</p>
+<ul class="cards">${cards}</ul>
+<ul class="can">
+<li><b>See each other</b><span>Everyone in ${escapeHtml(family.region)}, moving in real time</span></li>
+<li><b>Trade</b><span>${escapeHtml(together)}, any pair</span></li>
+<li><b>Battle</b><span>${escapeHtml(together)}, any pair</span></li>
+</ul></section>`;
+  }).join('');
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Games you can play together - ${appName}</title>
+<meta name="description" content="The games you can play together in ${appName}: see each other on the map, trade and battle.">
+<style>
+:root{color-scheme:light dark;--bg:#f6f5f2;--fg:#1d1c1a;--muted:#6b6862;--line:#e3e1dc;--accent:#3b5bdb;--card:#fff;--chip:#eef1fb}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#f2f1ee;--muted:#a3a09a;--line:#2e2d2a;--accent:#91a7ff;--card:#1f1e1c;--chip:#252a3d}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.5}
+.wrap{max-width:880px;margin:0 auto;padding:40px 16px 56px}
+.back{color:var(--accent);text-decoration:none;font-size:14px}
+header h1{font-size:clamp(28px,5vw,40px);line-height:1.15;margin:16px 0 10px;letter-spacing:-.01em}
+header p{color:var(--muted);margin:0;max-width:62ch}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:28px 0 8px;padding:0;list-style:none}
+.rules li{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.rules b{display:block;margin-bottom:2px}.rules span{color:var(--muted);font-size:14px}
+.family{margin-top:40px}
+.family h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 6px}
+.blurb{margin:0 0 16px;max-width:62ch}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:0;padding:0;list-style:none}
+.card{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--game);border-radius:14px;padding:14px 16px}
+.cart{width:34px;height:41px;flex:none}
+.card h3{margin:0;font-size:18px}.versions{margin:0;color:var(--muted);font-size:13px}
+.can{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0;padding:0;list-style:none}
+.can li{background:var(--chip);border-radius:999px;padding:6px 12px;font-size:13px}
+.can b{margin-right:6px}.can span{color:var(--muted)}
+.how{margin-top:48px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+.how h2{margin:0 0 10px;font-size:20px}.how ol{margin:0;padding-left:20px}.how li{margin:6px 0}
+.note{color:var(--muted);font-size:14px;margin-top:28px}
+</style></head>
+<body><div class="wrap">
+<a class="back" href="/">&larr; ${appName}</a>
+<header><h1>Games you can play together</h1>
+<p>Explore the same world as your friends, then walk up to them to trade or battle, using each game's own trade and battle screens. Every game listed here has been tested trading and battling.</p></header>
+<ul class="rules">
+<li><b>Your own game</b><span>Each player needs their own copy of a supported game on their phone.</span></li>
+<li><b>Same family</b><span>Games trade and battle with the games they link with on real hardware.</span></li>
+<li><b>Anywhere</b><span>Over Wi-Fi or mobile data. A dropped connection picks up where it left off.</span></li>
+</ul>
+${families}
+<section class="how"><h2>How to play</h2><ol>
+<li>Add your game in ${appName}.</li>
+<li>Open <b>Same World</b>, create a room and send your friend the room code.</li>
+<li>Find each other on the map: the room shows where everyone is.</li>
+<li>Walk up to your friend, press <b>A</b> and pick <b>Trade</b> or <b>Battle</b>. They press <b>A</b> to accept and it starts right there.</li>
+</ol></section>
+<p class="note">Game Boy Color and Game Boy Advance games can't trade or battle with each other, as on the real consoles. More games are added here once trading and battling them is tested.</p>
+</div></body></html>`;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
