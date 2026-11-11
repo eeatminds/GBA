@@ -668,11 +668,25 @@ const GAME_FAMILIES = [
     blurb:
       'Gold, Silver and Crystal players share a room and can all trade and battle each other, ' +
       'just as over a real link cable. On the map you see everyone in Johto.',
+    systems: ['gb', 'gbc'],
     regions: [{ name: 'Johto', games: ['gold', 'silver', 'crystal'] }],
     games: [
-      { id: 'gold', name: 'Gold', match: 'gold', emblem: 'sun', colors: ['#7a5a00', '#e0b62c'], versions: 'USA / Europe' },
-      { id: 'silver', name: 'Silver', match: 'silver', emblem: 'moon', colors: ['#3d4652', '#b9c3cd'], versions: 'USA / Europe' },
-      { id: 'crystal', name: 'Crystal', match: 'crystal', emblem: 'gem', colors: ['#0f4c6e', '#55c1e8'], versions: 'USA / Europe, Rev 1' },
+      { id: 'gold', name: 'Gold', match: ['gold'], emblem: 'sun', colors: ['#7a5a00', '#e0b62c'], versions: 'USA / Europe' },
+      { id: 'silver', name: 'Silver', match: ['silver'], emblem: 'moon', colors: ['#3d4652', '#b9c3cd'], versions: 'USA / Europe' },
+      { id: 'crystal', name: 'Crystal', match: ['crystal'], emblem: 'gem', colors: ['#0f4c6e', '#55c1e8'], versions: 'USA / Europe, Rev 1' },
+    ],
+  },
+  {
+    console: 'Game Boy Advance games',
+    short: 'GBA',
+    blurb:
+      'FireRed and LeafGreen players share a room and can trade and battle each other, in the same game ' +
+      'or across the two, just as over a real link cable. On the map you see everyone in Kanto.',
+    systems: ['gba'],
+    regions: [{ name: 'Kanto', games: ['firered', 'leafgreen'] }],
+    games: [
+      { id: 'firered', name: 'FireRed', match: ['firered', 'fire red'], emblem: 'flame', colors: ['#8a1c0c', '#f2703a'], versions: 'USA / Europe, Rev 1' },
+      { id: 'leafgreen', name: 'LeafGreen', match: ['leafgreen', 'leaf green'], emblem: 'leaf', colors: ['#1f5a1c', '#7ccb5b'], versions: 'USA, Rev 1' },
     ],
   },
 ];
@@ -701,11 +715,11 @@ function serveCover(res, config, name) {
 }
 
 // Open rooms per game (any room with someone in it), for the "N open" badges.
-function openRooms(registry, game) {
+function openRooms(registry, family, game) {
   let count = 0;
   for (const room of registry.rooms.values()) {
     const title = String(room.game || '').toLowerCase();
-    if (room.players.size > 0 && (room.system === 'gb' || room.system === 'gbc') && title.includes(game.match)) count++;
+    if (room.players.size > 0 && family.systems.includes(room.system) && game.match.some((m) => title.includes(m))) count++;
   }
   return count;
 }
@@ -723,6 +737,12 @@ const EMBLEMS = {
   gem:
     '<path d="M50 24l20 14v28l-20 14l-20-14V38z" fill="#e8f8ff"/>' +
     '<path d="M50 24v56M30 38l20 14l20-14M30 66l20-14l20 14" stroke="#55c1e8" stroke-width="2" fill="none" opacity=".7"/>',
+  flame:
+    '<path d="M50 20c4 12 20 20 20 38a20 20 0 0 1-40 0c0-10 6-16 9-23c2 7 5 10 9 11c-3-9-1-18 2-26z" fill="#fff1e3"/>' +
+    '<path d="M50 50c2 6 9 9 9 17a9 9 0 0 1-18 0c0-5 3-8 5-11c1 3 2 4 4 5c-1-4 0-8 0-11z" fill="#f2703a" opacity=".8"/>',
+  leaf:
+    '<path d="M28 74C26 44 46 26 76 24c2 30-16 50-48 50z" fill="#effbe7"/>' +
+    '<path d="M28 74L66 36M44 58l-2-12M54 48l-1-10M44 58l12 1M54 48l11 1" stroke="#7ccb5b" stroke-width="2.4" stroke-linecap="round" fill="none"/>',
 };
 
 function tileArt(game, short) {
@@ -749,7 +769,7 @@ function gamesPage(config, registry) {
       .map((game) => {
         const cover = coverFile(config, game.id);
         const art = cover ? `<img src="/covers/${game.id}.${cover.ext}" alt="${escapeHtml(game.name)}">` : tileArt(game, family.short);
-        const open = openRooms(registry, game);
+        const open = openRooms(registry, family, game);
         const badge = open > 0 ? `<span class="open"><i></i>${open} open</span>` : '';
         return `<li class="tile"><div class="art">${art}${badge}</div><b>${escapeHtml(game.name)}</b><small>${escapeHtml(game.versions)}</small></li>`;
       })

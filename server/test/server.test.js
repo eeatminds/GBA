@@ -384,6 +384,7 @@ test('the games page lists the games players can trade and battle in, and the ho
   assert.equal(page.status, 200);
   const html = await page.text();
   for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Same World']) assert.ok(html.includes(name), name);
+  for (const name of ['FireRed', 'LeafGreen', 'See each other in Kanto', 'Both trade and battle']) assert.ok(html.includes(name), name);
   assert.ok(!html.includes('<script'));
   const home = await (await fetch(`http://${base}/`)).text();
   assert.ok(home.includes('href="/games"'));
@@ -403,10 +404,19 @@ test('the games page counts open rooms per game and shows a cover the owner adde
   host.send(JSON.stringify({ t: 'host', kind: 'link', system: 'gbc', game: 'Pokemon - Crystal Version (USA, Europe) (Rev 1)', name: 'Kris' }));
   await new Promise((resolve) => host.on('message', resolve));
 
+  // A LeafGreen room (GBA): counted for LeafGreen only.
+  const guest = new WebSocket(`ws://127.0.0.1:${address.port}/ws`);
+  await new Promise((resolve) => guest.on('open', resolve));
+  guest.send(JSON.stringify({ t: 'host', kind: 'link', system: 'gba', game: 'Pokemon - Leaf Green Version (U) (V1.1)', name: 'Leaf' }));
+  await new Promise((resolve) => guest.on('message', resolve));
+
   const html = await (await fetch(`${url}/games`)).text();
   assert.ok(html.includes('<img src="/covers/crystal.png"'));
-  assert.ok(html.includes('1 open'));
-  assert.equal(html.match(/ open</g).length, 1);
+  const tiles = Object.fromEntries(
+    html.split('<li class="tile">').slice(1).map((tile) => [/<b>([^<]+)<\/b>/.exec(tile)[1], tile.includes('1 open')]),
+  );
+  assert.deepEqual(tiles, { Gold: false, Silver: false, Crystal: true, FireRed: false, LeafGreen: true });
+  guest.close();
   const cover = await fetch(`${url}/covers/crystal.png`);
   assert.equal(cover.status, 200);
   assert.equal(cover.headers.get('content-type'), 'image/png');

@@ -362,6 +362,19 @@ export class RoomRegistry {
   // other joins it; if that can't be, both unplug from what they had and link with each other.
   // Returns true when the groups changed.
   linkTogether(room, firstId, secondId) {
+    // In same world rooms a trade or battle is always between two players (the games link up
+    // only two for them), so the two get a link of their own.
+    if (room.world) {
+      const group = this.groupOf(room, firstId);
+      if (group && group.length === 2 && group.some((member) => member.id === secondId)) return false;
+      this.removeFromGroup(room, firstId);
+      this.removeFromGroup(room, secondId);
+      room.groups.push([
+        { id: firstId, slot: 0 },
+        { id: secondId, slot: 1 },
+      ]);
+      return true;
+    }
     let fromGroup;
     let toGroup;
     try {

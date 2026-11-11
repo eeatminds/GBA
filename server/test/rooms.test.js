@@ -149,6 +149,23 @@ test('two players are linked right away; a third joins unlinked', () => {
   assert.deepEqual(registry.recipients(room, 0, 2), []);
 });
 
+test('in same world rooms, saying yes to a trade or battle links just those two', () => {
+  const registry = new RoomRegistry();
+  const { room } = registry.createRoom('host', { mode: 'poke', world: true });
+  registry.joinRoom('a', { code: room.code });
+  registry.joinRoom('b', { code: room.code });
+  assert.deepEqual(describeGroups(room), [[{ id: 0, slot: 0 }, { id: 1, slot: 1 }]]);
+  // The third player asks the host to trade: the GBA link could take three, but the games
+  // link up only two for a trade or battle.
+  registry.invite(room, 2, 0, 'trade');
+  assert.deepEqual(registry.answerInvite(room, 0, 2, true), { kind: 'trade', groupsChanged: true });
+  assert.deepEqual(describeGroups(room), [[{ id: 2, slot: 0 }, { id: 0, slot: 1 }]]);
+  // Asking again the one already linked with: nothing changes.
+  registry.invite(room, 0, 2, 'battle');
+  assert.deepEqual(registry.answerInvite(room, 2, 0, true), { kind: 'battle', groupsChanged: false });
+  assert.deepEqual(describeGroups(room), [[{ id: 2, slot: 0 }, { id: 0, slot: 1 }]]);
+});
+
 test('link requests: ask, accept, join an existing link, unlink', () => {
   const registry = new RoomRegistry();
   const { room } = registry.createRoom('host', { mode: 'poke' });
