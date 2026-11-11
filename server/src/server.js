@@ -433,7 +433,8 @@ function relayPacket(registry, state, data) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP: public room list, invite pages, Android App Links and reports.
+// HTTP: public room list, invite pages, Android App Links, reports, and link reports
+// (POST /api/linklog from a phone whose trade or battle did not start; GET /api/linklog/CODE).
 
 function handleHttp(req, res, registry, config) {
   const url = new URL(req.url, 'http://localhost');
@@ -462,6 +463,40 @@ function handleHttp(req, res, registry, config) {
     const room = isValidCode(code) ? registry.rooms.get(code) : undefined;
     if (!room) sendJsonResponse(res, 404, { error: 'not_found' });
     else sendJsonResponse(res, 200, { room: describeRoom(room) });
+    return;
+  }
+
+  // Link reports: when a trade or battle in a room doesn't get going, each phone sends what
+  // its link did (events and numbers, no game data), kept here a few hours to look into it.
+  if (req.method === 'POST' && path === '/api/linklog') {
+    readBody(req, LINK_LOG_MAX_BYTES)
+      .then((body) => {
+        const report = JSON.parse(body || '{}');
+        const code = normalizeCode(report.code);
+        if (!isValidCode(code) || typeof report.text !== 'string') throw new Error('bad');
+        addLinkLog(code, {
+          at: new Date().toISOString(),
+          id: Number.isInteger(report.id) ? report.id : -1,
+          name: cleanName(report.name, '?'),
+          reason: typeof report.reason === 'string' ? report.reason.slice(0, 200) : '',
+          text: report.text.slice(0, LINK_LOG_MAX_BYTES),
+        });
+        config.log(`LINKLOG room=${code} player=${report.id} reason=${JSON.stringify(String(report.reason || '').slice(0, 80))}`);
+        res.writeHead(204, corsHeaders());
+        res.end();
+      })
+      .catch(() => sendJsonResponse(res, 400, { error: 'bad_request' }));
+    return;
+  }
+
+  if (req.method === 'GET' && path.startsWith('/api/linklog/')) {
+    const code = normalizeCode(decodeURIComponent(path.slice('/api/linklog/'.length)));
+    const logs = isValidCode(code) ? linkLogsFor(code) : [];
+    const text = logs.length
+      ? logs.map((log) => `==== ${log.at} player ${log.id} (${log.name}): ${log.reason}\n${log.text}`).join('\n\n')
+      : 'No link reports for this room.';
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...corsHeaders() });
+    res.end(text);
     return;
   }
 
@@ -536,6 +571,25 @@ function sendHtml(res, status, html) {
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(html);
+}
+
+const LINK_LOG_MAX_BYTES = 200_000;
+const LINK_LOGS_PER_ROOM = 12;
+const LINK_LOG_ROOMS = 200;
+const LINK_LOG_KEEP_MS = 6 * 60 * 60 * 1000;
+const linkLogs = new Map();
+
+function addLinkLog(code, log) {
+  const logs = (linkLogs.get(code) || []).concat({ ...log, time: Date.now() }).slice(-LINK_LOGS_PER_ROOM);
+  linkLogs.delete(code);
+  linkLogs.set(code, logs);
+  // Oldest rooms go first.
+  while (linkLogs.size > LINK_LOG_ROOMS) linkLogs.delete(linkLogs.keys().next().value);
+}
+
+function linkLogsFor(code) {
+  const now = Date.now();
+  return (linkLogs.get(code) || []).filter((log) => now - log.time < LINK_LOG_KEEP_MS);
 }
 
 function readBody(req, limit) {

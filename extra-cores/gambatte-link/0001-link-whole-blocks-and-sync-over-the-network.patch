@@ -1,7 +1,7 @@
 From bdbdce473a6f9d0f1c97f3e0467fe690b00e520c Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 12:23:38 +0000
-Subject: [PATCH 1/3] Link: whole-block exchanges and sync rendezvous for Gen 2
+Subject: [PATCH 1/4] Link: whole-block exchanges and sync rendezvous for Gen 2
  Pokemon over the network
 
 ---
@@ -717,7 +717,7 @@ index ad94255..80cdbb9 100644
 From 84e4597cbd73f6e1dc1e90bcc640ae27f96248b7 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 15:54:45 +0000
-Subject: [PATCH 2/3] Link: non-blocking hooks, battle move and friend
+Subject: [PATCH 2/4] Link: non-blocking hooks, battle move and friend
  rendezvous for Gen 2 Pokemon
 
 The block, sync and battle hooks no longer stall the frame while waiting
@@ -1369,7 +1369,7 @@ index 80cdbb9..43649c3 100644
 From f60d36e419705b9e8b34688f1a423f7c2db8d0e0 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Thu, 5 Nov 2026 07:52:13 +0000
-Subject: [PATCH 3/3] Link: survive dropped connections; safe exits when the
+Subject: [PATCH 3/4] Link: survive dropped connections; safe exits when the
  partner is gone
 
 - The friend meeting sends each side's number back, so leftovers from an
@@ -2134,6 +2134,46 @@ index 43649c3..cb44231 100644
  };
  
  }
+-- 
+2.43.0
+
+
+From ec97d1243ffc204ac08cb1d50f9c80fb762a613f Mon Sep 17 00:00:00 2001
+From: eeatminds <12shreyas86@gmail.com>
+Date: Wed, 11 Nov 2026 06:03:52 +0000
+Subject: [PATCH 4/4] Link: say in the log whether the link fixes are on for
+ the game (with the core version)
+
+---
+ libgambatte/libretro/libretro.cpp | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/libgambatte/libretro/libretro.cpp b/libgambatte/libretro/libretro.cpp
+index 9647a4c..ba68005 100644
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -2212,10 +2212,20 @@ static void apply_link_block_hooks(void)
+                game->other_action, game->battle_action);
+          gb.setLinkSyncHook(game->wait_link_transfer, game->player_action, game->other_action,
+                game->other_mode, game->timeout_frames);
+-         gambatte_log(RETRO_LOG_INFO, "Link: whole-block exchanges for %s\n", game->title);
++         gambatte_log(RETRO_LOG_INFO, "[link] link fixes on for %s (core v0.5.0-netlink%s)\n", game->title, GIT_VERSION);
+          return;
+       }
+    }
++   {
++      /* For the app's link report: which game this is, so a missing match shows. */
++      char title[16];
++      unsigned k;
++      for (k = 0; k < 15; k++)
++         title[k] = (rom[0x134 + k] >= 0x20 && rom[0x134 + k] < 0x7F) ? (char)rom[0x134 + k] : '.';
++      title[15] = 0;
++      gambatte_log(RETRO_LOG_WARN, "[link] NO link fixes for this game: \"%s\" version %u (core v0.5.0-netlink%s)\n",
++            title, rom[0x14C], GIT_VERSION);
++   }
+ }
+ #endif
+ 
 -- 
 2.43.0
 

@@ -1,6 +1,7 @@
 package com.swordfish.lemuroid.app.shared.online.world
 
 import android.os.SystemClock
+import com.swordfish.lemuroid.app.shared.online.LinkLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -147,7 +148,13 @@ class WorldSession(
 
     // An in-place trade or battle we started: when, whether its script has been seen running,
     // and whether the game's link session (its trade or battle screens) has begun.
-    private class InPlace(val startedAt: Long, var seenRunning: Boolean = false, var linked: Boolean = false)
+    private class InPlace(
+        val startedAt: Long,
+        val kind: String,
+        var seenRunning: Boolean = false,
+        var linked: Boolean = false,
+        var loggedAt: Long = 0,
+    )
 
     /** How an in-place trade or battle we started is going. */
     sealed interface LinkStatus {
@@ -168,6 +175,12 @@ class WorldSession(
 
     /** Our game left an in-place trade or battle (it ended, or never got going). */
     @Volatile var onLinkEnded: () -> Unit = {}
+
+    /** Sends the link report (how it went, and this phone's link log) when an in-place link ends. */
+    @Volatile var onLinkReport: (reason: String, details: List<String>) -> Unit = { _, _ -> }
+
+    /** Lines about this game and phone at the top of the link report. */
+    @Volatile var reportDetails: List<String> = emptyList()
 
     @Volatile private var inPlace: InPlace? = null
     @Volatile private var gameMemory: GameMemory? = null
@@ -234,10 +247,15 @@ class WorldSession(
      * Returns false when this game can't.
      */
     fun startInPlace(kind: String): Boolean {
-        val memory = gameMemory ?: memory() ?: return false
-        val patch = adapter.inPlaceLink(kind) ?: return false
-        onEmulator { patch.applyTo(memory) }
-        inPlace = InPlace(SystemClock.uptimeMillis())
+        val memory = gameMemory ?: memory()
+        val patch = adapter.inPlaceLink(kind)
+        if (memory == null || patch == null) {
+            LinkLog.add("world: can't start a $kind here (${if (memory == null) "no game memory" else "this game can't"})")
+            return false
+        }
+        LinkLog.add("world: starting the game's $kind link here; ${adapter.linkDebug(memory)}")
+        onEmulator { LinkLog.add("world: script queued (applied: ${patch.applyTo(memory)})") }
+        inPlace = InPlace(SystemClock.uptimeMillis(), kind)
         mutableLinkStatus.value = LinkStatus.Connecting
         return true
     }
@@ -251,16 +269,24 @@ class WorldSession(
     // its link rooms. A script that never got to run (the game was busy) is given up.
     private fun watchInPlace(memory: GameMemory) {
         val session = inPlace ?: return
+        val now = SystemClock.uptimeMillis()
         val running = runCatching { adapter.inPlaceLinkRunning(memory) }.getOrDefault(false)
+        // While it gets going, the game's state once a second (for the link report).
+        if (!session.linked && now - session.loggedAt >= 1000) {
+            session.loggedAt = now
+            LinkLog.add("world: ${(now - session.startedAt) / 1000}s ${runCatching { adapter.linkDebug(memory) }.getOrNull()}")
+        }
         // The game's link is on once its trade or battle begins.
         if (running && !session.linked && runCatching { adapter.linkActive(memory) }.getOrDefault(false)) {
             session.linked = true
+            LinkLog.add("world: the game's link is on (${(now - session.startedAt) / 1000}s)")
             mutableLinkStatus.value = LinkStatus.Started
         }
+        if (running && !session.seenRunning) LinkLog.add("world: our script runs (${(now - session.startedAt) / 1000}s)")
         when {
             running -> session.seenRunning = true
             session.seenRunning -> finishInPlace(memory, if (session.linked) LinkStatus.Idle else LinkStatus.Failed)
-            SystemClock.uptimeMillis() - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> finishInPlace(memory, LinkStatus.Failed)
+            now - session.startedAt > IN_PLACE_START_TIMEOUT_MS -> finishInPlace(memory, LinkStatus.Failed)
         }
     }
 
@@ -268,7 +294,19 @@ class WorldSession(
         memory: GameMemory,
         status: LinkStatus,
     ) {
+        val session = inPlace
         inPlace = null
+        if (session != null) {
+            val seconds = (SystemClock.uptimeMillis() - session.startedAt) / 1000
+            val how =
+                when {
+                    session.linked -> "done: the ${session.kind} ran"
+                    session.seenRunning -> "FAILED: our script ended before the game's link came on"
+                    else -> "FAILED: our script never ran"
+                }
+            LinkLog.add("world: $how (${seconds}s); ${runCatching { adapter.linkDebug(memory) }.getOrNull()}")
+            onLinkReport(how, reportDetails + "${session.kind}, ${seconds}s")
+        }
         adapter.inPlaceLinkCleanup()?.let { cleanup -> onEmulator { cleanup.applyTo(memory) } }
         // The other game, if it still waits for ours, stops waiting.
         onLinkEnded()

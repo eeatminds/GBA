@@ -38,7 +38,7 @@ internet, and their frame-counted link checks time out ("Too much time has elaps
 - lets a single byte transfer give up after 2.5 s (a real cable never waits), so a game that
   already left the link can't freeze the other.
 
-To rebuild: clone gambatte-libretro at b752252 (the version stock Lemuroid ships: a different version saves states of another size, and old save states and auto-resume snapshots would no longer load), `git am` the patch file (it holds three commits), then run a clean build
+To rebuild: clone gambatte-libretro at b752252 (the version stock Lemuroid ships: a different version saves states of another size, and old save states and auto-resume snapshots would no longer load), `git am` the patch file (it holds four commits), then run a clean build
 `$ANDROID_NDK/ndk-build APP_ABI="armeabi-v7a arm64-v8a x86 x86_64" APP_PLATFORM=android-21 APP_CPPFLAGS="-std=c++11"`
 in `libgambatte/libretro/jni` and copy `libs/<abi>/libretro.so` to
 `gambatte-link/jniLibs/<abi>/libgambatte_libretro_android.so`.

@@ -239,6 +239,8 @@ class LinkEndToEndTest {
             println("---- server\n" + server.lines().filter { "screen" !in it }.joinToString("\n"))
             println("---- client\n" + client.lines().filter { "screen" !in it }.joinToString("\n"))
             (0..1).forEach { println("---- proxy $it\n" + File(out, "proxy$it.log").readText()) }
+            // What a link report would hold (both phones' app side, in one log here).
+            println("---- link log\n" + LinkLog.lines().joinToString("\n"))
             // A player who left has no say; the one who stayed must finish.
             val stayed = listOf("server" to server, "client" to client).filter { it.first != leaver?.first }
             stayed.forEach { (role, log) ->

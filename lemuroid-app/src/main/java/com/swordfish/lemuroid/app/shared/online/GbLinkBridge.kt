@@ -64,6 +64,11 @@ class GbLinkBridge(
     private var peerStream: Int? = null
     private var expected = 0
 
+    // For the link log: how many of each, so only the first few (and then every so often) show.
+    private var ignored = 0
+    private var unplugged = 0
+    private var resends = 0
+
     /** Starts listening and returns the port Gambatte should connect to, or null. */
     fun start(): Int? {
         synchronized(lock) {
@@ -109,7 +114,7 @@ class GbLinkBridge(
         synchronized(lock) {
             if (id == peer) return
             val old = peer
-            Timber.i("Game Boy link: plugged into ${id ?: "nobody"} (was ${old ?: "nobody"})")
+            LinkLog.add("bridge: plugged into ${id ?: "nobody"} (was ${old ?: "nobody"}), ${heldBlocks.size} held, game ${if (socket != null) "connected" else "NOT connected"}")
             // Our game may still wait for the old partner: answer for them, and tell any link
             // exchange waiting on them that they are gone.
             repeat((sent - received).coerceAtLeast(0)) { writeToGame(NO_PARTNER) }
@@ -132,6 +137,7 @@ class GbLinkBridge(
      */
     fun gameLeftLink() {
         synchronized(lock) {
+            LinkLog.add("bridge: our game left the link${if (peer == null) " (nobody linked)" else ", telling $peer"}")
             if (peer != null) sendToPeer(GAME_LEFT)
         }
     }
@@ -139,6 +145,7 @@ class GbLinkBridge(
     /** The room connection is back: whatever the peer may not have yet goes again now. */
     fun resendNow() {
         synchronized(lock) {
+            LinkLog.add("bridge: room connection back, ${unacked.size} not yet confirmed")
             resend(force = true)
         }
     }
@@ -149,7 +156,10 @@ class GbLinkBridge(
         data: ByteArray,
     ) {
         synchronized(lock) {
-            if (from != peer || data.size < FRAME_HEADER || data[0] != FRAME_MARK) return
+            if (from != peer || data.size < FRAME_HEADER || data[0] != FRAME_MARK) {
+                if (ignored++ < LOG_FIRST) LinkLog.add("bridge: ignored ${data.size} bytes from $from (linked with ${peer ?: "nobody"})")
+                return
+            }
             val frameStream = readInt(data, 2)
             val seq = readInt(data, 6)
             when (data[1]) {
@@ -162,7 +172,11 @@ class GbLinkBridge(
                     if (frameStream != peerStream) {
                         // Their numbering starts over (a new link, or their app started again):
                         // wait for its first message, then start ours over too.
-                        if (seq != 0) return
+                        if (seq != 0) {
+                            if (ignored++ < LOG_FIRST) LinkLog.add("bridge: partner's message #$seq of a numbering we haven't seen start")
+                            return
+                        }
+                        LinkLog.add("bridge: partner's numbering starts${if (peerStream != null) " over (theirs restarted)" else ""}")
                         if (peerStream != null) restartOurStream()
                         peerStream = frameStream
                         expected = 0
@@ -170,6 +184,8 @@ class GbLinkBridge(
                     if (seq == expected) {
                         expected++
                         deliver(data.copyOfRange(FRAME_HEADER, data.size))
+                    } else if (seq > expected) {
+                        LinkLog.add("bridge: partner's #$seq came before #$expected (waiting for it again)")
                     }
                     // What we have so far (repeats too, so they stop sending it).
                     if (expected > 0) outgoing.offer(roomPacket(from, frame(FRAME_ACK, frameStream, expected - 1)))
@@ -190,11 +206,12 @@ class GbLinkBridge(
     // A message from the peer, in order, once: to our game.
     private fun deliver(message: ByteArray) {
         if (message.contentEquals(GAME_LEFT)) {
-            Timber.i("Game Boy link: the partner's game left the link")
+            LinkLog.add("bridge: the partner's game left the link")
             writeToGame(NO_PARTNER_BLOCK)
             return
         }
         if (isBlock(message)) {
+            LinkLog.add("bridge: partner's ${describe(message)} -> game${if (socket == null) " (game NOT connected: lost)" else ""}")
             // Padded to whole 2-byte messages, as Gambatte reads them.
             writeToGame(if (message.size % 2 == 0) message else message + 0)
             return
@@ -202,10 +219,12 @@ class GbLinkBridge(
         if (message.size != MESSAGE_SIZE) return
         if (socket == null) {
             // Our game isn't connected (yet): answer like an unplugged cable.
+            LinkLog.add("bridge: partner's byte, but our game isn't connected")
             sendToPeer(NO_PARTNER)
             return
         }
         received++
+        if (received <= LOG_FIRST || received % 100 == 0) LinkLog.add("bridge: partner's byte #$received -> game")
         writeToGame(message)
     }
 
@@ -225,7 +244,7 @@ class GbLinkBridge(
                 sent = 0
                 received = 0
             }
-            Timber.i("Game Boy link: the emulator is connected")
+            LinkLog.add("bridge: the game connected to the link")
             Thread({ readLoop(client) }, "gb-link-read").apply {
                 isDaemon = true
                 start()
@@ -247,21 +266,24 @@ class GbLinkBridge(
                     input.readFully(body)
                     val block = message + header + body.copyOf(length)
                     synchronized(lock) {
+                        LinkLog.add("bridge: game's ${describe(block)} -> ${peer?.let { "partner $it (#$nextSeq)" } ?: "held (nobody linked yet)"}")
                         if (peer == null) heldBlocks += now() to block else sendToPeer(block)
                     }
                     continue
                 }
                 synchronized(lock) {
                     if (peer == null) {
+                        if (unplugged++ < LOG_FIRST) LinkLog.add("bridge: game's byte while nobody is linked: answered 0xFF")
                         writeToGame(NO_PARTNER)
                     } else {
                         sent++
+                        if (sent <= LOG_FIRST || sent % 100 == 0) LinkLog.add("bridge: game's byte #$sent -> partner")
                         sendToPeer(message.copyOf())
                     }
                 }
             }
         } catch (e: IOException) {
-            Timber.i("Game Boy link closed by the emulator")
+            LinkLog.add("bridge: the game closed the link (${e.javaClass.simpleName})")
         } finally {
             synchronized(lock) {
                 if (socket === client) socket = null
@@ -277,6 +299,7 @@ class GbLinkBridge(
             synchronized(lock) {
                 val expired = heldBlocks.filter { now() - it.first > holdBlocksMs }
                 if (expired.isNotEmpty()) {
+                    LinkLog.add("bridge: ${expired.size} held block(s): nobody linked in time, the game hears 'no partner'")
                     heldBlocks.removeAll(expired.toSet())
                     expired.forEach { writeToGame(NO_PARTNER_BLOCK) }
                 }
@@ -303,6 +326,7 @@ class GbLinkBridge(
         val oldest = unacked.firstOrNull() ?: return
         val now = now()
         if (!force && now - oldest.sentAt < resendMs) return
+        if (resends++ < LOG_FIRST || resends % 20 == 0) LinkLog.add("bridge: sending ${unacked.size} again (oldest #${oldest.seq}, not confirmed)")
         unacked.forEach {
             it.sentAt = now
             outgoing.offer(roomPacket(target, it.frame))
@@ -333,7 +357,7 @@ class GbLinkBridge(
                 flush()
             }
         } catch (e: IOException) {
-            Timber.w(e, "Could not write to the Game Boy link")
+            LinkLog.add("bridge: couldn't write to the game (${e.javaClass.simpleName})")
             runCatching { current.close() }
             socket = null
         }
@@ -372,6 +396,16 @@ class GbLinkBridge(
         private const val FRAME_HEADER = 10
 
         fun isBlock(data: ByteArray): Boolean = data.size >= 4 && data[1] == BLOCK_MARK
+
+        private const val LOG_FIRST = 5
+        private val KINDS = mapOf(1 to "exchange", 2 to "ready check", 3 to "battle move", 4 to "friend meeting")
+
+        // A block for the link log: its kind (our Gambatte's first byte) and size.
+        private fun describe(block: ByteArray): String {
+            val length = block.size - 4
+            val kind = if (length > 0) block[4].toInt() and 0xFF else -1
+            return "${KINDS[kind] ?: "block kind $kind"} ($length bytes)"
+        }
 
         private fun newStream(): Int = Random.nextInt().let { if (it == 0) 1 else it }
 

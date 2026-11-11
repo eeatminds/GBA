@@ -365,3 +365,16 @@ test('invite page and app links file are served', async () => {
   const links = await (await fetch(`http://${base}/.well-known/assetlinks.json`)).json();
   assert.equal(links[0].target.package_name, 'com.example.app');
 });
+
+test('link reports are kept by room code and can be read back', async () => {
+  const empty = await (await fetch(`http://${base}/api/linklog/ABCDEF`)).text();
+  assert.equal(empty, 'No link reports for this room.');
+  const post = (body) =>
+    fetch(`http://${base}/api/linklog`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ code: 'abcdef', id: 1, name: 'Gold', reason: 'FAILED: our script never ran', text: 'line one\nline two' })).status, 204);
+  assert.equal((await post({ code: 'ABCDEF', id: 0, name: 'Silver', reason: 'done', text: 'ok' })).status, 204);
+  assert.equal((await post({ code: 'nope', text: 'x' })).status, 400);
+  const text = await (await fetch(`http://${base}/api/linklog/ABCDEF`)).text();
+  assert.ok(text.includes('player 1 (Gold): FAILED: our script never ran\nline one\nline two'));
+  assert.ok(text.includes('player 0 (Silver): done\nok'));
+});

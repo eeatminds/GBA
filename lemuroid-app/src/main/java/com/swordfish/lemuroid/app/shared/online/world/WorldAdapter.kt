@@ -66,6 +66,9 @@ interface WorldAdapter {
     /** Memory writes that make the game save itself, without asking anything. */
     fun saveGame(): MemoryPatch? = null
 
+    /** The game's link-related state as a short line, for the link report. */
+    fun linkDebug(memory: GameMemory): String? = null
+
     /** Whether the game's link (for a trade or a battle) is on. */
     fun linkActive(memory: GameMemory): Boolean = false
 

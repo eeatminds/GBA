@@ -98,6 +98,9 @@ class Gen2Adapter(
         // Script command numbers that differ between Gold/Silver and Crystal.
         val newLoadMap: Int,
         val end: Int,
+        // For the link report: wScriptVar and hSerialConnectionStatus.
+        val scriptVar: Int = 0,
+        val connectionStatus: Int = 0,
     )
 
     override val world: String get() = layout.world
@@ -229,6 +232,15 @@ class Gen2Adapter(
     override fun inPlaceLinkCleanup(): MemoryPatch? {
         val link = layout.inPlace ?: return null
         return queueScript(link, byteArrayOf(SPECIAL, link.leaveLink.toByte(), 0, link.end.toByte()))
+    }
+
+    // For the link report: the game's state, as numbers.
+    override fun linkDebug(memory: GameMemory): String? {
+        val link = layout.inPlace ?: return null
+        fun hex(address: Int) = memory.u8(ram(address))?.let { "%02X".format(it) } ?: "--"
+        return "script=${hex(layout.scriptRunning)} queue=${hex(link.queueFlag)} link=${hex(link.linkMode)} " +
+            "map=${hex(layout.mapStatus)} windows=${hex(layout.windowStackSize)} var=${hex(link.scriptVar)} " +
+            "cable=${memory.u8(link.connectionStatus.toLong())?.let { "%02X".format(it) } ?: "--"}"
     }
 
     // Our script is running while the game runs a map script; the trade and battle screens run inside it.
@@ -553,6 +565,8 @@ class Gen2Adapter(
                         leaveLink = 0x08,
                         newLoadMap = 0x8A,
                         end = 0x91,
+                        scriptVar = 0xC2DD,
+                        connectionStatus = 0xFFCB,
                     ),
                 visit =
                     Visit(
@@ -614,6 +628,8 @@ class Gen2Adapter(
                         leaveLink = 0x08,
                         newLoadMap = 0x89,
                         end = 0x90,
+                        scriptVar = 0xD173,
+                        connectionStatus = 0xFFCD,
                     ),
                 visit =
                     Visit(

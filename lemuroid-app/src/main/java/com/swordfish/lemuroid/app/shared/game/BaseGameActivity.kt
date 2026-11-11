@@ -3,6 +3,7 @@ package com.swordfish.lemuroid.app.shared.game
 import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.swordfish.lemuroid.BuildConfig
 import com.swordfish.lemuroid.R
 import com.swordfish.lemuroid.app.mobile.feature.game.GameActivity
 import com.swordfish.lemuroid.app.mobile.feature.game.GameService
@@ -533,10 +535,30 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             session.onPresence = world::onPresence
             session.onPlayerLeft = world::onPlayerLeft
             world.onLinkEnded = session::gameLeftLink
+            world.onLinkReport = session::sendLinkReport
+            world.reportDetails = linkReportDetails(rom)
             worldSession.value = world
             world.start()
             if (adapter != NoWorld) startVisit(session, world, adapter)
         }
+    }
+
+    // The top of the link report: app, phone and game (the ROM's header, which the link fixes check).
+    private fun linkReportDetails(rom: ByteArray?): List<String> {
+        val header =
+            rom?.takeIf { it.size >= 0x150 }?.let {
+                val title = String(it, 0x134, 15, Charsets.US_ASCII).replace(Regex("[^ -~]"), ".")
+                "rom: \"$title\" version ${it[0x14C].toInt() and 0xFF}, checksum %02X%02X, %d KB".format(
+                    it[0x14E].toInt() and 0xFF,
+                    it[0x14F].toInt() and 0xFF,
+                    it.size / 1024,
+                )
+            } ?: "rom: unknown"
+        return listOf(
+            "app: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), link version ${OnlineConfig.GB_LINK_PROTOCOL}",
+            "phone: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (${Build.SUPPORTED_ABIS.firstOrNull()})",
+            "game: ${game.title} (${game.systemId}), $header",
+        )
     }
 
     // The game's ROM, read once (for the world readers and the trainer name).

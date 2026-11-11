@@ -16,8 +16,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -295,6 +297,7 @@ class OnlineSession(
         playerId: Int,
         kind: String,
     ) {
+        LinkLog.add("room: we ask $playerId to $kind")
         sendControl(JSONObject().put("t", "invite").put("id", playerId).put("kind", kind))
     }
 
@@ -302,7 +305,42 @@ class OnlineSession(
         playerId: Int,
         accept: Boolean,
     ) {
+        LinkLog.add("room: we answer $playerId: ${if (accept) "yes" else "no"}")
         sendControl(JSONObject().put("t", "invite_reply").put("id", playerId).put("accept", accept))
+    }
+
+    /**
+     * Sends this phone's link log (see [LinkLog]) to the room server, where it can be read by
+     * the room's code: so a trade or battle that doesn't get going can be looked into.
+     */
+    fun sendLinkReport(
+        reason: String,
+        details: List<String>,
+    ) {
+        val room = mutableState.value as? State.InRoom ?: return
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val text =
+                    (
+                        details + listOf("", "---- app") + LinkLog.lines() + listOf("", "---- emulator core") + LinkLog.coreLines()
+                    ).joinToString("\n").takeLast(MAX_REPORT_CHARS)
+                val json =
+                    JSONObject()
+                        .put("code", room.code)
+                        .put("id", room.clientId)
+                        .put("name", playerName)
+                        .put("reason", reason)
+                        .put("text", text)
+                val request =
+                    Request.Builder()
+                        .url("${OnlineSettings.normalizeServerUrl(config.serverUrl)}/api/linklog")
+                        .post(json.toString().toRequestBody("application/json".toMediaType()))
+                        .build()
+                client.newCall(request).execute().use { response ->
+                    LinkLog.add("report: sent (${response.code})")
+                }
+            }.onFailure { Timber.w(it, "Could not send the link report") }
+        }
     }
 
     /** Our game left an in-place trade or battle: the other player's game stops waiting for it. */
@@ -450,6 +488,7 @@ class OnlineSession(
 
     private fun startReconnecting() {
         if (!reconnecting.compareAndSet(false, true)) return
+        LinkLog.add("room: our connection dropped, reconnecting")
         updateRoom { it.copy(reconnecting = true) }
         while (attemptResults.tryReceive().isSuccess) Unit
         reconnectJob =
@@ -501,6 +540,10 @@ class OnlineSession(
                         groups = parseGroups(message.optJSONArray("groups")),
                     )
                 mutableState.value = inRoom
+                LinkLog.add(
+                    "room: in room $code as player $clientId (${message.optString("t")}${if (message.optBoolean("resumed")) ", seat kept" else ""}), " +
+                        "players ${inRoom.players.map { it.id }}, link groups ${inRoom.groups.map { g -> g.map { it.id } }}",
+                )
                 connectAttempts = 0
                 if (reconnecting.getAndSet(false)) {
                     attemptResults.trySend(true)
@@ -545,6 +588,7 @@ class OnlineSession(
 
             "peer_away" -> {
                 val id = message.optInt("id", -1)
+                LinkLog.add("room: $id lost their connection")
                 val name = (mutableState.value as? State.InRoom)?.playerName(id).orEmpty()
                 updateRoom { room -> room.copy(players = room.players.map { if (it.id == id) it.copy(away = true) else it }) }
                 if (name.isNotEmpty()) mutableEvents.tryEmit(Event.PlayerAway(name))
@@ -552,6 +596,7 @@ class OnlineSession(
 
             "peer_back" -> {
                 val id = message.optInt("id", -1)
+                LinkLog.add("room: $id is back")
                 val name = (mutableState.value as? State.InRoom)?.playerName(id).orEmpty()
                 updateRoom { room -> room.copy(players = room.players.map { if (it.id == id) it.copy(away = false) else it }) }
                 if (name.isNotEmpty()) mutableEvents.tryEmit(Event.PlayerBack(name))
@@ -587,6 +632,7 @@ class OnlineSession(
                     )
                 }
                 val room = mutableState.value as? State.InRoom ?: return
+                LinkLog.add("room: link groups ${groups.map { g -> g.map { it.id } }}")
                 transport.groupChanged(room.clientId, room.myGroup)
                 pendingJoins.keys.toList().forEach { announceJoin(it) }
             }
@@ -615,12 +661,14 @@ class OnlineSession(
             "invite" -> {
                 val from = message.optInt("from", -1)
                 if (from < 0) return
+                LinkLog.add("room: $from asks us to ${message.optString("kind", "trade")}")
                 mutableEvents.tryEmit(Event.Invited(from, message.optString("name"), message.optString("kind", "trade")))
             }
 
             "invite_reply" -> {
                 val from = message.optInt("from", -1)
                 val name = (mutableState.value as? State.InRoom)?.playerName(from).orEmpty()
+                LinkLog.add("room: $from answers ${if (message.optBoolean("accept", false)) "yes" else "no"}")
                 mutableEvents.tryEmit(
                     Event.InviteAnswered(from, name, message.optString("kind", "trade"), message.optBoolean("accept", false)),
                 )
@@ -834,6 +882,7 @@ class OnlineSession(
         /** Starts the bridge and points Gambatte at it. */
         fun plugIn(): Boolean {
             val port = bridge.start() ?: return false
+            LinkLog.add("room: link bridge on port $port, plugging the game in (link version ${OnlineConfig.GB_LINK_PROTOCOL})")
             setCoreVariables(GbLinkBridge.coreVariables(port))
             return true
         }
@@ -895,6 +944,7 @@ class OnlineSession(
         private const val CLOSE_HOST_LEFT = 4000
         private const val CLOSE_KICKED = 4001
         private const val PUMP_TIMEOUT_MS = 250
+        private const val MAX_REPORT_CHARS = 120_000
         private const val CORE_SUPPORT_POLL_MS = 250L
         private const val CORE_SUPPORT_ATTEMPTS = 60
         private const val SYNC_POLL_MS = 300L
