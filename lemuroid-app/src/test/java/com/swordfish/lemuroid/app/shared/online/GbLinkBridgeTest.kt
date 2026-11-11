@@ -39,7 +39,8 @@ class GbLinkBridgeTest {
         return bridge to port!!
     }
 
-    private fun emulator(port: Int): Socket = Socket(InetAddress.getLoopbackAddress(), port).also {
+    // Connects as Gambatte does: to 127.0.0.1 (IPv4), whatever this system's usual loopback is.
+    private fun emulator(port: Int): Socket = Socket(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), port).also {
         it.soTimeout = 3000
         sockets += it
     }
@@ -96,6 +97,19 @@ class GbLinkBridgeTest {
     private fun Socket.receive(): ByteArray = ByteArray(2).also { DataInputStream(getInputStream()).readFully(it) }
 
     private fun bytes(vararg values: Int) = values.map { it.toByte() }.toByteArray()
+
+    // On Android the usual loopback is ::1 (IPv6); Gambatte connects to the IPv4 address it is
+    // given. Listening anywhere else, the game never reaches the bridge ("connection refused").
+    @Test
+    fun `the bridge listens exactly where Gambatte is told to connect`() {
+        val digits =
+            GbLinkBridge.coreVariables(56400)
+                .filter { it.first.startsWith("gambatte_gb_link_network_server_ip_") }
+                .joinToString("") { it.second }
+        val address = digits.chunked(3).joinToString(".") { it.toInt().toString() }
+        assertEquals("127.0.0.1", address)
+        assertEquals(address, GbLinkBridge.GAME_ADDRESS.hostAddress)
+    }
 
     @Test
     fun `unplugged cable answers 0xFF`() {
