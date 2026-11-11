@@ -103,13 +103,21 @@ fun OnlineStatusBar(
         session.events.collect { event ->
             when (event) {
                 is OnlineSession.Event.Invited -> {
-                    talk = Talk.Invited(event.from, event.name, event.kind)
-                    // Someone wants to trade or battle: hard to miss, even mid-game.
-                    buzz(context)
+                    val current = talk
+                    if (current is Talk.Connecting || current is Talk.Waiting || currentWorld?.linking == true) {
+                        // One trade or battle at a time: we are already linking, or waiting for
+                        // an answer. Saying yes now would start a second one over the first.
+                        LinkLog.add("talk: ${event.from} asks to ${event.kind} while we are busy: no")
+                        session.answerInvite(event.from, false)
+                    } else {
+                        talk = Talk.Invited(event.from, event.name, event.kind)
+                        // Someone wants to trade or battle: hard to miss, even mid-game.
+                        buzz(context)
+                    }
                 }
                 is OnlineSession.Event.InviteAnswered -> {
                     val current = talk
-                    if (current is Talk.Waiting && current.playerId == event.from) {
+                    if (current is Talk.Waiting && current.playerId == event.from && current.kind == event.kind) {
                         talk =
                             if (event.accepted && currentWorld?.startInPlace(current.kind) == true) {
                                 // They said yes: the trade or battle starts right away.
@@ -117,6 +125,11 @@ fun OnlineStatusBar(
                             } else {
                                 Talk.Result(current.name, current.kind, event.accepted)
                             }
+                    } else if (event.accepted) {
+                        // A yes we no longer wait for (we cancelled, or asked something else
+                        // since): their game started linking, so tell it to stop waiting for ours.
+                        LinkLog.add("talk: ${event.from} said yes to a ${event.kind} we no longer ask for: never mind")
+                        session.gameLeftLink()
                     }
                 }
                 else -> {

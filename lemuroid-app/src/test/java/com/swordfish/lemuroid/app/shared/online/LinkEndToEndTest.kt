@@ -159,6 +159,10 @@ class LinkEndToEndTest {
                             "WEAK" to if (kind == "battle" && host) "1" else "0",
                             "RETRY" to if (env("LINK_E2E_RETRY") == role) "1" else "0",
                             "NO_CONFIRM" to if (env("LINK_E2E_NO_CONFIRM") == role) "1" else "0",
+                            // LINK_E2E_SECOND_YES=client|battle|2.7: that phone first starts a battle, then a
+                            // trade over it 2.7 s later (two yeses in a row).
+                            "FIRST_KIND" to (env("LINK_E2E_SECOND_YES")?.split('|')?.takeIf { it[0] == role }?.get(1) ?: ""),
+                            "RESTART_AFTER" to (env("LINK_E2E_SECOND_YES")?.split('|')?.takeIf { it[0] == role }?.get(2) ?: ""),
                         ),
                     )
                     driverOf[role] = driver

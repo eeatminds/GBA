@@ -253,12 +253,21 @@ class WorldSession(
             LinkLog.add("world: can't start a $kind here (${if (memory == null) "no game memory" else "this game can't"})")
             return false
         }
+        // Never a second one over one already going: the game would run a mix of both scripts
+        // (from the same place in its memory) and crash when the link ends.
+        if (inPlace != null || runCatching { adapter.scriptPending(memory) }.getOrDefault(false)) {
+            LinkLog.add("world: not starting a $kind: ${if (inPlace != null) "a link is already going" else "the game is busy with a script"}")
+            return false
+        }
         LinkLog.add("world: starting the game's $kind link here; ${adapter.linkDebug(memory)}")
         onEmulator { LinkLog.add("world: script queued (applied: ${patch.applyTo(memory)})") }
         inPlace = InPlace(SystemClock.uptimeMillis(), kind)
         mutableLinkStatus.value = LinkStatus.Connecting
         return true
     }
+
+    /** Whether an in-place trade or battle is going (getting started, or running). */
+    val linking: Boolean get() = inPlace != null
 
     /** The player saw how it ended (closed the message). */
     fun clearLinkStatus() {
