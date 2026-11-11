@@ -151,6 +151,8 @@ class WorldSession(
     private class InPlace(
         val startedAt: Long,
         val kind: String,
+        // For games whose in-place link goes step by step (GBA).
+        val steps: InPlaceSteps? = null,
         var seenRunning: Boolean = false,
         var linked: Boolean = false,
         var loggedAt: Long = 0,
@@ -260,8 +262,10 @@ class WorldSession(
             return false
         }
         LinkLog.add("world: starting the game's $kind link here; ${adapter.linkDebug(memory)}")
-        onEmulator { LinkLog.add("world: script queued (applied: ${patch.applyTo(memory)})") }
-        inPlace = InPlace(SystemClock.uptimeMillis(), kind)
+        val now = SystemClock.uptimeMillis()
+        val steps = adapter.inPlaceSteps(kind, now)
+        if (steps == null) onEmulator { LinkLog.add("world: script queued (applied: ${patch.applyTo(memory)})") }
+        inPlace = InPlace(now, kind, steps)
         mutableLinkStatus.value = LinkStatus.Connecting
         return true
     }
@@ -279,7 +283,16 @@ class WorldSession(
     private fun watchInPlace(memory: GameMemory) {
         val session = inPlace ?: return
         val now = SystemClock.uptimeMillis()
-        val running = runCatching { adapter.inPlaceLinkRunning(memory) }.getOrDefault(false)
+        // A link that goes in steps: the next one, between two frames.
+        session.steps?.let { steps ->
+            onEmulator {
+                runCatching { steps.step(memory, SystemClock.uptimeMillis()) }
+                    .onFailure { LinkLog.add("world: step failed: $it") }
+                    .getOrNull()?.let { LinkLog.add("world: $it") }
+            }
+        }
+        val running =
+            runCatching { session.steps?.running(memory) ?: adapter.inPlaceLinkRunning(memory) }.getOrDefault(false)
         // While it gets going, the game's state once a second (for the link report).
         if (!session.linked && now - session.loggedAt >= 1000) {
             session.loggedAt = now

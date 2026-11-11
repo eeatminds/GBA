@@ -44,6 +44,39 @@ class Gen3Adapter(
         val mapHeader: Long,
         val mapGroups: Long,
         val mapNames: MapNames,
+        // Trading and battling where the players stand (see Gen3InPlace), where it's been tried.
+        val inPlace: InPlace? = null,
+    )
+
+    /** The game's script slot, link and link-up code, for [Gen3InPlace]. */
+    data class InPlace(
+        val scriptContext: Long,
+        val scriptStatus: Long,
+        val scriptCmdTable: Long,
+        val scriptCmdTableEnd: Long,
+        val cb1Overworld: Long,
+        // CB1_UpdateLinkState: the map in link mode (the link rooms).
+        val cb1Link: Long,
+        val tasks: Long,
+        // The link-up task's steps: all of them, and the leader's that wait for its player's A.
+        val linkupTasks: Set<Long>,
+        val leaderWaits: Set<Long>,
+        val linkupConfirm: Long,
+        val linkupFailed: Long,
+        val linkStatus: Long,
+        val linkPlayers: Long,
+        val savedLinkPlayers: Long,
+        val savedLinkPlayerCount: Long,
+        val savedMultiplayerId: Long,
+        val shouldAdvanceLinkState: Long,
+        val suppressLinkErrorMessage: Long,
+        val receivedRemoteLinkPlayers: Long,
+        val localLinkPlayerId: Long,
+        // The script the game runs when the other player leaves a link room.
+        val terminateLinkScript: Long,
+        // Where our scripts go: the end of work RAM, which nothing in the game uses.
+        val scriptBuffer: Long,
+        val specials: Gen3InPlace.Specials,
     )
 
     /**
@@ -59,6 +92,24 @@ class Gen3Adapter(
 
     private val pictures = ConcurrentHashMap<Long, SpriteImage>()
     private val missing = ConcurrentHashMap.newKeySet<Long>()
+    private val inPlace = layout.inPlace?.let { Gen3InPlace(layout, it) }
+
+    // Trading and battling right here: nothing to write at once, it goes in steps.
+    override fun inPlaceLink(kind: String): MemoryPatch? = inPlace?.let { MemoryPatch(emptyList()) }
+
+    override fun inPlaceSteps(
+        kind: String,
+        now: Long,
+    ): InPlaceSteps? = inPlace?.begin(kind, now)
+
+    override fun inPlaceLinkRunning(memory: GameMemory): Boolean = inPlace?.running(memory) ?: false
+
+    override fun linkActive(memory: GameMemory): Boolean = inPlace?.linked(memory) ?: false
+
+    override fun linkDebug(memory: GameMemory): String? = inPlace?.debug(memory)
+
+    // A trade or battle of ours still going (an earlier one, on the map in link mode).
+    override fun scriptPending(memory: GameMemory): Boolean = inPlace?.inLinkMode(memory) ?: false
 
     // The trainer's name starts the second save block.
     override fun trainerName(memory: GameMemory): String? {
@@ -71,6 +122,8 @@ class Gen3Adapter(
     override fun read(memory: GameMemory): Avatar? {
         // Only while the overworld runs (not in battles, menus that replace the map, etc.).
         if (memory.u32(layout.main + 4) != (layout.cb2Overworld or 1L)) return null
+        // In link mode the game shows both players itself.
+        if (inPlace?.inLinkMode(memory) == true) return null
 
         val saveBlock = if (layout.saveBlock1IsPointer) memory.u32(layout.saveBlock1) ?: return null else layout.saveBlock1
         if (saveBlock !in EWRAM) return null
@@ -343,6 +396,43 @@ class Gen3Adapter(
         private const val INFO_HEIGHT = 0x0AL
         private const val INFO_IMAGES = 0x1CL
 
+        // FireRed and LeafGreen keep everything in RAM at the same places in all versions; the
+        // code and scripts in ROM move. Addresses from the pokefirered symbol files.
+        private fun fireredLink(
+            cb1Overworld: Long,
+            cb1Link: Long,
+            scriptCmdTable: Long,
+            scriptCmdTableEnd: Long,
+            // Task_LinkupStart, AwaitConnection, ConfirmWhenReady, AwaitConfirmation, TryConfirmation,
+            // Confirm, ExchangeDataWithLeader, Failed.
+            linkup: List<Long>,
+            terminateLinkScript: Long,
+        ) = InPlace(
+            scriptContext = 0x03000eb0,
+            scriptStatus = 0x03000ea8,
+            scriptCmdTable = scriptCmdTable,
+            scriptCmdTableEnd = scriptCmdTableEnd,
+            cb1Overworld = cb1Overworld,
+            cb1Link = cb1Link,
+            tasks = 0x03005090,
+            linkupTasks = linkup.toSet() - linkup[7],
+            leaderWaits = setOf(linkup[1], linkup[2], linkup[3]),
+            linkupConfirm = linkup[5],
+            linkupFailed = linkup[7],
+            linkStatus = 0x03003f20,
+            linkPlayers = 0x0202273c,
+            savedLinkPlayers = 0x020227c8,
+            savedLinkPlayerCount = 0x03003f40,
+            savedMultiplayerId = 0x03003f60,
+            shouldAdvanceLinkState = 0x03003f84,
+            suppressLinkErrorMessage = 0x03003f38,
+            receivedRemoteLinkPlayers = 0x03003f64,
+            localLinkPlayerId = 0x0300502c,
+            terminateLinkScript = terminateLinkScript,
+            scriptBuffer = 0x0203fc00,
+            specials = Gen3InPlace.FRLG_SPECIALS,
+        )
+
         private fun firered(
             world: String,
             cb2Overworld: Long,
@@ -350,6 +440,7 @@ class Gen3Adapter(
             spritePalettes: Long,
             mapGroups: Long,
             mapNames: Long,
+            inPlace: InPlace? = null,
         ) = Layout(
             world = world,
             main = 0x030030f0,
@@ -371,6 +462,7 @@ class Gen3Adapter(
             mapHeader = 0x02036dfc,
             mapGroups = mapGroups,
             mapNames = kantoNames(mapNames),
+            inPlace = inPlace,
         )
 
         private fun ruby(
@@ -426,10 +518,42 @@ class Gen3Adapter(
                 mapNames = regionMapEntries(0x085a147c),
             )
 
-        val FIRERED_10 = firered("kanto-frlg", 0x080565b4, 0x0839fdb0, 0x083a5158, 0x083526a8, 0x083f1cac)
-        val FIRERED_11 = firered("kanto-frlg", 0x080565c8, 0x0839fe20, 0x083a51c8, 0x08352718, 0x083f1d1c)
-        val LEAFGREEN_10 = firered("kanto-frlg", 0x080565b4, 0x0839fd90, 0x083a5138, 0x08352688, 0x083f1ae8)
-        val LEAFGREEN_11 = firered("kanto-frlg", 0x080565c8, 0x0839fe00, 0x083a51a8, 0x083526f8, 0x083f1b58)
+        val FIRERED_10 =
+            firered(
+                "kanto-frlg", 0x080565b4, 0x0839fdb0, 0x083a5158, 0x083526a8, 0x083f1cac,
+                fireredLink(
+                    0x08056534, 0x08057884, 0x0815f9b4, 0x0815fd08,
+                    listOf(0x080809f8, 0x08080a4c, 0x08080ad0, 0x08080b20, 0x08080bc8, 0x08080c6c, 0x08080cdc, 0x08080fb4),
+                    0x081bb9f0,
+                ),
+            )
+        val FIRERED_11 =
+            firered(
+                "kanto-frlg", 0x080565c8, 0x0839fe20, 0x083a51c8, 0x08352718, 0x083f1d1c,
+                fireredLink(
+                    0x08056548, 0x08057898, 0x0815fa2c, 0x0815fd80,
+                    listOf(0x08080a0c, 0x08080a60, 0x08080ae4, 0x08080b34, 0x08080bdc, 0x08080c80, 0x08080cf0, 0x08080fc8),
+                    0x081bba63,
+                ),
+            )
+        val LEAFGREEN_10 =
+            firered(
+                "kanto-frlg", 0x080565b4, 0x0839fd90, 0x083a5138, 0x08352688, 0x083f1ae8,
+                fireredLink(
+                    0x08056534, 0x08057884, 0x0815f990, 0x0815fce4,
+                    listOf(0x080809cc, 0x08080a20, 0x08080aa4, 0x08080af4, 0x08080b9c, 0x08080c40, 0x08080cb0, 0x08080f88),
+                    0x081bb9cc,
+                ),
+            )
+        val LEAFGREEN_11 =
+            firered(
+                "kanto-frlg", 0x080565c8, 0x0839fe00, 0x083a51a8, 0x083526f8, 0x083f1b58,
+                fireredLink(
+                    0x08056548, 0x08057898, 0x0815fa08, 0x0815fd5c,
+                    listOf(0x080809e0, 0x08080a34, 0x08080ab8, 0x08080b08, 0x08080bb0, 0x08080c54, 0x08080cc4, 0x08080f9c),
+                    0x081bba3f,
+                ),
+            )
         val RUBY_10 = ruby(0x080543a4, 0x0836dc58, 0x0837377c, 0x08308588, 0x083e73c4)
         val RUBY_11 = ruby(0x080543c4, 0x0836dc70, 0x08373794, 0x083085a0, 0x083e73e0)
         val SAPPHIRE_10 = ruby(0x080543a8, 0x0836dbe8, 0x0837370c, 0x08308518, 0x083e741c)

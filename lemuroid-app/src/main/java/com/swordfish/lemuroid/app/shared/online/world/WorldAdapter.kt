@@ -33,6 +33,15 @@ interface WorldAdapter {
      */
     fun inPlaceLink(kind: String): MemoryPatch? = null
 
+    /**
+     * For games whose in-place link goes step by step (GBA): the steps of one, which [WorldSession]
+     * runs on the emulator thread on every tick while it goes. Null when [inPlaceLink] does it all.
+     */
+    fun inPlaceSteps(
+        kind: String,
+        now: Long,
+    ): InPlaceSteps? = null
+
     /** Whether such a link session (its script, the trade or battle screens) still runs. */
     fun inPlaceLinkRunning(memory: GameMemory): Boolean = false
 
@@ -89,6 +98,18 @@ fun String.hexToBytes(): ByteArray = ByteArray(length / 2) { substring(it * 2, i
 /** Bytes to write into the game's memory, in order (the last write sets things off). */
 class MemoryPatch(val writes: List<Pair<Long, ByteArray>>) {
     fun applyTo(memory: GameMemory): Boolean = writes.all { (address, bytes) -> memory.write(address, bytes) }
+}
+
+/** An in-place link that goes step by step; see [WorldAdapter.inPlaceSteps]. */
+interface InPlaceSteps {
+    /** Writes what the game needs next. Returns what it did, for the link report, or null. */
+    fun step(
+        memory: GameMemory,
+        now: Long,
+    ): String?
+
+    /** Whether it has begun and still goes (the game isn't back on its normal, free map). */
+    fun running(memory: GameMemory): Boolean
 }
 
 /** Pixels to add to a position on a neighbouring map to place it on ours. */
