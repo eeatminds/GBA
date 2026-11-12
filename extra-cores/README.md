@@ -6,6 +6,7 @@ Emulator cores that are not part of [LemuroidCores](https://github.com/Swordfish
 |---|---|---|---|---|
 | gambatte (link) | Game Boy and Game Boy Color, with a network friendly link cable (whole-block exchanges for Gold, Silver and Crystal) | GPL-2.0 | https://github.com/libretro/gambatte-libretro (b752252, the version stock Lemuroid ships) plus `gambatte-link/0001-link-whole-blocks-and-sync-over-the-network.patch` | Built with NDK 26.1 (`ndk-build` in `libgambatte/libretro/jni`), `gambatte-link/jniLibs/<abi>/libgambatte_libretro_android.so`; replaces the stock gambatte in bundle builds |
 | gpSP | Game Boy Advance online link play (link cable and wireless adapter over the internet) | GPL-2.0-or-later | https://github.com/libretro/gpsp (master, 5819380 or later) | libretro buildbot nightly, 2026-10-29, `gpsp_libretro_android.so` |
+| melonDS DS | Nintendo DS with Wi-Fi (the games' own Wi-Fi Club over the internet, through a fan-run replacement of Nintendo's servers; an extra choice next to the default DS core) | GPL-3.0 | https://github.com/JesseTG/melonds-ds (1.4.0) | libretro buildbot nightly, 2026-11-11, `melondsds_libretro_android.so` (arm64-v8a, armeabi-v7a, x86_64; no x86 build exists), in `lemuroid_core_melondsds/src/main/jniLibs/<abi>/libmelondsds_libretro_android.so` |
 
 To update gpSP, download `gpsp_libretro_android.so.zip` for each ABI from
 `https://buildbot.libretro.com/nightly/android/latest/<abi>/` and save it as

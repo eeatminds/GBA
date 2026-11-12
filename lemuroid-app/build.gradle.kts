@@ -64,6 +64,7 @@ android {
                 ":lemuroid_core_stella",
                 ":lemuroid_core_citra",
                 ":lemuroid_core_gpsp",
+                ":lemuroid_core_melondsds",
             ),
         )
     }

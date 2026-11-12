@@ -1030,6 +1030,42 @@ data class GameSystem(
                             statesVersion = 2,
                             supportsMicrophone = true,
                         ),
+                        // The DS core with Wi-Fi: the games' own Wi-Fi Club, through a fan-run
+                        // replacement of Nintendo's servers (see extra-cores/README.md).
+                        SystemCoreConfig(
+                            CoreID.MELONDS_DS,
+                            exposedSettings =
+                                listOf(
+                                    ExposedSetting(
+                                        "melonds_screen_layout1",
+                                        R.string.setting_melonds_screen_layout,
+                                        arrayListOf(
+                                            ExposedSetting.Value(
+                                                "top-bottom",
+                                                R.string.value_melonds_screen_layout_topbottom,
+                                            ),
+                                            ExposedSetting.Value(
+                                                "left-right",
+                                                R.string.value_melonds_screen_layout_leftright,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            defaultSettings =
+                                listOf(
+                                    CoreVariable("melonds_number_of_screen_layouts", "1"),
+                                    CoreVariable("melonds_touch_mode", "touch"),
+                                    CoreVariable("melonds_console_mode", "ds"),
+                                    CoreVariable("melonds_boot_mode", "direct"),
+                                    CoreVariable("melonds_sysfile_mode", "builtin"),
+                                    CoreVariable("melonds_render_mode", "software"),
+                                    CoreVariable("melonds_network_mode", "indirect"),
+                                ),
+                            controllerConfigs =
+                                hashMapOf(
+                                    0 to arrayListOf(ControllerConfigs.MELONDS),
+                                ),
+                        ),
                     ),
                     uniqueExtensions = listOf("nds"),
                     hasTouchScreen = true,

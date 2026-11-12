@@ -81,6 +81,11 @@ enum class CoreID(
         "MelonDS",
         "libmelonds_libretro_android.so",
     ),
+    MELONDS_DS(
+        "melondsds",
+        "melonDS DS (Wi-Fi)",
+        "libmelondsds_libretro_android.so",
+    ),
     HANDY(
         "handy",
         "Handy",

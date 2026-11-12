@@ -10,6 +10,7 @@ android {
     }
     namespace = "com.swordfish.lemuroid.extracores"
     sourceSets["main"].jniLibs.srcDir("../lemuroid_core_gpsp/src/main/jniLibs")
+    sourceSets["main"].jniLibs.srcDir("../lemuroid_core_melondsds/src/main/jniLibs")
 }
 
 dependencies {
