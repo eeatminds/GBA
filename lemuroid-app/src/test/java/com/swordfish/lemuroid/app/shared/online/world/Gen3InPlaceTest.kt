@@ -110,6 +110,69 @@ class Gen3InPlaceTest {
         assertEquals(battleStart, hex(link.scriptBuffer, battleStart.length / 2))
     }
 
+    // Emerald and Ruby/Sapphire (the same rig: Emerald with Emerald, Ruby with Sapphire, standing on
+    // tile (6, 17) of Oldale Town, map 0.10). No quest log, help system or text colours there, and
+    // no wireless adapter check in Ruby/Sapphire.
+    private fun otherGame(
+        layout: Gen3Adapter.Layout,
+        kind: String,
+        seat: Int,
+    ): Pair<String, String> {
+        val game = Gen3Adapter(Rom(ByteArray(0x100), 0x08000000), layout)
+        val inPlace = layout.inPlace!!
+        put32(layout.main, inPlace.cb1Overworld or 1)
+        put32(layout.main + 4, layout.cb2Overworld or 1)
+        put8(layout.fieldControlsLocked, 0)
+        put8(inPlace.scriptStatus, 2)
+        val saveBlock = if (layout.saveBlock1IsPointer) 0x02025a00L.also { put32(layout.saveBlock1, it) } else layout.saveBlock1
+        put16(saveBlock, 6)
+        put16(saveBlock + 2, 17)
+        put8(saveBlock + 4, 0)
+        put8(saveBlock + 5, 10)
+        val steps = game.inPlaceSteps(kind, 0)!!
+        steps.step(memory, 100)
+        val start = memory.read(inPlace.scriptBuffer, 64)!!.joinToString("") { "%02x".format(it) }
+        // Linked on the map: the seat.
+        put32(layout.main, inPlace.cb1Link or 1)
+        put8(layout.fieldControlsLocked, 0)
+        put8(inPlace.scriptStatus, 2)
+        put32(inPlace.linkStatus, 0x08L or seat.toLong())
+        steps.step(memory, 5_000)
+        return start to memory.read(inPlace.scriptBuffer, 10)!!.joinToString("") { "%02x".format(it) }
+    }
+
+    @Test
+    fun `Emerald and Ruby and Sapphire run the scripts that ran in their games`() {
+        val emeraldTrade = otherGame(Gen3Adapter.EMERALD, Talk.TRADE, seat = 0)
+        assertTrue(
+            emeraldTrade.first.startsWith(
+                "69260d809f011604800300251d0027210d80010006052ffc03023f000aff060011003e000aff0600110025020027022520006b02",
+            ),
+        )
+        assertEquals("16058000002522002702", emeraldTrade.second)
+        val emeraldBattle = otherGame(Gen3Adapter.EMERALD, Talk.BATTLE, seat = 1)
+        assertTrue(
+            emeraldBattle.first.startsWith(
+                "69260d809f011604800100251c0027210d800100060538fc0302250000252800254d013f000aff060011003e000aff0600110025020027022520006b02",
+            ),
+        )
+        assertEquals("16058001002521002702", emeraldBattle.second)
+        val rubyTrade = otherGame(Gen3Adapter.RUBY_11, Talk.TRADE, seat = 0)
+        assertTrue(
+            rubyTrade.first.startsWith(
+                "691604800300251d0027210d80010006052afc03023f000aff060011003e000aff060011002502002702251f006b02",
+            ),
+        )
+        assertEquals("16058000002521002702", rubyTrade.second)
+        val sapphireBattle = otherGame(Gen3Adapter.SAPPHIRE_11, Talk.BATTLE, seat = 1)
+        assertTrue(
+            sapphireBattle.first.startsWith(
+                "691604800100251c0027210d800100060533fc0302250000252700254b013f000aff060011003e000aff060011002502002702251f006b02",
+            ),
+        )
+        assertEquals("16058001002520002702", sapphireBattle.second)
+    }
+
     @Test
     fun `nothing starts while the player is in a menu or talking`() {
         onTheMap()
@@ -162,7 +225,6 @@ class Gen3InPlaceTest {
         // The link-up and the warp happened: the map in link mode, free again.
         onTheMap(cb1 = link.cb1Link)
         put32(link.linkStatus, 0x28)
-        put8(link.localLinkPlayerId, 0)
         assertNotNull(leader.step(memory, 5_000))
         assertEquals("1605800000c7032521002702", hex(link.scriptBuffer, 12))
         scriptRuns(link.scriptBuffer)
@@ -188,7 +250,6 @@ class Gen3InPlaceTest {
         follower.step(memory, 100)
         onTheMap(cb1 = link.cb1Link)
         put32(link.linkStatus, 0x09)
-        put8(link.localLinkPlayerId, 1)
         follower.step(memory, 5_000)
         assertEquals("1605800100c7032520002702", hex(link.scriptBuffer, 12))
         scriptDone()

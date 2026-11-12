@@ -71,7 +71,8 @@ class Gen3Adapter(
         val shouldAdvanceLinkState: Long,
         val suppressLinkErrorMessage: Long,
         val receivedRemoteLinkPlayers: Long,
-        val localLinkPlayerId: Long,
+        // The link players' records (4 in Ruby/Sapphire, 5 in the others).
+        val linkPlayersSize: Int,
         // The script the game runs when the other player leaves a link room.
         val terminateLinkScript: Long,
         // Where our scripts go: the end of work RAM, which nothing in the game uses.
@@ -398,39 +399,114 @@ class Gen3Adapter(
 
         // FireRed and LeafGreen keep everything in RAM at the same places in all versions; the
         // code and scripts in ROM move. Addresses from the pokefirered symbol files.
+        // What moves between versions of a game: code and scripts in ROM.
+        private class LinkCode(
+            val cb1Overworld: Long,
+            val cb1Link: Long,
+            val scriptCmdTable: Long,
+            val scriptCmdTableEnd: Long,
+            // The link-up task's steps: Start, AwaitConnection, ConfirmWhenReady, AwaitConfirmation,
+            // TryConfirmation, Confirm, ExchangeDataWithLeader, Failed (Ruby/Sapphire's are unnamed:
+            // sub_8082F20 ... sub_80833EC).
+            val linkup: List<Long>,
+            val terminateLinkScript: Long,
+        )
+
+        // What a pair of games keeps in RAM, the same in all their versions.
+        private class LinkRam(
+            val scriptContext: Long,
+            val scriptStatus: Long,
+            val tasks: Long,
+            val linkStatus: Long,
+            val linkPlayers: Long,
+            val savedLinkPlayers: Long,
+            val savedLinkPlayerCount: Long,
+            val savedMultiplayerId: Long,
+            val shouldAdvanceLinkState: Long,
+            val suppressLinkErrorMessage: Long,
+            val receivedRemoteLinkPlayers: Long,
+            val linkPlayersSize: Int,
+            val specials: Gen3InPlace.Specials,
+        )
+
+        private fun link(
+            ram: LinkRam,
+            code: LinkCode,
+        ) = InPlace(
+            scriptContext = ram.scriptContext,
+            scriptStatus = ram.scriptStatus,
+            scriptCmdTable = code.scriptCmdTable,
+            scriptCmdTableEnd = code.scriptCmdTableEnd,
+            cb1Overworld = code.cb1Overworld,
+            cb1Link = code.cb1Link,
+            tasks = ram.tasks,
+            linkupTasks = code.linkup.toSet() - code.linkup[7],
+            leaderWaits = setOf(code.linkup[1], code.linkup[2], code.linkup[3]),
+            linkupConfirm = code.linkup[5],
+            linkupFailed = code.linkup[7],
+            linkStatus = ram.linkStatus,
+            linkPlayers = ram.linkPlayers,
+            savedLinkPlayers = ram.savedLinkPlayers,
+            savedLinkPlayerCount = ram.savedLinkPlayerCount,
+            savedMultiplayerId = ram.savedMultiplayerId,
+            shouldAdvanceLinkState = ram.shouldAdvanceLinkState,
+            suppressLinkErrorMessage = ram.suppressLinkErrorMessage,
+            receivedRemoteLinkPlayers = ram.receivedRemoteLinkPlayers,
+            linkPlayersSize = ram.linkPlayersSize,
+            terminateLinkScript = code.terminateLinkScript,
+            // The end of work RAM, which nothing in any of the five games uses.
+            scriptBuffer = 0x0203fc00,
+            specials = ram.specials,
+        )
+
+        // Addresses from the pret symbol files (pokefirered, pokeemerald, pokeruby).
+        private val FRLG_RAM =
+            LinkRam(
+                scriptContext = 0x03000eb0, scriptStatus = 0x03000ea8, tasks = 0x03005090, linkStatus = 0x03003f20,
+                linkPlayers = 0x0202273c, savedLinkPlayers = 0x020227c8, savedLinkPlayerCount = 0x03003f40,
+                savedMultiplayerId = 0x03003f60, shouldAdvanceLinkState = 0x03003f84, suppressLinkErrorMessage = 0x03003f38,
+                receivedRemoteLinkPlayers = 0x03003f64, linkPlayersSize = 0x8C, specials = Gen3InPlace.FRLG_SPECIALS,
+            )
+        private val EMERALD_RAM =
+            LinkRam(
+                scriptContext = 0x03000e40, scriptStatus = 0x03000e38, tasks = 0x03005e00, linkStatus = 0x030030e0,
+                linkPlayers = 0x020229e8, savedLinkPlayers = 0x02022a74, savedLinkPlayerCount = 0x03003100,
+                savedMultiplayerId = 0x03003120, shouldAdvanceLinkState = 0x03003144, suppressLinkErrorMessage = 0x030030f8,
+                receivedRemoteLinkPlayers = 0x03003124, linkPlayersSize = 0x8C, specials = Gen3InPlace.EMERALD_SPECIALS,
+            )
+        private val RUBY_SAPPHIRE_RAM =
+            LinkRam(
+                scriptContext = 0x030005b8, scriptStatus = 0x030005b0, tasks = 0x03004b20, linkStatus = 0x03002a60,
+                linkPlayers = 0x03002970, savedLinkPlayers = 0x03002fd0, savedLinkPlayerCount = 0x03002f84,
+                savedMultiplayerId = 0x03002fa0, shouldAdvanceLinkState = 0x03003040, suppressLinkErrorMessage = 0x03002f80,
+                receivedRemoteLinkPlayers = 0x03002fa4, linkPlayersSize = 0x70, specials = Gen3InPlace.RUBY_SAPPHIRE_SPECIALS,
+            )
+
         private fun fireredLink(
             cb1Overworld: Long,
             cb1Link: Long,
             scriptCmdTable: Long,
             scriptCmdTableEnd: Long,
-            // Task_LinkupStart, AwaitConnection, ConfirmWhenReady, AwaitConfirmation, TryConfirmation,
-            // Confirm, ExchangeDataWithLeader, Failed.
             linkup: List<Long>,
             terminateLinkScript: Long,
-        ) = InPlace(
-            scriptContext = 0x03000eb0,
-            scriptStatus = 0x03000ea8,
-            scriptCmdTable = scriptCmdTable,
-            scriptCmdTableEnd = scriptCmdTableEnd,
-            cb1Overworld = cb1Overworld,
-            cb1Link = cb1Link,
-            tasks = 0x03005090,
-            linkupTasks = linkup.toSet() - linkup[7],
-            leaderWaits = setOf(linkup[1], linkup[2], linkup[3]),
-            linkupConfirm = linkup[5],
-            linkupFailed = linkup[7],
-            linkStatus = 0x03003f20,
-            linkPlayers = 0x0202273c,
-            savedLinkPlayers = 0x020227c8,
-            savedLinkPlayerCount = 0x03003f40,
-            savedMultiplayerId = 0x03003f60,
-            shouldAdvanceLinkState = 0x03003f84,
-            suppressLinkErrorMessage = 0x03003f38,
-            receivedRemoteLinkPlayers = 0x03003f64,
-            localLinkPlayerId = 0x0300502c,
-            terminateLinkScript = terminateLinkScript,
-            scriptBuffer = 0x0203fc00,
-            specials = Gen3InPlace.FRLG_SPECIALS,
+        ) = link(FRLG_RAM, LinkCode(cb1Overworld, cb1Link, scriptCmdTable, scriptCmdTableEnd, linkup, terminateLinkScript))
+
+        // Ruby and Sapphire 1.0, and 1.1/1.2 (the same addresses), move their code by 0x20.
+        private val RS_LINKUP_10 = listOf<Long>(0x08082f20, 0x08082f68, 0x08082fec, 0x0808303c, 0x080830e4, 0x08083188, 0x080831f8, 0x080833ec)
+        private val RS_LINKUP_11 = RS_LINKUP_10.map { it + 0x20 }
+
+        private fun rubyLink(
+            cb1Overworld: Long,
+            cb1Link: Long,
+            v11: Boolean,
+            terminateLinkScript: Long,
+        ) = link(
+            RUBY_SAPPHIRE_RAM,
+            LinkCode(
+                cb1Overworld, cb1Link,
+                if (v11) 0x0814ae50 else 0x0814ae30, if (v11) 0x0814b168 else 0x0814b148,
+                if (v11) RS_LINKUP_11 else RS_LINKUP_10, terminateLinkScript,
+            ),
         )
 
         private fun firered(
@@ -471,6 +547,7 @@ class Gen3Adapter(
             spritePalettes: Long,
             mapGroups: Long,
             regionMapEntries: Long,
+            inPlace: InPlace? = null,
         ) = Layout(
             world = "hoenn-rs",
             main = 0x03001770,
@@ -492,6 +569,7 @@ class Gen3Adapter(
             mapHeader = 0x0202e828,
             mapGroups = mapGroups,
             mapNames = regionMapEntries(regionMapEntries),
+            inPlace = inPlace,
         )
 
         val EMERALD =
@@ -516,6 +594,15 @@ class Gen3Adapter(
                 mapHeader = 0x02037318,
                 mapGroups = 0x08486578,
                 mapNames = regionMapEntries(0x085a147c),
+                inPlace =
+                    link(
+                        EMERALD_RAM,
+                        LinkCode(
+                            cb1Overworld = 0x08085e04, cb1Link = 0x08086bd8, scriptCmdTable = 0x081db67c, scriptCmdTableEnd = 0x081dba08,
+                            linkup = listOf(0x080b2634, 0x080b2688, 0x080b270c, 0x080b275c, 0x080b2804, 0x080b28a8, 0x080b2918, 0x080b2cec),
+                            terminateLinkScript = 0x08277509,
+                        ),
+                    ),
             )
 
         val FIRERED_10 =
@@ -554,10 +641,10 @@ class Gen3Adapter(
                     0x081bba3f,
                 ),
             )
-        val RUBY_10 = ruby(0x080543a4, 0x0836dc58, 0x0837377c, 0x08308588, 0x083e73c4)
-        val RUBY_11 = ruby(0x080543c4, 0x0836dc70, 0x08373794, 0x083085a0, 0x083e73e0)
-        val SAPPHIRE_10 = ruby(0x080543a8, 0x0836dbe8, 0x0837370c, 0x08308518, 0x083e741c)
-        val SAPPHIRE_11 = ruby(0x080543c8, 0x0836dc00, 0x08373724, 0x08308530, 0x083e743c)
+        val RUBY_10 = ruby(0x080543a4, 0x0836dc58, 0x0837377c, 0x08308588, 0x083e73c4, rubyLink(0x08054350, 0x08055354, false, 0x081a44fe))
+        val RUBY_11 = ruby(0x080543c4, 0x0836dc70, 0x08373794, 0x083085a0, 0x083e73e0, rubyLink(0x08054370, 0x08055374, true, 0x081a451e))
+        val SAPPHIRE_10 = ruby(0x080543a8, 0x0836dbe8, 0x0837370c, 0x08308518, 0x083e741c, rubyLink(0x08054354, 0x08055358, false, 0x081a448e))
+        val SAPPHIRE_11 = ruby(0x080543c8, 0x0836dc00, 0x08373724, 0x08308530, 0x083e743c, rubyLink(0x08054374, 0x08055378, true, 0x081a44ae))
 
         /** The layout for a GBA ROM, from its header's game code and version, or null. */
         fun layoutFor(

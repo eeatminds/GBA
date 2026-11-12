@@ -103,7 +103,8 @@ class Gen3InPlace(
             return null
         }
         if (!progress.seated) {
-            run(memory, seatScript(battle, seat = memory.u8(link.localLinkPlayerId) ?: 0))
+            // The seat is our place on the link (the link's own id for us).
+            run(memory, seatScript(battle, seat = ((memory.u32(link.linkStatus) ?: 0) and 3).toInt()))
             progress.seated = true
             return "linked on this map: taking a seat for the ${progress.kind}"
         }
@@ -158,7 +159,7 @@ class Gen3InPlace(
             (0 until TASK_COUNT).map { link.tasks + it * TASK_SIZE }.firstOrNull { task ->
                 memory.u8(task + TASK_ACTIVE) == 1 && ((memory.u32(task) ?: 0) and THUMB.inv()) in link.leaderWaits
             } ?: return false
-        val linkPlayers = memory.read(link.linkPlayers, LINK_PLAYERS_SIZE) ?: return false
+        val linkPlayers = memory.read(link.linkPlayers, link.linkPlayersSize) ?: return false
         return memory.write(link.suppressLinkErrorMessage, byteArrayOf(1)) &&
             memory.write(link.savedLinkPlayerCount, byteArrayOf(players.toByte())) &&
             memory.write(link.savedMultiplayerId, byteArrayOf((status and 3).toByte())) &&
@@ -192,9 +193,9 @@ class Gen3InPlace(
         memory.write(link.scriptStatus, byteArrayOf(CONTEXT_RUNNING))
     }
 
-    // 1: as the Direct Corner attendant (quest log cut, the wireless adapter check that also puts
-    // the cable link's interrupt handlers in place, link-up), then the cable club warp onto this
-    // tile. A battle also heals the party and keeps it and the bag to give back afterwards, as the
+    // 1: as the Direct Corner attendant (in FireRed/LeafGreen the quest log cut and the help system
+    // off; where there is one, the wireless adapter check that also puts the cable link's interrupt
+    // handlers in place; the link-up), then the cable club warp onto this tile. A battle also heals the party and keeps it and the bag to give back afterwards, as the
     // Colosseum does. If the link-up fails: close the link, free the player.
     private fun startScript(
         memory: GameMemory,
@@ -207,9 +208,11 @@ class Gen3InPlace(
         val number = memory.u8(saveBlock + 5) ?: return null
         val here = byteArrayOf(group.toByte(), number.toByte(), NO_WARP) + le16(x) + le16(y)
         val script = Script()
-        script.op(LOCKALL).special(link.specials.questLogCutRecording)
-        script.op(SPECIALVAR).u16(VAR_RESULT).u16(link.specials.isWirelessAdapterConnected)
-        script.special(link.specials.helpSystemDisable).op(TEXTCOLOR).u8(TEXT_COLOR_NEUTRAL)
+        script.op(LOCKALL)
+        link.specials.questLogCutRecording?.let { script.special(it) }
+        link.specials.isWirelessAdapterConnected?.let { script.op(SPECIALVAR).u16(VAR_RESULT).u16(it) }
+        link.specials.helpSystemDisable?.let { script.special(it) }
+        if (link.specials.textColor) script.op(TEXTCOLOR).u8(TEXT_COLOR_NEUTRAL)
         script.op(SETVAR).u16(VAR_0x8004).u16(if (battle) USING_SINGLE_BATTLE else USING_TRADE_CENTER)
         script.special(if (battle) link.specials.tryBattleLinkup else link.specials.tryTradeLinkup).op(WAITSTATE)
         script.op(COMPARE_VAR_TO_VALUE).u16(VAR_RESULT).u16(LINKUP_SUCCESS)
@@ -221,7 +224,9 @@ class Gen3InPlace(
         script.op(SETDYNAMICWARP).bytes(here).op(SETWARP).bytes(here)
         script.special(link.specials.doCableClubWarp).op(WAITSTATE).op(END)
         val fail = script.size
-        script.special(link.specials.closeLink).special(link.specials.helpSystemEnable).op(RELEASEALL).op(END)
+        script.special(link.specials.closeLink)
+        link.specials.helpSystemEnable?.let { script.special(it) }
+        script.op(RELEASEALL).op(END)
         return script.patchU32(failJump, link.scriptBuffer + fail).build()
     }
 
@@ -230,7 +235,8 @@ class Gen3InPlace(
         battle: Boolean,
         seat: Int,
     ): ByteArray =
-        Script().op(SETVAR).u16(VAR_0x8005).u16(seat).op(TEXTCOLOR).u8(TEXT_COLOR_NEUTRAL)
+        Script().op(SETVAR).u16(VAR_0x8005).u16(seat)
+            .apply { if (link.specials.textColor) op(TEXTCOLOR).u8(TEXT_COLOR_NEUTRAL) }
             .special(if (battle) link.specials.enterColosseumPlayerSpot else link.specials.enterTradeSeat)
             .op(WAITSTATE).op(END).build()
 
@@ -266,7 +272,11 @@ class Gen3InPlace(
         }
     }
 
-    /** The game's numbers for the specials the scripts call (FireRed and LeafGreen share them). */
+    /**
+     * The game's numbers for the specials the scripts call (each pair of games shares them), and the
+     * steps only some games have: FireRed/LeafGreen's quest log, help system and text colours, and
+     * the wireless adapter check (not in Ruby/Sapphire).
+     */
     data class Specials(
         val healPlayerParty: Int,
         val doCableClubWarp: Int,
@@ -278,10 +288,11 @@ class Gen3InPlace(
         val enterTradeSeat: Int,
         val savePlayerParty: Int,
         val loadPlayerBag: Int,
-        val isWirelessAdapterConnected: Int,
-        val questLogCutRecording: Int,
-        val helpSystemDisable: Int,
-        val helpSystemEnable: Int,
+        val isWirelessAdapterConnected: Int?,
+        val questLogCutRecording: Int? = null,
+        val helpSystemDisable: Int? = null,
+        val helpSystemEnable: Int? = null,
+        val textColor: Boolean = false,
     )
 
     companion object {
@@ -322,7 +333,6 @@ class Gen3InPlace(
         private const val TASK_SIZE = 40L
         private const val TASK_ACTIVE = 4L
         private const val LINK_STAT_MASTER = 0x20L
-        private const val LINK_PLAYERS_SIZE = 0x8C
 
         const val LINK_UP_TIMEOUT_MS = 30_000L
         private const val START_DEADLINE_MS = 15_000L
@@ -350,6 +360,38 @@ class Gen3InPlace(
                 questLogCutRecording = 392,
                 helpSystemDisable = 408,
                 helpSystemEnable = 409,
+                textColor = true,
+            )
+
+        val EMERALD_SPECIALS =
+            Specials(
+                healPlayerParty = 0,
+                doCableClubWarp = 2,
+                exitLinkRoom = 5,
+                tryBattleLinkup = 28,
+                tryTradeLinkup = 29,
+                closeLink = 32,
+                enterColosseumPlayerSpot = 33,
+                enterTradeSeat = 34,
+                savePlayerParty = 40,
+                loadPlayerBag = 333,
+                isWirelessAdapterConnected = 415,
+            )
+
+        // Ruby/Sapphire (pokeruby's names: sub_808347C, sub_80834E4, sub_8083B90, sub_8083B5C, sub_80839D0).
+        val RUBY_SAPPHIRE_SPECIALS =
+            Specials(
+                healPlayerParty = 0,
+                doCableClubWarp = 2,
+                exitLinkRoom = 5,
+                tryBattleLinkup = 28,
+                tryTradeLinkup = 29,
+                closeLink = 31,
+                enterColosseumPlayerSpot = 32,
+                enterTradeSeat = 33,
+                savePlayerParty = 39,
+                loadPlayerBag = 331,
+                isWirelessAdapterConnected = null,
             )
     }
 }
