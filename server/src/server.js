@@ -680,13 +680,22 @@ const GAME_FAMILIES = [
     console: 'Game Boy Advance games',
     short: 'GBA',
     blurb:
-      'FireRed and LeafGreen players share a room and can trade and battle each other, in the same game ' +
-      'or across the two, just as over a real link cable. On the map you see everyone in Kanto.',
+      'FireRed, LeafGreen, Ruby, Sapphire and Emerald players share a room and can all trade and battle each other, ' +
+      'just as over a real link cable. On the map you see the players in your region: Kanto (FireRed and LeafGreen) ' +
+      'or Hoenn (Ruby and Sapphire together; Emerald players see each other). As in the real games, trading between ' +
+      'Kanto and Hoenn opens up later in the story.',
     systems: ['gba'],
-    regions: [{ name: 'Kanto', games: ['firered', 'leafgreen'] }],
+    regions: [
+      { name: 'Kanto', games: ['firered', 'leafgreen'] },
+      { name: 'Hoenn', games: ['ruby', 'sapphire'] },
+      { name: 'Hoenn', games: ['emerald'] },
+    ],
     games: [
       { id: 'firered', name: 'FireRed', match: ['firered', 'fire red'], emblem: 'flame', colors: ['#8a1c0c', '#f2703a'], versions: 'USA / Europe, Rev 1' },
       { id: 'leafgreen', name: 'LeafGreen', match: ['leafgreen', 'leaf green'], emblem: 'leaf', colors: ['#1f5a1c', '#7ccb5b'], versions: 'USA, Rev 1' },
+      { id: 'ruby', name: 'Ruby', match: ['ruby'], emblem: 'round', colors: ['#7d0f24', '#e8475f'], versions: 'USA, Rev 1' },
+      { id: 'sapphire', name: 'Sapphire', match: ['sapphire'], emblem: 'drop', colors: ['#12306e', '#4f8ef0'], versions: 'USA / Europe, Rev 2' },
+      { id: 'emerald', name: 'Emerald', match: ['emerald'], emblem: 'cut', colors: ['#0d5a3c', '#3fca8c'], versions: 'USA / Europe' },
     ],
   },
 ];
@@ -740,6 +749,17 @@ const EMBLEMS = {
   flame:
     '<path d="M50 20c4 12 20 20 20 38a20 20 0 0 1-40 0c0-10 6-16 9-23c2 7 5 10 9 11c-3-9-1-18 2-26z" fill="#fff1e3"/>' +
     '<path d="M50 50c2 6 9 9 9 17a9 9 0 0 1-18 0c0-5 3-8 5-11c1 3 2 4 4 5c-1-4 0-8 0-11z" fill="#f2703a" opacity=".8"/>',
+  // Three cuts of gem: round, drop and step cut.
+  round:
+    '<circle cx="50" cy="52" r="24" fill="#ffe9ee"/>' +
+    '<path d="M50 28l14 10l6 14l-6 14l-14 10l-14-10l-6-14l6-14z" fill="none" stroke="#e8475f" stroke-width="2" opacity=".75"/>' +
+    '<path d="M36 38h28M30 52h40M36 66h28M50 28v48" stroke="#e8475f" stroke-width="1.6" opacity=".45"/>',
+  drop:
+    '<path d="M50 22c12 16 22 26 22 38a22 22 0 0 1-44 0c0-12 10-22 22-38z" fill="#e8f1ff"/>' +
+    '<path d="M50 22l-10 30l10 30l10-30zM28 60l12-8M72 60l-12-8" stroke="#4f8ef0" stroke-width="2" fill="none" opacity=".7"/>',
+  cut:
+    '<path d="M34 26h32l10 10v32l-10 10H34L24 68V36z" fill="#e6fff3"/>' +
+    '<path d="M38 36h24l6 6v20l-6 6H38l-6-6V42zM24 36l8 6M76 36l-8 6M24 68l8-6M76 68l-8-6" stroke="#3fca8c" stroke-width="2" fill="none" opacity=".75"/>',
   leaf:
     '<path d="M28 74C26 44 46 26 76 24c2 30-16 50-48 50z" fill="#effbe7"/>' +
     '<path d="M28 74L66 36M44 58l-2-12M54 48l-1-10M44 58l12 1M54 48l11 1" stroke="#7ccb5b" stroke-width="2.4" stroke-linecap="round" fill="none"/>',
@@ -765,23 +785,25 @@ function gamesPage(config, registry) {
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" ' +
     'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const families = GAME_FAMILIES.map((family) => {
-    const tiles = family.games
-      .map((game) => {
-        const cover = coverFile(config, game.id);
-        const art = cover ? `<img src="/covers/${game.id}.${cover.ext}" alt="${escapeHtml(game.name)}">` : tileArt(game, family.short);
-        const open = openRooms(registry, family, game);
-        const badge = open > 0 ? `<span class="open"><i></i>${open} open</span>` : '';
-        return `<li class="tile"><div class="art">${art}${badge}</div><b>${escapeHtml(game.name)}</b><small>${escapeHtml(game.versions)}</small></li>`;
+    const tile = (game) => {
+      const cover = coverFile(config, game.id);
+      const art = cover ? `<img src="/covers/${game.id}.${cover.ext}" alt="${escapeHtml(game.name)}">` : tileArt(game, family.short);
+      const open = openRooms(registry, family, game);
+      const badge = open > 0 ? `<span class="open"><i></i>${open} open</span>` : '';
+      return `<li class="tile"><div class="art">${art}${badge}</div><b>${escapeHtml(game.name)}</b><small>${escapeHtml(game.versions)}</small></li>`;
+    };
+    // One row of tiles per region: the players who see each other on the map.
+    const regions = family.regions
+      .map((region) => {
+        const tiles = region.games.map((id) => tile(family.games.find((game) => game.id === id))).join('');
+        return `<ul class="tiles">${tiles}</ul><p class="region"><span>See each other in ${escapeHtml(region.name)}</span></p>`;
       })
       .join('');
-    const regions = family.regions
-      .map((region) => `<p class="region" style="--span:${region.games.length}"><span>See each other in ${escapeHtml(region.name)}</span></p>`)
-      .join('');
-    const all = family.games.length === 2 ? 'Both' : family.games.length === 3 ? 'All three' : `All ${family.games.length}`;
+    const count = ['', '', 'Both', 'All three', 'All four', 'All five', 'All six', 'All seven', 'All eight'][family.games.length];
     return `<section class="family">
 <div class="side"><h2>${escapeHtml(family.console)}</h2><p>${escapeHtml(family.blurb)}</p></div>
-<div class="main"><ul class="tiles">${tiles}</ul>${regions}
-<p class="together">${linkIcon}<span>${all} trade and battle</span></p></div></section>`;
+<div class="main">${regions}
+<p class="together">${linkIcon}<span>${count ?? `All ${family.games.length}`} trade and battle</span></p></div></section>`;
   }).join('');
 
   return `<!doctype html>
@@ -808,9 +830,9 @@ header p{color:var(--muted);margin:0;max-width:64ch}
 .art svg,.art img{display:block;width:100%;height:100%;object-fit:cover}
 .open{position:absolute;right:8px;bottom:8px;background:rgba(20,20,20,.78);color:#fff;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px}
 .open i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:5px;vertical-align:1px}
-.region{display:flex;align-items:center;gap:10px;margin:18px 0 0;color:var(--muted);font-size:13px;font-weight:600}
+.region{display:flex;align-items:center;gap:10px;margin:14px 0 22px;color:var(--muted);font-size:13px;font-weight:600}
 .region::before,.region::after{content:"";flex:1;height:1px;background:var(--line)}
-.together{display:flex;align-items:center;gap:10px;margin:10px 0 0;color:var(--link);font-size:14px;font-weight:600}
+.together{display:flex;align-items:center;gap:10px;margin:-8px 0 0;color:var(--link);font-size:14px;font-weight:600}
 .together::before,.together::after{content:"";flex:1;border-top:2px dashed currentColor;opacity:.55}
 .together svg{width:18px;height:18px;flex:none}
 .how{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}

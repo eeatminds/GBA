@@ -384,7 +384,14 @@ test('the games page lists the games players can trade and battle in, and the ho
   assert.equal(page.status, 200);
   const html = await page.text();
   for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Same World']) assert.ok(html.includes(name), name);
-  for (const name of ['FireRed', 'LeafGreen', 'See each other in Kanto', 'Both trade and battle']) assert.ok(html.includes(name), name);
+  for (const name of ['FireRed', 'LeafGreen', 'Ruby', 'Sapphire', 'Emerald', 'See each other in Kanto', 'See each other in Hoenn']) {
+    assert.ok(html.includes(name), name);
+  }
+  assert.ok(html.includes('All three trade and battle'));
+  assert.ok(html.includes('All five trade and battle'));
+  // Hoenn twice: Ruby and Sapphire share their map, Emerald players have their own.
+  assert.equal(html.match(/See each other in Hoenn/g).length, 2);
+  assert.ok(!/randomi[sz]er/i.test(html));
   assert.ok(!html.includes('<script'));
   const home = await (await fetch(`http://${base}/`)).text();
   assert.ok(home.includes('href="/games"'));
@@ -415,7 +422,9 @@ test('the games page counts open rooms per game and shows a cover the owner adde
   const tiles = Object.fromEntries(
     html.split('<li class="tile">').slice(1).map((tile) => [/<b>([^<]+)<\/b>/.exec(tile)[1], tile.includes('1 open')]),
   );
-  assert.deepEqual(tiles, { Gold: false, Silver: false, Crystal: true, FireRed: false, LeafGreen: true });
+  assert.deepEqual(tiles, {
+    Gold: false, Silver: false, Crystal: true, FireRed: false, LeafGreen: true, Ruby: false, Sapphire: false, Emerald: false,
+  });
   guest.close();
   const cover = await fetch(`${url}/covers/crystal.png`);
   assert.equal(cover.status, 200);
