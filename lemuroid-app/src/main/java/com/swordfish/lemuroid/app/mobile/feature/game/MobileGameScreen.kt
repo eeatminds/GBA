@@ -62,6 +62,7 @@ import com.swordfish.touchinput.radial.settings.TouchControllerID
 import com.swordfish.touchinput.radial.settings.TouchControllerSettingsManager
 import com.swordfish.touchinput.radial.ui.GlassSurface
 import com.swordfish.touchinput.radial.ui.LemuroidButtonPressFeedback
+import com.swordfish.libretrodroid.LibretroDroid
 import gg.padkit.PadKit
 import gg.padkit.config.HapticFeedbackType
 import gg.padkit.inputstate.InputState
@@ -151,23 +152,35 @@ fun MobileGameScreen(viewModel: BaseGameScreenViewModel) {
             }
 
             // Handheld consoles get the classic outlined controls; other systems keep the radial pads.
-            val classicAspectRatio =
-                when (currentControllerConfig?.touchControllerID) {
-                    TouchControllerID.GBA -> 3f / 2f
-                    TouchControllerID.GB -> 10f / 9f
+            val controllerId = currentControllerConfig?.touchControllerID
+            val padKind =
+                when (controllerId) {
+                    TouchControllerID.GBA -> ClassicPadKind.GBA
+                    TouchControllerID.GB -> ClassicPadKind.GAME_BOY
+                    TouchControllerID.MELONDS, TouchControllerID.DESMUME -> ClassicPadKind.DS
+                    TouchControllerID.NINTENDO_3DS -> ClassicPadKind.THREE_DS
                     else -> null
                 }
 
-            if (classicAspectRatio != null) {
+            if (padKind != null) {
                 val screenValues = ClassicScreenSettings.rememberValues().value
-                val isGBA = currentControllerConfig?.touchControllerID == TouchControllerID.GBA
+                // DS and 3DS pictures change shape with the screen layout: ask the core.
+                val coreAspect = rememberCoreAspectRatio(padKind)
+                val (nativeWidth, nativeHeight) =
+                    when (padKind) {
+                        ClassicPadKind.GBA -> 240 to 160
+                        ClassicPadKind.GAME_BOY -> 160 to 144
+                        ClassicPadKind.DS -> if (coreAspect >= 1f) 512 to 192 else 256 to 384
+                        ClassicPadKind.THREE_DS -> if (coreAspect >= 1f) 720 to 240 else 400 to 480
+                    }
                 ClassicGameLayout(
                     isLandscape = isLandscape,
-                    gameAspectRatio = classicAspectRatio,
-                    nativeWidth = if (isGBA) 240 else 160,
-                    nativeHeight = if (isGBA) 160 else 144,
+                    gameAspectRatio = coreAspect,
+                    nativeWidth = nativeWidth,
+                    nativeHeight = nativeHeight,
+                    kind = padKind,
                     screenPosition = screenValues.position,
-                    hasShoulderButtons = currentControllerConfig?.touchControllerID == TouchControllerID.GBA,
+                    hasShoulderButtons = padKind != ClassicPadKind.GAME_BOY,
                     showControls = touchControllerSettings != null && touchControlsVisibleState.value,
                     settings = touchControllerSettings,
                     onGameAreaPositioned = {
@@ -396,4 +409,29 @@ private fun MenuEditTouchControlRow(
         )
         slider()
     }
+}
+
+/** The game picture's shape: fixed for Game Boy and GBA; for DS and 3DS what the core says now. */
+@Composable
+private fun rememberCoreAspectRatio(kind: ClassicPadKind): Float {
+    val fixed =
+        when (kind) {
+            ClassicPadKind.GBA -> 3f / 2f
+            ClassicPadKind.GAME_BOY -> 10f / 9f
+            ClassicPadKind.DS -> 2f / 3f
+            ClassicPadKind.THREE_DS -> 5f / 6f
+        }
+    val aspect = remember(kind) { mutableStateOf(fixed) }
+    if (kind == ClassicPadKind.DS || kind == ClassicPadKind.THREE_DS) {
+        LaunchedEffect(kind) {
+            while (true) {
+                val reported = runCatching { LibretroDroid.getAspectRatio() }.getOrNull()
+                if (reported != null && reported in 0.2f..5f && kotlin.math.abs(reported - aspect.value) > 0.01f) {
+                    aspect.value = reported
+                }
+                kotlinx.coroutines.delay(1_000)
+            }
+        }
+    }
+    return aspect.value
 }

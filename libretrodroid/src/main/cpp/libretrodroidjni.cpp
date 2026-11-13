@@ -616,6 +616,13 @@ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_refreshAsp
     LibretroDroid::getInstance().refreshAspectRatio();
 }
 
+JNIEXPORT jfloat JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_getAspectRatio(
+    JNIEnv* env,
+    jclass obj
+) {
+    return LibretroDroid::getInstance().getAspectRatio();
+}
+
 JNIEXPORT jboolean JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_netpacketIsSupported(
     JNIEnv* env,
     jclass obj

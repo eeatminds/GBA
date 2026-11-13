@@ -50,6 +50,10 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.CompositionLocalProvider
+import com.swordfish.touchinput.radial.LemuroidPadTheme
+import com.swordfish.touchinput.radial.LocalLemuroidPadTheme
+import com.swordfish.touchinput.radial.controls.LemuroidControlAnalog
 import com.swordfish.touchinput.radial.layouts.shared.ComposeTouchLayouts
 import com.swordfish.touchinput.radial.settings.TouchControllerSettingsManager
 import gg.padkit.PadKitScope
@@ -71,6 +75,14 @@ object ClassicGamePad {
     val menuFill = Color.Black.copy(alpha = 0.25f)
     val menuBars = Color.White.copy(alpha = 0.72f)
     val stroke = 1.6.dp
+}
+
+/** Which console's keys: Game Boy (no shoulders), GBA, DS (X, Y, mic, lid) or 3DS (X, Y and the stick). */
+enum class ClassicPadKind {
+    GAME_BOY,
+    GBA,
+    DS,
+    THREE_DS,
 }
 
 /** How big the game picture is drawn. */
@@ -103,6 +115,7 @@ fun PadKitScope.ClassicGameLayout(
     settings: TouchControllerSettingsManager.Settings?,
     screenSize: ClassicScreenSize = ClassicScreenSize.FIT,
     screenPosition: ClassicScreenPosition = ClassicScreenPosition.MIDDLE,
+    kind: ClassicPadKind = if (hasShoulderButtons) ClassicPadKind.GBA else ClassicPadKind.GAME_BOY,
     onGameAreaPositioned: (Rect) -> Unit,
     onGameSpacePositioned: (Rect) -> Unit = { },
 ) {
@@ -149,15 +162,15 @@ fun PadKitScope.ClassicGameLayout(
                 )
             }
             if (showControls) {
-                PortraitControls(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 8.dp, bottom = 8.dp + marginY.dp),
-                    scale = scale,
-                    hasShoulderButtons = hasShoulderButtons,
-                )
+                val portraitModifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 8.dp, bottom = 8.dp + marginY.dp)
+                when (kind) {
+                    ClassicPadKind.DS, ClassicPadKind.THREE_DS -> DualScreenPortraitControls(portraitModifier, scale, kind)
+                    else -> PortraitControls(portraitModifier, scale = scale, hasShoulderButtons = hasShoulderButtons)
+                }
             }
         }
     } else {
@@ -174,14 +187,14 @@ fun PadKitScope.ClassicGameLayout(
                 )
             }
             if (showControls) {
-                LandscapeControls(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 7.dp, bottom = 13.dp + marginY.dp),
-                    scale = scale,
-                    hasShoulderButtons = hasShoulderButtons,
-                )
+                val landscapeModifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(start = 12.dp + marginX.dp, end = 12.dp + marginX.dp, top = 7.dp, bottom = 13.dp + marginY.dp)
+                when (kind) {
+                    ClassicPadKind.DS, ClassicPadKind.THREE_DS -> DualScreenLandscapeControls(landscapeModifier, scale, kind)
+                    else -> LandscapeControls(landscapeModifier, scale = scale, hasShoulderButtons = hasShoulderButtons)
+                }
             }
         }
     }
@@ -237,6 +250,138 @@ private fun PadKitScope.LandscapeControls(
         RoundKey(Modifier.align(Alignment.BottomEnd).offset((-83).dp * scale, 1.dp * scale), KeyEvent.KEYCODE_BUTTON_B, "B", scale)
         RoundKey(Modifier.align(Alignment.BottomEnd).offset((-1).dp * scale, 1.dp * scale), KeyEvent.KEYCODE_BUTTON_A, "A", scale)
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// DS and 3DS: the same keys and spacing as the Game Boy ones, with X and Y (A, B, X and Y in a
+// diamond as on the console), the DS's mic and lid, and the 3DS's stick.
+
+// The diamond: one key size apart plus a gap, as the D-pad's arrows.
+private val DIAMOND_STEP = 52.dp
+private val DIAMOND = ROUND_KEY * 2 + DIAMOND_STEP
+private val STICK = 128.dp
+
+@Composable
+private fun PadKitScope.DualScreenPortraitControls(
+    modifier: Modifier,
+    scale: Float,
+    kind: ClassicPadKind,
+) {
+    // L, menu and R on top, Select and Start under the menu. Below: the D-pad on the left and the
+    // diamond on the right, where thumbs rest; on a 3DS the stick sits above the D-pad, as on the
+    // console; on a DS the mic and lid keys sit under L.
+    val is3ds = kind == ClassicPadKind.THREE_DS
+    val height = if (is3ds) 340.dp else 260.dp
+    BoxWithConstraints(modifier = modifier) {
+        // On narrow phones everything shrinks so the D-pad and the diamond never touch.
+        val scale = minOf(scale, maxWidth / (CROSS + DIAMOND + 16.dp))
+        Box(modifier = Modifier.fillMaxWidth().height(height * scale)) {
+            MenuButton(Modifier.align(Alignment.TopCenter), scale)
+            ShoulderButton(Modifier.align(Alignment.TopStart).offset((-3).dp * scale, 4.5.dp * scale), KeyEvent.KEYCODE_BUTTON_L1, "L", true, scale)
+            ShoulderButton(Modifier.align(Alignment.TopEnd).offset(3.dp * scale, 4.5.dp * scale), KeyEvent.KEYCODE_BUTTON_R1, "R", false, scale)
+            PillKey(Modifier.align(Alignment.TopCenter).offset((-30).dp * scale, 50.dp * scale), KeyEvent.KEYCODE_BUTTON_SELECT, scale)
+            PillKey(Modifier.align(Alignment.TopCenter).offset(30.dp * scale, 50.dp * scale), KeyEvent.KEYCODE_BUTTON_START, scale)
+            if (is3ds) {
+                Stick(Modifier.align(Alignment.TopStart).offset(11.dp * scale, 50.dp * scale), scale)
+            } else {
+                LabelKey(Modifier.align(Alignment.TopStart).offset(0.dp, 50.dp * scale), KeyEvent.KEYCODE_BUTTON_L2, "MIC", scale)
+                LabelKey(Modifier.align(Alignment.TopStart).offset(50.dp * scale, 50.dp * scale), KeyEvent.KEYCODE_BUTTON_THUMBL, "LID", scale)
+            }
+        DPad(Modifier.align(Alignment.BottomStart).offset(x = (-3).dp * scale), scale)
+        FaceDiamond(Modifier.align(Alignment.BottomEnd).offset(x = 1.dp * scale), scale)
+        }
+    }
+}
+
+@Composable
+private fun PadKitScope.DualScreenLandscapeControls(
+    modifier: Modifier,
+    scale: Float,
+    kind: ClassicPadKind,
+) {
+    // L and R in the top corners, the menu at the top middle. Left: the D-pad, and on a 3DS the
+    // stick under it, where the thumb rests; on a DS the mic and lid keys above the D-pad. Right:
+    // the diamond low, Select and Start above it. Everything shrinks a little on short screens.
+    val is3ds = kind == ClassicPadKind.THREE_DS
+    BoxWithConstraints(modifier = modifier) {
+        val leftColumn = if (is3ds) 50.dp + CROSS + STICK else SHOULDER_KEY.height + 40.dp + CROSS
+        val rightColumn = SHOULDER_KEY.height + PILL_KEY.height + 8.dp + DIAMOND
+        val fit = minOf(1f, maxHeight / (maxOf(leftColumn, rightColumn) * scale))
+        val s = scale * fit
+        ShoulderButton(Modifier.align(Alignment.TopStart).offset((-3).dp * s, (-3.5).dp * s), KeyEvent.KEYCODE_BUTTON_L1, "L", true, s)
+        ShoulderButton(Modifier.align(Alignment.TopEnd).offset(3.dp * s, (-3.5).dp * s), KeyEvent.KEYCODE_BUTTON_R1, "R", false, s)
+        MenuButton(Modifier.align(Alignment.TopCenter).offset(y = (-9).dp * s), s)
+        if (is3ds) {
+            DPad(Modifier.align(Alignment.TopStart).offset((-3).dp * s, 50.dp * s), s)
+            Stick(Modifier.align(Alignment.BottomStart).offset(30.dp * s, 2.dp * s), s)
+        } else {
+            LabelKey(Modifier.align(Alignment.BottomStart).offset(0.dp, -(CROSS + 6.dp) * s), KeyEvent.KEYCODE_BUTTON_L2, "MIC", s)
+            LabelKey(Modifier.align(Alignment.BottomStart).offset(50.dp * s, -(CROSS + 6.dp) * s), KeyEvent.KEYCODE_BUTTON_THUMBL, "LID", s)
+            DPad(Modifier.align(Alignment.BottomStart).offset((-3).dp * s, 2.dp * s), s)
+        }
+        PillKey(Modifier.align(Alignment.BottomEnd).offset(-(DIAMOND / 2 + 30.dp) * s, -(DIAMOND + 6.dp) * s), KeyEvent.KEYCODE_BUTTON_SELECT, s)
+        PillKey(Modifier.align(Alignment.BottomEnd).offset(-(DIAMOND / 2 - 30.dp) * s, -(DIAMOND + 6.dp) * s), KeyEvent.KEYCODE_BUTTON_START, s)
+        FaceDiamond(Modifier.align(Alignment.BottomEnd).offset(1.dp * s, 1.dp * s), s)
+    }
+}
+
+/** A, B, X and Y as on the console: X on top, Y left, A right, B below. */
+@Composable
+private fun PadKitScope.FaceDiamond(
+    modifier: Modifier,
+    scale: Float,
+) {
+    Box(modifier = modifier.size(DIAMOND * scale)) {
+        RoundKey(Modifier.align(Alignment.TopCenter), KeyEvent.KEYCODE_BUTTON_X, "X", scale)
+        RoundKey(Modifier.align(Alignment.CenterStart), KeyEvent.KEYCODE_BUTTON_Y, "Y", scale)
+        RoundKey(Modifier.align(Alignment.CenterEnd), KeyEvent.KEYCODE_BUTTON_A, "A", scale)
+        RoundKey(Modifier.align(Alignment.BottomCenter), KeyEvent.KEYCODE_BUTTON_B, "B", scale)
+    }
+}
+
+/** The 3DS stick: the same stick as before, unchanged. */
+@Composable
+private fun PadKitScope.Stick(
+    modifier: Modifier,
+    scale: Float,
+) {
+    CompositionLocalProvider(LocalLemuroidPadTheme provides LemuroidPadTheme()) {
+        LemuroidControlAnalog(
+            modifier = modifier.size(STICK * scale),
+            id = Id.ContinuousDirection(ComposeTouchLayouts.MOTION_SOURCE_LEFT_STICK),
+            analogPressId = Id.Key(KeyEvent.KEYCODE_BUTTON_THUMBL),
+        )
+    }
+}
+
+/** A small key with a word on it (the DS's mic and lid). */
+@Composable
+private fun PadKitScope.LabelKey(
+    modifier: Modifier,
+    keyCode: Int,
+    label: String,
+    scale: Float,
+) {
+    ControlButton(
+        modifier = modifier.size(PILL_KEY * scale),
+        id = Id.Key(keyCode),
+        foreground = { pressed ->
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                val shape = RoundedCornerShape(50)
+                Box(
+                    modifier =
+                        Modifier
+                            .size(width = 46.dp * scale, height = 22.dp * scale)
+                            .background(if (pressed.value) ClassicGamePad.pressedFill else Color.Transparent, shape)
+                            .border(ClassicGamePad.stroke, ClassicGamePad.outline, shape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = label, color = ClassicGamePad.outline, fontSize = (11 * scale).sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        },
+        background = { },
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
