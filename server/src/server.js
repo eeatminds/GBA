@@ -912,6 +912,7 @@ header p{color:var(--muted);margin:0;max-width:64ch}
 .how{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
 .how h2{margin:0 0 10px;font-size:20px}.how ol{margin:0;padding-left:20px}.how li{margin:6px 0}
 .note{color:var(--muted);font-size:14px;margin-top:28px}
+.credit{color:var(--muted);font-size:13px;margin-top:14px}.credit a{color:var(--accent);text-decoration:none}
 @media (max-width:700px){.family{grid-template-columns:1fr;gap:16px}.tiles{grid-template-columns:repeat(3,1fr);gap:12px}}
 </style></head>
 <body><div class="wrap">
@@ -931,6 +932,7 @@ ${families}
 <li>Walk up to your friend, press <b>A</b> and pick <b>Trade</b> or <b>Battle</b>. They press <b>A</b> to accept and it starts right there.</li>
 </ol></section>
 <p class="note">Game Boy and Game Boy Color games can't trade or battle with Game Boy Advance games, as on the real consoles. More games are added here once trading and battling them is tested.</p>
+<p class="credit">Developed by Shreyas · <a href="https://www.eeatminds.in/">eeatminds.in</a></p>
 </div></body></html>`;
 }
 

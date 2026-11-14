@@ -35,6 +35,13 @@ licensed under the GPL-3.0. Source code: <your GitHub link>
 
 GBA/GBC Emulator does not include any games. Use only games you own.
 
+Developed by Shreyas — https://www.eeatminds.in/
+
+## Developer details (Play Console → Store settings)
+
+- Developer / contact website: https://www.eeatminds.in/
+- Use this site as the listing's website link, and a contact email on the same domain if you have one.
+
 ## Category and tags
 
 - Category: Games → Arcade (or Tools)

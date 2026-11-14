@@ -2,6 +2,19 @@
 
 A checklist from code to a live Play Store app. Steps marked **(once)** only happen the first time.
 
+> **Not a programmer? Read this first.** Two steps need a computer with
+> [Android Studio](https://developer.android.com/studio): creating the upload key (step 3) and
+> building the app file (step 4). Everything else is done in a web browser. If you would rather not
+> install Android Studio, ask whoever maintains this project to build and sign the `.aab` file for
+> you once — after that, every update is the same one command, and you only ever upload the file in
+> the browser.
+
+> **⚠️ Pick a safe app name before you submit.** Google often rejects apps whose **title** uses
+> console or company names such as "GBA", "GBC", "Game Boy", "Nintendo" or "Pokémon". Use an
+> **original name** for the app title (for example a made-up brand name), and describe what it does
+> ("a retro handheld emulator") only in the store **description**, never in the title or icon. See
+> step 1.
+
 ## 1. Pick your app's name and id (once)
 
 Edit `gradle.properties`:
@@ -95,6 +108,45 @@ The Google Drive save sync needs a Google Cloud OAuth client for your app id and
 certificate. Without it, everything else works and save sync just stays off. To set it up,
 create an Android OAuth client in Google Cloud Console for your package name and the
 SHA-1 from Play App Signing, and enable the Google Drive API.
+
+## Protecting your app from copies
+
+Honest summary: **no setting can make an Android app impossible to copy** — anyone can pull an `.apk`
+off their phone. What actually stops a copycat from hurting *you* is owning your app's **identity**,
+and that is already handled:
+
+- **Only you can update or impersonate your app.** With **Play App Signing** (step 5), Google holds
+  the real signing key. Nobody else can publish an update to your listing, and no re-uploaded copy
+  can share your app's identity. A thief can only post a *separate*, lower-ranked clone — they can
+  never take over your users or your reviews.
+- **The code is already obfuscated.** The release build runs R8, which shrinks and renames the code,
+  so a copied build is hard to read or rebrand. This is on by default (`isMinifyEnabled = true`).
+- **Your keys never go in the project.** `keystore.properties` and your `.jks` file are git-ignored.
+  Keep a private backup of both; with Play App Signing you can reset a lost *upload* key through
+  Google, so a lost upload key is recoverable.
+- **Optional, stronger:** the [Play Integrity API](https://developer.android.com/google/play/integrity)
+  lets the app refuse to run if it was tampered with or installed from outside Play. It is powerful
+  but can also block legitimate users (rooted phones, some regions), so add it only if copycats
+  become a real problem.
+
+**About "encryption so it can't be copied and sold":** this app is **GPL-3.0** (it is built on
+Lemuroid). That licence *requires* the source to stay public and *allows* anyone to redistribute it —
+so a license-lock or DRM that forbids copying would be illegal to ship here, not just ineffective.
+The protections above are the real, lawful way to keep control: your brand, your listing and your
+update channel stay yours.
+
+## Game cover pictures on the games web page
+
+The games web page (`/games` on your room server) shows each game's box art. The 11 original games
+download their covers automatically. The two ROM hacks (Radical Red, Unbound) have no cover in the
+public library, so add them by hand **once**:
+
+1. Put `radicalred.webp` and `unbound.webp` into `/etc/gba-rooms/covers/` on your server.
+2. That's it — refresh the page. (Covers you place by hand are always kept, even when the server
+   updates.)
+
+These two pictures are fan-made game art, so they live only on your own server, never in the public
+code repository.
 
 ## Rules to stay on Google Play
 
