@@ -1,7 +1,7 @@
 From bdbdce473a6f9d0f1c97f3e0467fe690b00e520c Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 12:23:38 +0000
-Subject: [PATCH 1/4] Link: whole-block exchanges and sync rendezvous for Gen 2
+Subject: [PATCH 1/5] Link: whole-block exchanges and sync rendezvous for Gen 2
  Pokemon over the network
 
 ---
@@ -717,7 +717,7 @@ index ad94255..80cdbb9 100644
 From 84e4597cbd73f6e1dc1e90bcc640ae27f96248b7 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 15:54:45 +0000
-Subject: [PATCH 2/4] Link: non-blocking hooks, battle move and friend
+Subject: [PATCH 2/5] Link: non-blocking hooks, battle move and friend
  rendezvous for Gen 2 Pokemon
 
 The block, sync and battle hooks no longer stall the frame while waiting
@@ -1369,7 +1369,7 @@ index 80cdbb9..43649c3 100644
 From f60d36e419705b9e8b34688f1a423f7c2db8d0e0 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Thu, 5 Nov 2026 07:52:13 +0000
-Subject: [PATCH 3/4] Link: survive dropped connections; safe exits when the
+Subject: [PATCH 3/5] Link: survive dropped connections; safe exits when the
  partner is gone
 
 - The friend meeting sends each side's number back, so leftovers from an
@@ -2141,7 +2141,7 @@ index 43649c3..cb44231 100644
 From ec97d1243ffc204ac08cb1d50f9c80fb762a613f Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Wed, 11 Nov 2026 06:03:52 +0000
-Subject: [PATCH 4/4] Link: say in the log whether the link fixes are on for
+Subject: [PATCH 4/5] Link: say in the log whether the link fixes are on for
  the game (with the core version)
 
 ---
@@ -2174,6 +2174,326 @@ index 9647a4c..ba68005 100644
  }
  #endif
  
+-- 
+2.43.0
+
+
+From a6469bb99d93b160c2aef9caf67faa9542154503 Mon Sep 17 00:00:00 2001
+From: eeatminds <12shreyas86@gmail.com>
+Date: Sat, 14 Nov 2026 05:54:21 +0000
+Subject: [PATCH 5/5] Link: whole-block exchanges, friend meeting and menu swap
+ for Red, Blue and Yellow
+
+Pokemon Red, Blue and Yellow get the same network fixes as Gold, Silver and
+Crystal, at the spots the Virtual Console's wireless version hooked: the three
+Serial_ExchangeBytes calls of the party swap go across as blocks,
+Serial_SyncAndExchangeNybble and the battle's move swap wait for one message,
+and the Cable Club receptionist's 1.5 s connection wait becomes the friend
+meeting (up to half a minute). New: the Trade Center / Colosseum menu's
+choice swap goes across in one message, so button presses aren't missed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PZdcJ5Msn5QruFvcFc3jaN
+---
+ libgambatte/include/gambatte.h    |  5 ++-
+ libgambatte/libretro/libretro.cpp | 64 ++++++++++++++++++++++++++-----
+ libgambatte/src/cpu.cpp           | 43 +++++++++++++++++++--
+ libgambatte/src/cpu.h             | 21 +++++++++-
+ libgambatte/src/gambatte.cpp      |  8 +++-
+ 5 files changed, 124 insertions(+), 17 deletions(-)
+
+diff --git a/libgambatte/include/gambatte.h b/libgambatte/include/gambatte.h
+index 55cd309..94414fa 100644
+--- a/libgambatte/include/gambatte.h
++++ b/libgambatte/include/gambatte.h
+@@ -101,7 +101,10 @@ public:
+ 
+ 	/** The link friend hook (see CPU::setLinkFriendHook); entry 0 turns it off. */
+ 	void setLinkFriendHook(unsigned bank, unsigned short entry, unsigned short connectionStatus,
+-	                       unsigned short scriptVar);
++	                       unsigned short scriptVar, unsigned short metPc = 0, unsigned short failPc = 0);
++
++	/** The link menu hook (see CPU::setLinkMenuHook); entry 0 turns it off. */
++	void setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive);
+ 
+ 	/** The link battle hook (see CPU::setLinkBattleHook); entry 0 turns it off. */
+ 	void setLinkBattleHook(unsigned bank, unsigned short entry, unsigned short playerAction,
+diff --git a/libgambatte/libretro/libretro.cpp b/libgambatte/libretro/libretro.cpp
+index ba68005..6b9459b 100644
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -2134,8 +2134,20 @@ struct link_block_game
+    unsigned short battle_wait, link_transfer, battle_action;
+    /* WaitForLinkedFriend (bank $0A), and where it says which side drives and whether it worked. */
+    unsigned short wait_for_friend, connection_status, script_var;
++   /* Red, Blue and Yellow: three block calls (0: four), all in [bank] (0: $0A) with the friend
++    * wait, which is a loop starting "ldh a, [friend_ldh]" inside the receptionist's routine:
++    * the game goes on at friend_met or friend_fail. */
++   unsigned char hook_count;
++   unsigned char bank;
++   unsigned char friend_ldh;
++   unsigned short friend_met, friend_fail;
++   /* Serial_ExchangeLinkMenuSelection (home bank) and its send and receive buffers. */
++   unsigned short menu_exchange, menu_send, menu_receive;
+ };
+ 
++#define MENU_RB 0x2247, 0xCC42, 0xCC3D
++#define MENU_Y 0x20A3, 0xCC42, 0xCC3D
++
+ static const struct link_block_game link_block_games[] = {
+    { "PM_CRYSTAL",  "BYTE", 0x075F, 0x43F2, { 0x41C9, 0x41D8, 0x41E7, 0x41FA },
+      0x087D, 0xCF56, 0xCF52, 0xCF51, 0xCF5B,
+@@ -2149,11 +2161,28 @@ static const struct link_block_game link_block_games[] = {
+      0x082E, 0xCE56, 0xCE52, 0xCE51, 0xCE5B,
+      0x0F, 0x6728, 0x0872, 0xCE52,
+      0x5B4B, 0xFFCD, 0xD173 },
++   /* Red and Blue (English): CableClub_DoBattleOrTradeAgain's three Serial_ExchangeBytes calls,
++    * Serial_SyncAndExchangeNybble, LinkBattleExchangeData's first loop and CableClubNPC's
++    * connection loop (the spots the Virtual Console's wireless version hooked). */
++   { "POKEMON RED", NULL, 0x216F, 0, { 0x53E2, 0x53F1, 0x5400 },
++     0x227F, 0xCC42, 0xCC3E, 0xCC3D, 0xCC47,
++     0x0F, 0x563B, 0x22C3, 0xCC3E,
++     0x71EB, 0xFFAA, 0,
++     3, 0x01, 0xAA, 0x721A, 0x7287, MENU_RB },
++   { "POKEMON BLUE", NULL, 0x216F, 0, { 0x53E2, 0x53F1, 0x5400 },
++     0x227F, 0xCC42, 0xCC3E, 0xCC3D, 0xCC47,
++     0x0F, 0x563B, 0x22C3, 0xCC3E,
++     0x71EB, 0xFFAA, 0,
++     3, 0x01, 0xAA, 0x721A, 0x7287, MENU_RB },
++   { "POKEMON YELLOW", NULL, 0x1FCB, 0, { 0x5472, 0x5481, 0x5490 },
++     0x20DB, 0xCC42, 0xCC3E, 0xCC3D, 0xCC47,
++     0x0F, 0x57AD, 0x211F, 0xCC3E,
++     0x7060, 0xFFAA, 0,
++     3, 0x01, 0xAA, 0x708F, 0x70FC, MENU_Y },
+ };
+ 
+ static void apply_link_block_hooks(void)
+ {
+-   const unsigned bank = 0x0A;
+    const unsigned char *rom = (const unsigned char*)gb.rombank0_ptr();
+    size_t i;
+ 
+@@ -2161,20 +2190,24 @@ static void apply_link_block_hooks(void)
+    gb.setLinkSyncHook(0, 0, 0, 0, 0);
+    gb.setLinkBattleHook(0, 0, 0, 0, 0);
+    gb.setLinkFriendHook(0, 0, 0, 0);
+-   if (gb_serialMode == SERIAL_NONE || !rom || link_rom_size < (bank + 1) * 0x4000)
++   gb.setLinkMenuHook(0, 0, 0);
++   if (gb_serialMode == SERIAL_NONE || !rom || link_rom_size < 0x150)
+       return;
+ 
+    for (i = 0; i < sizeof(link_block_games) / sizeof(link_block_games[0]); i++)
+    {
+       const struct link_block_game *game = &link_block_games[i];
+       size_t title_len = strlen(game->title);
++      unsigned const bank = game->bank ? game->bank : 0x0A;
++      unsigned const hook_count = game->hook_count ? game->hook_count : 4;
+       unsigned h;
+-      bool ok = memcmp(rom + 0x134, game->title, title_len) == 0
++      bool ok = link_rom_size >= (bank + 1) * 0x4000
++             && memcmp(rom + 0x134, game->title, title_len) == 0
+              && (title_len == 11 || rom[0x134 + title_len] == 0)
+-             && memcmp(rom + 0x13F, game->code, 4) == 0;
++             && (!game->code || memcmp(rom + 0x13F, game->code, 4) == 0);
+ 
+       /* Each hook must be exactly the expected call in this ROM. */
+-      for (h = 0; ok && h < 4; h++)
++      for (h = 0; ok && h < hook_count; h++)
+       {
+          const unsigned char *at = rom + bank * 0x4000 + (game->hooks[h] - 0x4000);
+          unsigned target = at[1] | (at[2] << 8);
+@@ -2197,19 +2230,32 @@ static void apply_link_block_hooks(void)
+            && loop[0] == 0xCD && (loop[1] | (loop[2] << 8)) == game->link_transfer;
+       }
+ 
+-      /* WaitForLinkedFriend starts "ld a, [wPlayerLinkAction]". */
++      /* WaitForLinkedFriend starts "ld a, [wPlayerLinkAction]"; Gen 1's connection loop starts
++       * "ldh a, [hSerialConnectionStatus]". */
+       if (ok)
+       {
+          const unsigned char *wait = rom + bank * 0x4000 + (game->wait_for_friend - 0x4000);
+-         ok = wait[0] == 0xFA && (wait[1] | (wait[2] << 8)) == game->player_action;
++         ok = game->friend_ldh
++            ? wait[0] == 0xF0 && wait[1] == game->friend_ldh
++            : wait[0] == 0xFA && (wait[1] | (wait[2] << 8)) == game->player_action;
++      }
++
++      /* Serial_ExchangeLinkMenuSelection starts "ld hl, wLinkMenuSelectionSendBuffer". */
++      if (ok && game->menu_exchange)
++      {
++         const unsigned char *menu = rom + game->menu_exchange;
++         ok = menu[0] == 0x21 && (menu[1] | (menu[2] << 8)) == game->menu_send;
+       }
+ 
+       if (ok)
+       {
+-         gb.setLinkBlockHooks(bank, game->hooks, 4);
+-         gb.setLinkFriendHook(bank, game->wait_for_friend, game->connection_status, game->script_var);
++         gb.setLinkBlockHooks(bank, game->hooks, hook_count);
++         gb.setLinkFriendHook(bank, game->wait_for_friend, game->connection_status, game->script_var,
++               game->friend_met, game->friend_fail);
+          gb.setLinkBattleHook(game->battle_bank, game->battle_wait, game->player_action,
+                game->other_action, game->battle_action);
++         if (game->menu_exchange)
++            gb.setLinkMenuHook(game->menu_exchange, game->menu_send, game->menu_receive);
+          gb.setLinkSyncHook(game->wait_link_transfer, game->player_action, game->other_action,
+                game->other_mode, game->timeout_frames);
+          gambatte_log(RETRO_LOG_INFO, "[link] link fixes on for %s (core v0.5.0-netlink%s)\n", game->title, GIT_VERSION);
+diff --git a/libgambatte/src/cpu.cpp b/libgambatte/src/cpu.cpp
+index d4232bf..a82e15d 100644
+--- a/libgambatte/src/cpu.cpp
++++ b/libgambatte/src/cpu.cpp
+@@ -61,6 +61,11 @@ CPU::CPU()
+ , linkFriendEntry_(0)
+ , linkConnectionStatus_(0)
+ , linkScriptVar_(0)
++, linkFriendMetPc_(0)
++, linkFriendFailPc_(0)
++, linkMenuEntry_(0)
++, linkMenuSend_(0)
++, linkMenuReceive_(0)
+ , linkFriendNonce_(0)
+ , linkFriendTheirs_(0)
+ , linkFriendStartedAt_(0)
+@@ -517,6 +522,7 @@ static unsigned char const LINK_KIND_BLOCK = 1;
+ static unsigned char const LINK_KIND_SYNC = 2;
+ static unsigned char const LINK_KIND_BATTLE = 3;
+ static unsigned char const LINK_KIND_FRIEND = 4;
++static unsigned char const LINK_KIND_MENU = 5;
+ 
+ // How long the friend hook waits for the partner to turn up.
+ static long long const LINK_FRIEND_WAIT_MS = 30000;
+@@ -661,6 +667,29 @@ bool CPU::runLinkSyncHook(unsigned short &pc, unsigned long &cycleCounter) {
+ 	return true;
+ }
+ 
++bool CPU::runLinkMenuHook(unsigned short &pc, unsigned long &cycleCounter) {
++#ifdef HAVE_NETWORK
++	unsigned char out[3] = { LINK_KIND_MENU, mem_.read(linkMenuSend_, cycleCounter), mem_.read((linkMenuSend_ + 1) & 0xFFFF, cycleCounter) };
++	std::vector<unsigned char> in;
++	int const step = mem_.exchangeLinkBlockStep(out, 3, in, LINK_WAIT_MS);
++	if (step == SerialIO::LINK_BLOCK_WAITING)
++		return false;
++	unsigned char first, second;
++	if (step == SerialIO::LINK_BLOCK_DONE && in.size() == 3 && in[0] == LINK_KIND_MENU) {
++		first = in[1];
++		second = in[2];
++	} else {
++		// The partner is gone: they pressed B on CANCEL, so the menu closes the link.
++		first = second = 0xDA;
++		linkLog("menu: the other player is gone");
++	}
++	mem_.write(linkMenuReceive_, first, cycleCounter);
++	mem_.write((linkMenuReceive_ + 1) & 0xFFFF, second, cycleCounter);
++	returnFromRoutine(pc, cycleCounter);
++#endif
++	return true;
++}
++
+ bool CPU::runLinkBattleHook(unsigned short &pc, unsigned long &cycleCounter) {
+ #ifdef HAVE_NETWORK
+ 	unsigned char out[2] = { LINK_KIND_BATTLE, (unsigned char) (mem_.read(linkBattlePlayerAction_, cycleCounter) & 0x0F) };
+@@ -738,12 +767,15 @@ bool CPU::runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter) {
+ 	linkFriendNonce_ = 0;
+ 	linkLog("friend %s (%lu vs %lu)", met ? (ours < theirs ? "met, we drive" : "met, they drive")
+ 	        : gone ? "is gone" : "didn't come", ours, theirs);
+-	if (met) {
++	if (met)
+ 		mem_.write(linkConnectionStatus_, ours < theirs ? 2 : 1, cycleCounter);
+-		mem_.write(linkScriptVar_, 1, cycleCounter);
+-	} else {
+-		mem_.write(linkScriptVar_, 0, cycleCounter);
++	if (linkFriendMetPc_ != 0) {
++		// The wait is a loop inside the routine: go on where the game would.
++		pc = met ? linkFriendMetPc_ : linkFriendFailPc_;
++		cycleCounter += 40;
++		return true;
+ 	}
++	mem_.write(linkScriptVar_, met ? 1 : 0, cycleCounter);
+ 	returnFromRoutine(pc, cycleCounter);
+ #endif
+ 	return true;
+@@ -792,6 +824,9 @@ void CPU::process(unsigned long const cycles) {
+ 				} else if (pc == linkFriendEntry_ && linkFriendEntry_ != 0 && mem_.isRomBank(linkFriendBank_)) {
+ 					hooked = true;
+ 					done = runLinkFriendHook(pc, cycleCounter);
++				} else if (pc == linkMenuEntry_ && linkMenuEntry_ != 0) {
++					hooked = true;
++					done = runLinkMenuHook(pc, cycleCounter);
+ 				}
+ 				if (hooked) {
+ 					if (!done)
+diff --git a/libgambatte/src/cpu.h b/libgambatte/src/cpu.h
+index c52c7a8..9a1069a 100644
+--- a/libgambatte/src/cpu.h
++++ b/libgambatte/src/cpu.h
+@@ -119,13 +119,29 @@ public:
+ 	 * other's number sent back, so nothing left from an earlier try can pass for the partner:
+ 	 * the lower number drives the cable ([connectionStatus] = internal clock, 2), the other
+ 	 * follows (1), and [scriptVar] says it worked (1) or not (0); then the routine returns.
++	 * Games whose wait is a loop inside a longer routine (Red, Blue and Yellow) give [metPc] and
++	 * [failPc] instead: where the game goes on once the friend is there, or not (no [scriptVar]).
+ 	 */
+ 	void setLinkFriendHook(unsigned bank, unsigned short entry, unsigned short connectionStatus,
+-	                       unsigned short scriptVar) {
++	                       unsigned short scriptVar, unsigned short metPc = 0, unsigned short failPc = 0) {
+ 		linkFriendBank_ = bank;
+ 		linkFriendEntry_ = entry;
+ 		linkConnectionStatus_ = connectionStatus;
+ 		linkScriptVar_ = scriptVar;
++		linkFriendMetPc_ = metPc;
++		linkFriendFailPc_ = failPc;
++	}
++
++	/**
++	 * Link menu hook (Red, Blue and Yellow): the routine in the home bank at [entry] that swaps
++	 * the two players' Trade Center / Colosseum menu choice ([send], 2 bytes) byte by byte, each
++	 * byte a network round trip, so the menu misses most button presses. Instead the two bytes
++	 * go across at once and the partner's go to [receive]; then the routine returns.
++	 */
++	void setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive) {
++		linkMenuEntry_ = entry;
++		linkMenuSend_ = send;
++		linkMenuReceive_ = receive;
+ 	}
+ 
+ 	void setSerialIO(SerialIO *serial_io) {
+@@ -177,6 +193,8 @@ private:
+ 	unsigned short linkBattlePlayerAction_, linkBattleOtherAction_, linkBattleAction_;
+ 	unsigned linkFriendBank_;
+ 	unsigned short linkFriendEntry_, linkConnectionStatus_, linkScriptVar_;
++	unsigned short linkFriendMetPc_, linkFriendFailPc_;
++	unsigned short linkMenuEntry_, linkMenuSend_, linkMenuReceive_;
+ 	// The friend hook's meeting: our number (0 = none going on), the partner's latest, when
+ 	// it started (ms), and whether the partner should hear from us again.
+ 	unsigned long linkFriendNonce_;
+@@ -198,6 +216,7 @@ private:
+ 	bool runLinkSyncHook(unsigned short &pc, unsigned long &cycleCounter);
+ 	bool runLinkBattleHook(unsigned short &pc, unsigned long &cycleCounter);
+ 	bool runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter);
++	bool runLinkMenuHook(unsigned short &pc, unsigned long &cycleCounter);
+ 	void returnFromRoutine(unsigned short &pc, unsigned long &cycleCounter);
+ 
+ 	void process(unsigned long cycles);
+diff --git a/libgambatte/src/gambatte.cpp b/libgambatte/src/gambatte.cpp
+index 92adcdb..4694f84 100644
+--- a/libgambatte/src/gambatte.cpp
++++ b/libgambatte/src/gambatte.cpp
+@@ -97,8 +97,12 @@ void GB::setLinkBlockHooks(unsigned bank, unsigned short const *addresses, unsig
+ }
+ 
+ void GB::setLinkFriendHook(unsigned bank, unsigned short entry, unsigned short connectionStatus,
+-                           unsigned short scriptVar) {
+-	p_->cpu.setLinkFriendHook(bank, entry, connectionStatus, scriptVar);
++                           unsigned short scriptVar, unsigned short metPc, unsigned short failPc) {
++	p_->cpu.setLinkFriendHook(bank, entry, connectionStatus, scriptVar, metPc, failPc);
++}
++
++void GB::setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive) {
++	p_->cpu.setLinkMenuHook(entry, send, receive);
+ }
+ 
+ void GB::setLinkBattleHook(unsigned bank, unsigned short entry, unsigned short playerAction,
 -- 
 2.43.0
 
