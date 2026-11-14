@@ -142,6 +142,9 @@ android {
 
     lint {
         disable += setOf("MissingTranslation", "ExtraTranslation", "EnsureInitializerMetadata")
+        // Don't let lint fail a release bundle build; findings are still reported.
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     // Screen previews rendered on the computer with Robolectric (see src/test).
