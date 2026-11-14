@@ -852,7 +852,7 @@ header p{color:var(--muted);margin:0;max-width:64ch}
 ${families}
 <section class="how"><h2>How to play</h2><ol>
 <li>Add your game in ${appName}.</li>
-<li>Open <b>Same World</b>, create a room and send your friend the room code.</li>
+<li>Open the <b>Online</b> tab, choose <b>Multiplayer</b>, create a room and send your friend the room code.</li>
 <li>Find each other on the map: the room shows where everyone is.</li>
 <li>Walk up to your friend, press <b>A</b> and pick <b>Trade</b> or <b>Battle</b>. They press <b>A</b> to accept and it starts right there.</li>
 </ol></section>

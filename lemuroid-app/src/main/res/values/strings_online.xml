@@ -1,16 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_online">Online</string>
-    <string name="title_same_world">Connect in Same World</string>
-    <string name="title_same_world_short">Same World</string>
+    <string name="title_multiplayer">Multiplayer</string>
 
-    <string name="world_intro_title">Adventure together in the same world</string>
-    <string name="world_intro_message">Everyone plays their own copy of the same Pokémon game. You see each other walking on the map, and when you meet, walk up and press A to trade or battle right there.</string>
+    <!-- The two ways to play with friends, chosen at the top of the Online tab. -->
+    <string name="mode_choose">How do you want to play?</string>
+    <string name="mode_online_title">Online</string>
+    <string name="mode_online_subtitle">Trade &amp; battle at the Pokémon Center</string>
+    <string name="mode_multiplayer_title">Multiplayer</string>
+    <string name="mode_multiplayer_subtitle">Join your friend\'s world</string>
+
+    <string name="world_intro_title">Multiplayer: join your friend\'s world</string>
+    <string name="world_intro_message">You enter the host\'s world and see each other walking on the map. Walk up to a player and press A to trade or battle right there: no Pokémon Center needed.</string>
+    <string name="world_intro_point_1">Everyone needs a Pokémon game (for example Crystal with Gold, or FireRed with LeafGreen).</string>
+    <string name="world_intro_point_2">Close the game to go back to your own world. Pokémon you trade come with you.</string>
     <string name="world_host_description">Your friends need the same game (for example Crystal with Crystal, or Gold with Silver). Up to 8 players.</string>
     <string name="world_no_games">Add a Pokémon Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed or LeafGreen game to your library first.</string>
 
-    <string name="online_intro_title">Play together online</string>
-    <string name="online_intro_message">Play multiplayer games with friends over the internet, or link Game Boy, Game Boy Color and Game Boy Advance games to trade and battle. Each player needs their own copy of the game.</string>
+    <string name="online_intro_title">Online: trade &amp; battle at the Pokémon Center</string>
+    <string name="online_intro_message">Just like the original games with a link cable: everyone stays in their own world. Walk into a Pokémon Center and talk to the link desk attendant to trade or battle.</string>
+    <string name="online_intro_point_1">Works with Game Boy, Game Boy Color and Game Boy Advance games. Each player needs their own copy.</string>
+    <string name="online_intro_point_2">Also play other games together, as if you were on the same console.</string>
 
     <string name="online_server_missing_title">Online server not set up</string>
     <string name="online_server_missing_message">Add the address of your room server to start playing online.</string>

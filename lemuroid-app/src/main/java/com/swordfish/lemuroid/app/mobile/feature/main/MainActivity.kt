@@ -1,5 +1,10 @@
 package com.swordfish.lemuroid.app.mobile.feature.main
 
+import com.swordfish.lemuroid.app.mobile.feature.online.PlayModePicker
+import com.swordfish.lemuroid.app.mobile.feature.online.PlayMode
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
@@ -330,51 +335,58 @@ class MainActivity : RetrogradeComponentActivity(), BusyActivity {
                         )
                     }
                     composable(MainRoute.ONLINE) {
+                        // One tab, two ways to play: Online (link at the Pokémon Center, as in the
+                        // original games) and Multiplayer (join the host's world, trade where you meet).
                         val onlineViewModel: OnlineViewModel =
                             viewModel(factory = OnlineViewModel.Factory(applicationContext, retrogradeDb))
+                        val multiplayerViewModel: OnlineViewModel =
+                            viewModel(key = "sameWorld", factory = OnlineViewModel.Factory(applicationContext, retrogradeDb, sameWorld = true))
+                        var mode by rememberSaveable { mutableStateOf(PlayMode.ONLINE) }
                         LaunchedEffect(inviteCode) {
                             if (inviteCode != null) {
+                                mode = PlayMode.ONLINE
                                 onlineViewModel.openInvite(inviteCode)
                                 pendingInviteCode.value = null
                             }
                         }
-                        OnlineScreen(
-                            modifier = Modifier.padding(padding),
-                            viewModel = onlineViewModel,
-                            onHostLink = { game, mode, isPublic, playerName, serverUrl ->
-                                onlineGameLauncher.hostLink(this@MainActivity, game, mode, isPublic, playerName, serverUrl)
-                            },
-                            onHostNetplay = { game, delay, isPublic, playerName, serverUrl ->
-                                onlineGameLauncher.hostNetplay(this@MainActivity, game, delay, isPublic, playerName, serverUrl)
-                            },
-                            onJoin = { game, room, playerName, serverUrl ->
-                                onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
-                            },
-                        )
-                    }
-                    composable(MainRoute.SAME_WORLD) {
-                        // Rooms where everyone shares the map, talks, and trades or battles where they meet.
-                        val worldViewModel: OnlineViewModel =
-                            viewModel(key = "sameWorld", factory = OnlineViewModel.Factory(applicationContext, retrogradeDb, sameWorld = true))
-                        OnlineScreen(
-                            modifier = Modifier.padding(padding),
-                            viewModel = worldViewModel,
-                            onHostLink = { game, _, isPublic, playerName, serverUrl ->
-                                onlineGameLauncher.hostLink(
-                                    this@MainActivity,
-                                    game,
-                                    LinkMode.LINK_CABLE,
-                                    isPublic,
-                                    playerName,
-                                    serverUrl,
-                                    sameWorld = true,
-                                )
-                            },
-                            onHostNetplay = { _, _, _, _, _ -> },
-                            onJoin = { game, room, playerName, serverUrl ->
-                                onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
-                            },
-                        )
+                        val modePicker: @Composable () -> Unit = { PlayModePicker(mode, onModeChange = { mode = it }) }
+                        if (mode == PlayMode.ONLINE) {
+                            OnlineScreen(
+                                modifier = Modifier.padding(padding),
+                                viewModel = onlineViewModel,
+                                header = modePicker,
+                                onHostLink = { game, linkMode, isPublic, playerName, serverUrl ->
+                                    onlineGameLauncher.hostLink(this@MainActivity, game, linkMode, isPublic, playerName, serverUrl)
+                                },
+                                onHostNetplay = { game, delay, isPublic, playerName, serverUrl ->
+                                    onlineGameLauncher.hostNetplay(this@MainActivity, game, delay, isPublic, playerName, serverUrl)
+                                },
+                                onJoin = { game, room, playerName, serverUrl ->
+                                    onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
+                                },
+                            )
+                        } else {
+                            OnlineScreen(
+                                modifier = Modifier.padding(padding),
+                                viewModel = multiplayerViewModel,
+                                header = modePicker,
+                                onHostLink = { game, _, isPublic, playerName, serverUrl ->
+                                    onlineGameLauncher.hostLink(
+                                        this@MainActivity,
+                                        game,
+                                        LinkMode.LINK_CABLE,
+                                        isPublic,
+                                        playerName,
+                                        serverUrl,
+                                        sameWorld = true,
+                                    )
+                                },
+                                onHostNetplay = { _, _, _, _, _ -> },
+                                onJoin = { game, room, playerName, serverUrl ->
+                                    onlineGameLauncher.join(this@MainActivity, game, room, playerName, serverUrl)
+                                },
+                            )
+                        }
                     }
                     composable(MainRoute.SYSTEMS) {
                         MetaSystemsScreen(

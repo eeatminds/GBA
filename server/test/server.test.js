@@ -383,7 +383,7 @@ test('the games page lists the games players can trade and battle in, and the ho
   const page = await fetch(`http://${base}/games`);
   assert.equal(page.status, 200);
   const html = await page.text();
-  for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Same World']) assert.ok(html.includes(name), name);
+  for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Multiplayer']) assert.ok(html.includes(name), name);
   for (const name of ['FireRed', 'LeafGreen', 'Ruby', 'Sapphire', 'Emerald', 'See each other in Kanto', 'See each other in Hoenn']) {
     assert.ok(html.includes(name), name);
   }

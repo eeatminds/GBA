@@ -5,12 +5,10 @@ import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideogameAsset
-import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Search
@@ -63,10 +61,6 @@ enum class MainRoute(
     ONLINE(
         route = "online",
         titleId = R.string.title_online,
-    ),
-    SAME_WORLD(
-        route = "sameworld",
-        titleId = R.string.title_same_world,
     ),
     SYSTEM_GAMES(
         route = "systems/{metaSystemId}",
@@ -132,5 +126,4 @@ enum class MainNavigationRoutes(
 ) {
     HOME(MainRoute.HOME, R.string.title_home, Icons.Filled.Home, Icons.Outlined.Home),
     ONLINE(MainRoute.ONLINE, R.string.title_online, Icons.Filled.Public, Icons.Outlined.Public),
-    SAME_WORLD(MainRoute.SAME_WORLD, R.string.title_same_world_short, Icons.Filled.Groups, Icons.Outlined.Groups),
 }

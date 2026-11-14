@@ -21,6 +21,16 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -82,6 +92,7 @@ fun OnlineScreen(
     onHostLink: (game: Game, mode: LinkMode, isPublic: Boolean, playerName: String, serverUrl: String) -> Unit,
     onHostNetplay: (game: Game, delay: InputDelay, isPublic: Boolean, playerName: String, serverUrl: String) -> Unit,
     onJoin: (game: Game, room: RoomInfo, playerName: String, serverUrl: String) -> Unit,
+    header: (@Composable () -> Unit)? = null,
 ) {
     val sameWorld = viewModel.sameWorld
     val state by viewModel.state.collectAsState()
@@ -114,6 +125,7 @@ fun OnlineScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (header != null) item { header() }
         item { IntroCard(sameWorld) }
 
         if (!state.serverConfigured) {
@@ -277,6 +289,103 @@ private fun IntroCard(sameWorld: Boolean) {
                 text = stringResource(if (sameWorld) R.string.world_intro_message else R.string.online_intro_message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            val points =
+                if (sameWorld) {
+                    listOf(R.string.world_intro_point_1, R.string.world_intro_point_2)
+                } else {
+                    listOf(R.string.online_intro_point_1, R.string.online_intro_point_2)
+                }
+            points.forEach { point ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("•", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(
+                        text = stringResource(point),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The two ways to play with friends, both in the Online tab. */
+enum class PlayMode {
+    // Each player in their own world; trade and battle at the Pokémon Center's link desk.
+    ONLINE,
+
+    // Guests join the host's world; trade and battle where you meet.
+    MULTIPLAYER,
+}
+
+/** Two big cards side by side: what each mode is, in a few words; the chosen one is highlighted. */
+@Composable
+fun PlayModePicker(
+    mode: PlayMode,
+    onModeChange: (PlayMode) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.mode_choose),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            PlayModeCard(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                selected = mode == PlayMode.ONLINE,
+                icon = Icons.Filled.SwapHoriz,
+                title = stringResource(R.string.mode_online_title),
+                subtitle = stringResource(R.string.mode_online_subtitle),
+                onClick = { onModeChange(PlayMode.ONLINE) },
+            )
+            PlayModeCard(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                selected = mode == PlayMode.MULTIPLAYER,
+                icon = Icons.Filled.Groups,
+                title = stringResource(R.string.mode_multiplayer_title),
+                subtitle = stringResource(R.string.mode_multiplayer_subtitle),
+                onClick = { onModeChange(PlayMode.MULTIPLAYER) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayModeCard(
+    modifier: Modifier,
+    selected: Boolean,
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    OutlinedCard(
+        modifier = modifier.selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) colors.primary else colors.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(containerColor = if (selected) colors.secondaryContainer else colors.surface),
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = if (selected) colors.primary else colors.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(20.dp))
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (selected) colors.onSecondaryContainer else colors.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
             )
         }
     }
