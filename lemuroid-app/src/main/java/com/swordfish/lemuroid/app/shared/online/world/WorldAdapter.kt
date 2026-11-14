@@ -126,20 +126,13 @@ enum class Facing(val dx: Int, val dy: Int) {
     RIGHT(1, 0),
 }
 
-/** The name of each shared world, as players know their games. */
+/** Shared worlds. Game titles are never shown: players only see "another game". */
 object Worlds {
     // A player whose game can't be shown on the map still says so, for the Players panel.
     const val NONE = "none"
 
-    fun gameName(world: String): String? =
-        when (world) {
-            "johto-c" -> "Pokémon Crystal"
-            "johto-gs" -> "Pokémon Gold / Silver"
-            "hoenn-e" -> "Pokémon Emerald"
-            "hoenn-rs" -> "Pokémon Ruby / Sapphire"
-            "kanto-frlg" -> "Pokémon FireRed / LeafGreen"
-            else -> null
-        }
+    @Suppress("UNUSED_PARAMETER")
+    fun gameName(world: String): String? = null
 }
 
 /** "NEW BARK TOWN" -> "New Bark Town", "MT. MOON" -> "Mt. Moon", "ROUTE 29" stays readable. */

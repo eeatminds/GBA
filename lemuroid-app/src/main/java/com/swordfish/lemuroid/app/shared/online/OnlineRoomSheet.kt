@@ -278,9 +278,8 @@ private fun PlayerRow(
 /** Our game and where we are. */
 @Composable
 private fun ourPlaceText(world: WorldSession): String {
-    val game = Worlds.gameName(world.adapter.world) ?: return stringResource(R.string.online_game_not_shown)
-    val place = world.ourPlace() ?: return game
-    return stringResource(R.string.online_place_you, game, place)
+    if (world.adapter == NoWorld) return stringResource(R.string.online_game_not_shown)
+    return world.ourPlace() ?: stringResource(R.string.online_place_this_map)
 }
 
 /** Where another player is, and why they may not be on our screen. */
