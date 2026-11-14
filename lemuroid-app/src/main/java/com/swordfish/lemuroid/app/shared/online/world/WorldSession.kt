@@ -35,23 +35,43 @@ class WorldSession(
     private val onEmulator: (() -> Unit) -> Unit = { it() },
 ) {
     /**
-     * Another player's recent positions, played back a little behind real time ([PLAYBACK_DELAY_MS])
-     * so their walk stays smooth when messages arrive unevenly.
+     * Another player's recent positions, played back a little behind real time so their walk looks
+     * exactly as it did in their own game, however unevenly the messages arrive.
      *
-     * Messages carry no time, so each one gets a playback time: the sender reads its game at a
-     * steady pace, so while they move, one more interval after the previous message (never later
-     * than when it arrived, nor far before); after a pause, when it arrived.
+     * Each message carries when the sender read its game (its own clock). We learn how far apart our
+     * clocks and the network are from the fastest recent message ([Sync.offset]), and how much later
+     * than that messages usually come (the jitter buffer). Every frame shows where they were at
+     * (now - [Sync.lag]) on their clock, between the two positions around it. The lag only ever eases
+     * towards offset + buffer a few milliseconds per message, so playback never jumps or runs back.
+     *
+     * Messages from older app versions carry no time: we guess one from when they arrive.
      */
     class Remote private constructor(
         private val samples: List<Sample>,
-        private val interval: Float,
+        private val sync: Sync,
     ) {
+        /** [time]: the sender's clock when it read its game. */
         class Sample(val avatar: Avatar, val time: Long)
+
+        /** How our clock maps to the sender's, and how far behind we play back. */
+        class Sync(
+            // (arrival, arrival - sent) of recent messages.
+            val transits: List<Pair<Long, Long>> = emptyList(),
+            val offset: Long = 0,
+            // Our time minus the sender's time shown now.
+            val lag: Float = PLAYBACK_DELAY_MS.toFloat(),
+            // For messages without a send time: the sender's pace, learned while they kept moving.
+            val interval: Float = TICK_MS.toFloat(),
+        )
 
         val current: Avatar get() = samples.last().avatar
 
-        /** Where to draw them at playback time [time] (milliseconds, [SystemClock.uptimeMillis] based). */
-        fun at(time: Long): Avatar {
+        /** How far behind real time they are shown now, in milliseconds. */
+        val playbackDelay: Long get() = sync.lag.roundToLong() - sync.offset
+
+        /** Where to draw them at our time [now] (milliseconds, [SystemClock.uptimeMillis] based). */
+        fun at(now: Long): Avatar {
+            val time = now - sync.lag.roundToLong()
             val next = samples.indexOfFirst { it.time > time }
             if (next == -1) return current
             if (next == 0) return samples[0].avatar
@@ -66,33 +86,78 @@ class WorldSession(
             )
         }
 
-        /** These positions plus [avatar], which arrived at [now]. */
+        /** These positions plus [avatar], which arrived at [now] (our clock), read at [sentAt] (theirs). */
         fun with(
+            avatar: Avatar,
+            now: Long,
+            sentAt: Long? = null,
+        ): Remote {
+            val last = samples.last()
+            if (sentAt == null) return withoutSendTime(avatar, now)
+            // An old message overtaken by a newer one: nothing to add.
+            if (sentAt <= last.time) return this
+
+            // Clock offset: the fastest recent message; jitter: how much later the others came.
+            val transits = (sync.transits + (now to now - sentAt)).filter { it.first >= now - SYNC_WINDOW_MS }
+            val offset = transits.minOf { it.second }
+            val late = transits.map { it.second - offset }.sorted()
+            val usualLate = late[((late.size - 1) * 0.9f).roundToInt()]
+            // One send interval behind the newest message, plus room for the usual lateness.
+            val target = (usualLate + TICK_MS + 15).coerceIn(MIN_DELAY_MS, MAX_DELAY_MS).toFloat()
+            // Ease towards it a few milliseconds per message: playback speed changes too little to
+            // see. Far too close to the newest message (it would stop), catch up faster.
+            val wanted = offset + target
+            val step =
+                when {
+                    wanted - sync.lag > 100 -> 20f
+                    wanted > sync.lag -> 6f
+                    else -> 2f
+                }
+            val lag = sync.lag + (wanted - sync.lag).coerceIn(-step, step)
+
+            val kept = samples.filter { it.time >= sentAt - HISTORY_MS }.takeLast(MAX_SAMPLES - 2)
+            // They stood still until just before this: don't slide across the pause.
+            val hold = if (sentAt - last.time > PAUSE_MS) listOf(Sample(last.avatar, sentAt - TICK_MS)) else emptyList()
+            return Remote(kept + hold + Sample(avatar, sentAt), Sync(transits, offset, lag, sync.interval))
+        }
+
+        // Older app versions: guess the read time from when messages arrive.
+        private fun withoutSendTime(
             avatar: Avatar,
             now: Long,
         ): Remote {
             val last = samples.last()
             val gap = now - last.time
-            val moving = gap < PAUSE_MS
-            // The sender's pace, learned from messages that came while they kept moving.
-            val pace = if (moving && gap > 0) (interval * 0.9f + gap.coerceIn(TICK_MS / 2, TICK_MS * 2) * 0.1f) else interval
-            val time = if (moving) (last.time + pace.roundToLong()).coerceIn(now - MAX_LAG_MS, now) else now
+            val moving = gap < LEGACY_PAUSE_MS
+            val pace = if (moving && gap > 0) (sync.interval * 0.9f + gap.coerceIn(LEGACY_TICK_MS / 2, LEGACY_TICK_MS * 2) * 0.1f) else sync.interval
+            val time = if (moving) (last.time + pace.roundToLong()).coerceIn(now - LEGACY_MAX_LAG_MS, now) else now
             val kept = samples.filter { it.time >= now - HISTORY_MS }.takeLast(MAX_SAMPLES - 2)
-            // After a pause they stood still until one step before this: don't slide across the pause.
-            val hold = if (!moving && now - TICK_MS > last.time) listOf(Sample(last.avatar, now - TICK_MS)) else emptyList()
-            return Remote(kept + hold + Sample(avatar, time.coerceAtLeast(last.time + 1)), pace)
+            val hold = if (!moving && now - LEGACY_TICK_MS > last.time) listOf(Sample(last.avatar, now - LEGACY_TICK_MS)) else emptyList()
+            return Remote(kept + hold + Sample(avatar, time.coerceAtLeast(last.time + 1)), Sync(interval = pace))
         }
 
         companion object {
             fun of(
                 avatar: Avatar,
                 now: Long,
-            ) = Remote(listOf(Sample(avatar, now)), TICK_MS.toFloat())
+                sentAt: Long? = null,
+            ): Remote {
+                if (sentAt == null) return Remote(listOf(Sample(avatar, now)), Sync(interval = LEGACY_TICK_MS.toFloat()))
+                val transit = now - sentAt
+                return Remote(listOf(Sample(avatar, sentAt)), Sync(listOf(now to transit), transit, (transit + PLAYBACK_DELAY_MS).toFloat()))
+            }
 
             private const val PAUSE_MS = TICK_MS * 3
-            private const val MAX_LAG_MS = 100L
             private const val HISTORY_MS = 1_500L
-            private const val MAX_SAMPLES = 24
+            private const val MAX_SAMPLES = 48
+            private const val SYNC_WINDOW_MS = 4_000L
+            private const val MIN_DELAY_MS = 60L
+            private const val MAX_DELAY_MS = 500L
+
+            // Older app versions read the game every 66 ms and sent no time.
+            private const val LEGACY_TICK_MS = 66L
+            private const val LEGACY_PAUSE_MS = LEGACY_TICK_MS * 3
+            private const val LEGACY_MAX_LAG_MS = 100L
         }
     }
 
@@ -219,7 +284,7 @@ class WorldSession(
                     val now = SystemClock.uptimeMillis()
                     val shared = local?.copy(screenX = 0, screenY = 0, covered = false)
                     if (shared != null && (shared != lastSent || now - lastSentAt >= HEARTBEAT_MS)) {
-                        send(message(shared))
+                        send(message(shared).put("ts", now))
                         lastSent = shared
                         lastSentAt = now
                         sentHidden = false
@@ -388,7 +453,8 @@ class WorldSession(
             return
         }
         val now = SystemClock.uptimeMillis()
-        remotes[from] = remotes[from]?.with(avatar, now) ?: Remote.of(avatar, now)
+        val sentAt = if (message.has("ts")) message.optLong("ts") else null
+        remotes[from] = remotes[from]?.with(avatar, now, sentAt) ?: Remote.of(avatar, now, sentAt)
     }
 
     fun onPlayerLeft(id: Int) {
@@ -420,9 +486,9 @@ class WorldSession(
     }
 
     companion object {
-        const val TICK_MS = 66L
+        const val TICK_MS = 33L
 
-        /** Other players are drawn this far behind real time, for smooth playback. */
+        /** How far behind real time other players are drawn at first, before the jitter buffer adapts. */
         const val PLAYBACK_DELAY_MS = 150L
 
         // A queued script runs as soon as the player isn't busy; give up if that takes this long.

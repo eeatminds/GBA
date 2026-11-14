@@ -393,6 +393,8 @@ function relayPresence(state, message) {
     out.m = message.m;
     [out.x, out.y, out.s, out.f, out.h] = numbers;
   }
+  // When the sender read its game (its own clock, milliseconds): others replay its walk at that pace.
+  if (Number.isSafeInteger(message.ts) && message.ts >= 0) out.ts = message.ts;
   const text = JSON.stringify(out);
   for (const other of room.players.values()) {
     if (other.id !== player.id && other.connection && other.connection.readyState === other.connection.OPEN) other.connection.send(text);

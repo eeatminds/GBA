@@ -316,6 +316,11 @@ test('positions in the world go to everyone else in the room', async () => {
   // Hidden (not walking around): just the world.
   a.sendJson({ t: 'pos', w: 'hoenn-e' });
   assert.deepEqual(await b.next(ofType('pos')), { t: 'pos', from: 0, w: 'hoenn-e' });
+  // The send time is passed on; a bad one is dropped.
+  a.sendJson({ t: 'pos', w: 'hoenn-e', m: '0.9', x: 4, y: 8, s: 1, f: 0, h: 0, ts: 123456789012 });
+  assert.deepEqual(await b.next(ofType('pos')), { t: 'pos', from: 0, w: 'hoenn-e', m: '0.9', x: 4, y: 8, s: 1, f: 0, h: 0, ts: 123456789012 });
+  a.sendJson({ t: 'pos', w: 'hoenn-e', m: '0.9', x: 4, y: 8, s: 1, f: 0, h: 0, ts: 'soon' });
+  assert.deepEqual(await b.next(ofType('pos')), { t: 'pos', from: 0, w: 'hoenn-e', m: '0.9', x: 4, y: 8, s: 1, f: 0, h: 0 });
   // Bad values are dropped.
   a.sendJson({ t: 'pos', w: 'hoenn-e', m: '<script>', x: 1, y: 1, s: 1, f: 1, h: 0 });
   a.sendJson({ t: 'pos', w: 'hoenn-e', m: '0.1', x: 'far', y: 1, s: 1, f: 1, h: 0 });

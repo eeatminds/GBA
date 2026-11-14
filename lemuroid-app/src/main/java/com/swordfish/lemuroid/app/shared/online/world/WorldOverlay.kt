@@ -68,7 +68,7 @@ fun WorldOverlay(
             withFrameMillis {
                 val current = session.view.value
                 val local = session.readLocal() ?: current.local
-                frame = local?.let { overlayFrame(current, it, SystemClock.uptimeMillis() - WorldSession.PLAYBACK_DELAY_MS) }
+                frame = local?.let { overlayFrame(current, it, SystemClock.uptimeMillis()) }
             }
         }
     }
@@ -146,12 +146,12 @@ private data class Placed(val id: Int, val x: Int, val y: Int, val look: Look)
 private fun overlayFrame(
     view: WorldSession.View,
     local: Avatar,
-    playbackTime: Long,
+    now: Long,
 ): OverlayFrame =
     OverlayFrame(
         // Only what decides the picture, so a still frame equals the last one.
         local.copy(facing = null),
         view.others.mapNotNull { (id, remote) ->
-            view.onMap(remote.at(playbackTime), local)?.let { Placed(id, it.x, it.y, it.look) }
+            view.onMap(remote.at(now), local)?.let { Placed(id, it.x, it.y, it.look) }
         }.sortedBy { it.y },
     )
