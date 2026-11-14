@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed (one colour) app icon for Android 13+: the same handhelds and cable, with the
+     screens, D-pads and buttons cut out. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M42.3,62 C42,81 66,81 65.7,62"
+        android:strokeWidth="2.8"
+        android:strokeColor="#000000"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <group
+        android:translateX="40"
+        android:translateY="49"
+        android:rotation="-10">
+        <path
+            android:fillColor="#000000"
+            android:fillType="evenOdd"
+            android:pathData="M-6,-14H6A4,4 0,0 1,10 -10V10A4,4 0,0 1,6 14H-6A4,4 0,0 1,-10 10V-10A4,4 0,0 1,-6 -14Z M-4.9,-10.5H4.9A1.6,1.6 0,0 1,6.5 -8.9V-2.1A1.6,1.6 0,0 1,4.9 -0.5H-4.9A1.6,1.6 0,0 1,-6.5 -2.1V-8.9A1.6,1.6 0,0 1,-4.9 -10.5Z M-4.9,1.9H-2.7V4H-0.6V6.2H-2.7V8.3H-4.9V6.2H-7V4H-4.9Z M2,6.3a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z M4.8,3.9a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z" />
+    </group>
+    <group
+        android:translateX="68"
+        android:translateY="49"
+        android:rotation="10">
+        <path
+            android:fillColor="#000000"
+            android:fillType="evenOdd"
+            android:pathData="M-6,-14H6A4,4 0,0 1,10 -10V10A4,4 0,0 1,6 14H-6A4,4 0,0 1,-10 10V-10A4,4 0,0 1,-6 -14Z M-4.9,-10.5H4.9A1.6,1.6 0,0 1,6.5 -8.9V-2.1A1.6,1.6 0,0 1,4.9 -0.5H-4.9A1.6,1.6 0,0 1,-6.5 -2.1V-8.9A1.6,1.6 0,0 1,-4.9 -10.5Z M-4.9,1.9H-2.7V4H-0.6V6.2H-2.7V8.3H-4.9V6.2H-7V4H-4.9Z M2,6.3a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z M4.8,3.9a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0Z" />
+    </group>
+</vector>
