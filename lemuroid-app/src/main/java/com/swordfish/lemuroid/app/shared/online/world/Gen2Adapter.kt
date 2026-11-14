@@ -323,7 +323,11 @@ class Gen2Adapter(
         return MemoryPatch(writes)
     }
 
-    override fun saveGame(): MemoryPatch? {
+    override val canSave: Boolean get() = layout.inPlace != null && saveRoutine() != null
+
+    override fun saveGame(memory: GameMemory): MemoryPatch? = saveGame()
+
+    fun saveGame(): MemoryPatch? {
         val link = layout.inPlace ?: return null
         val (bank, address) = saveRoutine() ?: return null
         val script = byteArrayOf(CALLASM, bank.toByte(), address.toByte(), (address shr 8).toByte(), link.end.toByte())

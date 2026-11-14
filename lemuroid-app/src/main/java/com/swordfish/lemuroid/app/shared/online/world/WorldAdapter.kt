@@ -72,8 +72,11 @@ interface WorldAdapter {
         species: List<Int>,
     ): MemoryPatch? = null
 
-    /** Memory writes that make the game save itself, without asking anything. */
-    fun saveGame(): MemoryPatch? = null
+    /** Whether [saveGame] can make this game save itself. */
+    val canSave: Boolean get() = false
+
+    /** Memory writes that make the game, as it is in [memory] now, save itself without asking anything. */
+    fun saveGame(memory: GameMemory): MemoryPatch? = null
 
     /** The game's link-related state as a short line, for the link report. */
     fun linkDebug(memory: GameMemory): String? = null

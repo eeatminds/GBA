@@ -44,6 +44,32 @@ class Gen1Adapter(
         val namesBank: Int,
         // Trading or battling where the players stand (see [InPlace]).
         val inPlace: InPlace,
+        // Joining the host's world (see [visitWarp]).
+        val visit: Visit,
+    )
+
+    /**
+     * Joining the host's world: the game's own "warp from a map script" (as its scripts do to move
+     * the player), set by a short routine the map's script is pointed at for one frame, like the
+     * in-place link. The map the player then leaves buildings to is set too (the town or route the
+     * building is in, found by following the game's warps out from the towns and routes).
+     */
+    data class Visit(
+        val lastMap: Int,
+        val destinationWarpId: Int,
+        val statusFlags3: Int,
+        // wCurrentTileBlockMapViewPointer, then wYCoord, wXCoord, wYBlockCoord and wXBlockCoord.
+        val viewPointer: Int,
+        val partyCount: Int,
+        val partyMons: Int,
+        val partyTrainers: Int,
+        val partyNicknames: Int,
+        val pokedexOwned: Int,
+        val pokedexSeen: Int,
+        // ROM: MapHeaderPointers, MapHeaderBanks and PokedexOrder.
+        val mapHeaderPointers: Int,
+        val mapHeaderBanks: Int,
+        val pokedexOrder: Int,
     )
 
     /**
@@ -51,10 +77,14 @@ class Gen1Adapter(
      * map's script (which the overworld calls every frame) at a short routine of its own in work
      * RAM, which does what the Cable Club does without its rooms: part A (in a scratch area only
      * slot machines, battle animations and scripted walks use) meets the friend (the link core's
-     * friend meeting, at its first byte), saves without asking and syncs; part B (in the unused end
-     * of the game progress flags, which outlives the battle and the trade) runs the game's own
-     * CableClub_DoBattleOrTrade, which reloads the current map when it's done, then closes the link,
-     * puts the map's script back and its music.
+     * friend meeting, at its first byte), then puts the map's script back and marks the link as
+     * going (the game's own "in the Cable Club" state), saves without asking and syncs; part B (in
+     * the unused end of the game progress flags, which outlives the battle and the trade) runs the
+     * game's own CableClub_DoBattleOrTrade, which reloads the current map when it's done, then
+     * closes the link, clears the link state and puts the map's music back.
+     *
+     * The map's script is put back before anything saves: the game keeps it in its save, and a
+     * save holding our routine's address would run whatever is there after Continue.
      */
     data class InPlace(
         val mapScript: Int,
@@ -144,7 +174,10 @@ class Gen1Adapter(
         fun call(address: Int) = listOf(0xCD, address and 0xFF, address shr 8)
         fun word(address: Int) = listOf(address and 0xFF, address shr 8)
         val partA =
-            listOf(0x00) + call(link.sendZeroByte) + call(link.delayFrame) + call(link.sendZeroByte) +
+            listOf(0x00) +
+                listOf(0x3E, LINK_STATE_IN_CABLE_CLUB, 0xEA) + word(link.linkState) +
+                restoreMapScript(mapScript) +
+                call(link.sendZeroByte) + call(link.delayFrame) + call(link.sendZeroByte) +
                 listOf(0x0E, 50) + call(link.delayFrames) +
                 listOf(0x06, SAVE_BANK, 0x21) + word(link.saveGameData) + call(link.bankswitch) +
                 listOf(0x21) + word(LINK_TIMEOUT_FRAMES) + listOf(0x3E, 0x03, 0x22, 0xAF, 0x77, 0xE0, 0xA9, 0xEA) + word(EXCHANGE_NYBBLE_SEND) +
@@ -155,11 +188,184 @@ class Gen1Adapter(
             listOf(0x3E, if (kind == Talk.BATTLE) LINK_STATE_START_BATTLE else LINK_STATE_START_TRADE, 0xEA) + word(link.linkState) +
                 listOf(0x06, 0x01, 0x21) + word(link.battleOrTrade) + call(link.bankswitch) +
                 listOf(0xAF, 0xEA) + word(link.linkState) +
-                listOf(0x21) + word(link.mapScript) + listOf(0x36, mapScript and 0xFF, 0x23, 0x36, mapScript shr 8) +
+                restoreMapScript(mapScript) +
                 listOf(0x06, 0x01, 0x21) + word(link.closeLink) + call(link.bankswitch) +
                 listOf(0xC3) + word(link.playDefaultMusic)
         check(partA.size <= PART_A_SIZE && partB.size <= PART_B_SIZE && partB[PART_B_DONE] == 0xAF)
-        return ByteArray(partA.size) { partA[it].toByte() } to ByteArray(partB.size) { partB[it].toByte() }
+        return partA.toBytes() to partB.toBytes()
+    }
+
+    // ld hl, wCurMapScriptPtr / ld [hl], low / inc hl / ld [hl], high
+    private fun restoreMapScript(mapScript: Int): List<Int> =
+        listOf(0x21, layout.inPlace.mapScript and 0xFF, layout.inPlace.mapScript shr 8, 0x36, mapScript and 0xFF, 0x23, 0x36, mapScript shr 8)
+
+    private fun List<Int>.toBytes() = ByteArray(size) { this[it].toByte() }
+
+    /**
+     * The map's own script: as the game has it now, or as the map's header in ROM says when the
+     * game has one of our routines there (left in a save made by an earlier version of the app).
+     */
+    private fun mapScriptNow(memory: GameMemory): Int? {
+        val now = memory.u16(ram(layout.inPlace.mapScript)) ?: return null
+        if (now != PART_A && now != VISIT_ROUTINE) return now
+        val map = memory.u8(ram(layout.curMap)) ?: return null
+        return mapHeader(map)?.let { rom.u16(it + HEADER_SCRIPT.toLong()) }
+    }
+
+    // Where map [id]'s header is in the ROM file, when it looks like one.
+    private fun mapHeader(id: Int): Int? {
+        val visit = layout.visit
+        if (id !in 0 until MAP_COUNT) return null
+        val pointer = rom.u16(visit.mapHeaderPointers + id * 2L) ?: return null
+        val bank = rom.u8(visit.mapHeaderBanks + id.toLong()) ?: return null
+        if (pointer !in 0x4000..0x7FFF) return null
+        val header = romOffset(bank, pointer)
+        val tileset = rom.u8(header.toLong()) ?: return null
+        val height = rom.u8(header + 1L) ?: return null
+        val width = rom.u8(header + 2L) ?: return null
+        if (tileset >= TILESET_COUNT || height !in 1..MAX_MAP_SIDE || width !in 1..MAX_MAP_SIDE) return null
+        return header
+    }
+
+    // The maps a map's warps lead to (the warp's map numbers; "the last map" left out).
+    private fun warpsOf(id: Int): List<Int> {
+        val header = mapHeader(id) ?: return emptyList()
+        val connections = rom.u8(header + HEADER_CONNECTIONS.toLong()) ?: return emptyList()
+        val objectPointer = rom.u16(header + HEADER_CONNECTIONS + 1L + Integer.bitCount(connections and 0x0F) * CONNECTION_SIZE) ?: return emptyList()
+        if (objectPointer !in 0x4000..0x7FFF) return emptyList()
+        val objects = romOffset(header / 0x4000, objectPointer).toLong()
+        val count = rom.u8(objects + 1) ?: return emptyList()
+        if (count > MAX_WARPS) return emptyList()
+        return (0 until count).mapNotNull { rom.u8(objects + 2 + it * 4L + 3) }.filter { it != LAST_MAP }
+    }
+
+    /**
+     * For each building or cave, the town or route its doors lead out to ("the last map" of its
+     * exits): found by following the warps from every town and route inwards.
+     */
+    private val outsideMaps: Map<Int, Int> by lazy {
+        val outside = HashMap<Int, Int>()
+        val queue = ArrayDeque<Int>()
+        for (map in 0 until FIRST_INDOOR_MAP) {
+            if (mapHeader(map) != null) queue += map
+        }
+        while (queue.isNotEmpty()) {
+            val map = queue.removeFirst()
+            val town = if (map < FIRST_INDOOR_MAP) map else outside[map] ?: continue
+            for (next in warpsOf(map)) {
+                if (next < FIRST_INDOOR_MAP || next in outside || mapHeader(next) == null) continue
+                outside[next] = town
+                queue += next
+            }
+        }
+        outside
+    }
+
+    /** The town or route map [id] (a building or cave) leads out to, or null. */
+    fun outsideMap(id: Int): Int? = outsideMaps[id]
+
+    /**
+     * Takes the player to step ([x], [y]) on [map]: the routine sets the game's warp from a map
+     * script (to keep the position given), and for a building the town it is in as the map its
+     * doors lead out to. The map's script comes from the new map's header once there.
+     */
+    override fun visitWarp(
+        map: String,
+        x: Int,
+        y: Int,
+    ): MemoryPatch? {
+        val visit = layout.visit
+        val (group, id) = map.split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
+        if (group != MAP_GROUP) return null
+        val header = mapHeader(id) ?: return null
+        val width = rom.u8(header + 2L) ?: return null
+        val height = rom.u8(header + 1L) ?: return null
+        if (x !in 0 until width * 2 || y !in 0 until height * 2) return null
+        val view = OVERWORLD_MAP + 7 + width + (width + 6) * (y shr 1) + (x shr 1)
+        fun word(address: Int) = listOf(address and 0xFF, address shr 8)
+        // The town the building is in: the game copies the current map there when leaving a town
+        // or route, so the current map is set to it too (the warp replaces it right after).
+        val outside = if (id >= FIRST_INDOOR_MAP) outsideMaps[id] else null
+        val routine =
+            listOf(0x3E, id, 0xE0, H_WARP_DESTINATION_MAP and 0xFF, 0x3E, 0xFF, 0xEA) + word(visit.destinationWarpId) +
+                (outside?.let { listOf(0x3E, it, 0xEA) + word(visit.lastMap) + listOf(0xEA) + word(layout.curMap) } ?: emptyList()) +
+                listOf(0x21) + word(visit.viewPointer) +
+                listOf(0x3E, view and 0xFF, 0x22, 0x3E, view shr 8, 0x22, 0x3E, y, 0x22, 0x3E, x, 0x22, 0x3E, y and 1, 0x22, 0x3E, x and 1, 0x77) +
+                listOf(0x21) + word(visit.statusFlags3) + listOf(0xCB, 0xC6 or (BIT_WARP_FROM_CUR_SCRIPT shl 3), 0xC9)
+        return routinePatch(routine)
+    }
+
+    // The routine, then the map's script pointed at it (last: that sets it off).
+    private fun routinePatch(routine: List<Int>): MemoryPatch {
+        check(routine.size <= VISIT_ROUTINE_SIZE)
+        return MemoryPatch(
+            listOf(
+                ram(VISIT_ROUTINE) to routine.toBytes(),
+                ram(layout.inPlace.mapScript) to byteArrayOf(VISIT_ROUTINE.toByte(), (VISIT_ROUTINE shr 8).toByte()),
+            ),
+        )
+    }
+
+    override val canSave: Boolean get() = true
+
+    // The map's script back first (the save keeps it), then the game's SaveGameData.
+    override fun saveGame(memory: GameMemory): MemoryPatch? {
+        val mapScript = mapScriptNow(memory) ?: return null
+        val link = layout.inPlace
+        val routine =
+            restoreMapScript(mapScript) +
+                listOf(0x06, SAVE_BANK, 0x21, link.saveGameData and 0xFF, link.saveGameData shr 8, 0xCD, link.bankswitch and 0xFF, link.bankswitch shr 8, 0xC9)
+        return routinePatch(routine)
+    }
+
+    override fun party(memory: GameMemory): List<PartyMon>? {
+        val visit = layout.visit
+        val count = memory.u8(ram(visit.partyCount)) ?: return null
+        if (count > PARTY_LENGTH) return null
+        return (0 until count).map { slot ->
+            val species = memory.u8(ram(visit.partyCount + 1 + slot)) ?: return null
+            val mon = memory.read(ram(visit.partyMons + slot * MON_SIZE), MON_SIZE) ?: return null
+            val trainer = memory.read(ram(visit.partyTrainers + slot * NAME_SIZE), NAME_SIZE) ?: return null
+            val nickname = memory.read(ram(visit.partyNicknames + slot * NAME_SIZE), NAME_SIZE) ?: return null
+            // Who it is: trainer ID, DVs and trainer name (the species changes when it evolves).
+            val key = (mon.copyOfRange(MON_TRAINER_ID, MON_TRAINER_ID + 2) + mon.copyOfRange(MON_DVS, MON_DVS + 2) + trainer).toHex()
+            PartyMon(key, species, mon + trainer + nickname)
+        }
+    }
+
+    override fun writeParty(party: List<PartyMon>): MemoryPatch? {
+        val visit = layout.visit
+        if (party.size > PARTY_LENGTH || party.any { it.data.size != MON_SIZE + 2 * NAME_SIZE }) return null
+        val writes = ArrayList<Pair<Long, ByteArray>>()
+        writes += ram(visit.partyCount) to byteArrayOf(party.size.toByte()) + party.map { it.species.toByte() } + byteArrayOf(-1)
+        party.forEachIndexed { slot, mon ->
+            writes += ram(visit.partyMons + slot * MON_SIZE) to mon.data.copyOfRange(0, MON_SIZE)
+            writes += ram(visit.partyTrainers + slot * NAME_SIZE) to mon.data.copyOfRange(MON_SIZE, MON_SIZE + NAME_SIZE)
+            writes += ram(visit.partyNicknames + slot * NAME_SIZE) to mon.data.copyOfRange(MON_SIZE + NAME_SIZE, MON_SIZE + 2 * NAME_SIZE)
+        }
+        return MemoryPatch(writes)
+    }
+
+    // Pokémon that came in a trade are in the Pokédex as owned (and seen), as the game does. The
+    // party has the game's own species numbers; the Pokédex goes by its order (PokedexOrder).
+    override fun registerInPokedex(
+        memory: GameMemory,
+        species: List<Int>,
+    ): MemoryPatch? {
+        val visit = layout.visit
+        val writes = ArrayList<Pair<Long, ByteArray>>()
+        for (table in listOf(visit.pokedexOwned, visit.pokedexSeen)) {
+            val flags = memory.read(ram(table), POKEDEX_BYTES) ?: return null
+            for (internal in species) {
+                if (internal !in 1..SPECIES_COUNT) continue
+                val number = rom.u8(visit.pokedexOrder + internal - 1L) ?: continue
+                if (number !in 1..DEX_COUNT) continue
+                val bit = number - 1
+                flags[bit / 8] = (flags[bit / 8].toInt() or (1 shl (bit % 8))).toByte()
+            }
+            writes += ram(table) to flags
+        }
+        return MemoryPatch(writes)
     }
 
     private inner class InPlaceRun(private val kind: String) : InPlaceSteps {
@@ -177,8 +383,7 @@ class Gen1Adapter(
                 memory.u8(ram(layout.isInBattle)) == 0 && (memory.u8(ram(layout.fontLoaded)) ?: 1) and 1 == 0 &&
                     memory.u8(ram(layout.walkCounter)) == 0 && memory.u8(ram(link.joyIgnore)) == 0 && memory.u8(ram(link.linkState)) == 0
             if (!free) return null
-            val mapScript = memory.u16(ram(link.mapScript)) ?: return null
-            if (mapScript == PART_A) return null
+            val mapScript = mapScriptNow(memory) ?: return null
             val (partA, partB) = inPlaceRoutine(kind, mapScript)
             val patch =
                 MemoryPatch(
@@ -205,7 +410,9 @@ class Gen1Adapter(
     // The trade or battle has begun once the routine set the game's link state.
     override fun linkActive(memory: GameMemory): Boolean = (memory.u8(ram(layout.inPlace.linkState)) ?: 0) >= LINK_STATE_START_TRADE
 
-    override fun scriptPending(memory: GameMemory): Boolean = memory.u16(ram(layout.inPlace.mapScript)) == PART_A
+    // One of our routines is set but hasn't run yet (it puts the map's own script back first).
+    override fun scriptPending(memory: GameMemory): Boolean =
+        memory.u16(ram(layout.inPlace.mapScript)).let { it == PART_A || it == VISIT_ROUTINE }
 
     override fun linkDebug(memory: GameMemory): String? {
         val link = layout.inPlace
@@ -380,6 +587,30 @@ class Gen1Adapter(
         // The in-place routine: part A's place (its first byte is the link core's friend meeting),
         // part B's "done" (its link core failure exit), and what both need.
         const val PART_A = 0xCC5F
+
+        // The visit's routines: after part A's first byte, so the link core's friend meeting
+        // (which starts when the game reaches that byte) never starts for them.
+        const val VISIT_ROUTINE = PART_A + 1
+        private const val VISIT_ROUTINE_SIZE = 64
+        private const val LINK_STATE_IN_CABLE_CLUB = 1
+        private const val OVERWORLD_MAP = 0xC6E8
+        private const val H_WARP_DESTINATION_MAP = 0xFF8B
+        private const val BIT_WARP_FROM_CUR_SCRIPT = 3
+        private const val LAST_MAP = 0xFF
+        private const val MAP_COUNT = 0xF8
+        private const val TILESET_COUNT = 0x18
+        private const val MAX_MAP_SIDE = 0x60
+        private const val MAX_WARPS = 0x20
+        private const val HEADER_SCRIPT = 7
+        private const val HEADER_CONNECTIONS = 9
+        private const val PARTY_LENGTH = 6
+        private const val MON_SIZE = 44
+        private const val NAME_SIZE = 11
+        private const val MON_TRAINER_ID = 12
+        private const val MON_DVS = 27
+        private const val POKEDEX_BYTES = 19
+        private const val SPECIES_COUNT = 190
+        private const val DEX_COUNT = 151
         private const val PART_A_SIZE = 166
         private const val PART_B_SIZE = 78
         private const val PART_B_DONE = 13
@@ -425,6 +656,14 @@ class Gen1Adapter(
                         syncAndExchangeNybble = 0x227F, playDefaultMusic = 0x2307,
                         saveGameData = 0x7848, battleOrTrade = 0x5317, closeLink = 0x72D7,
                     ),
+                visit =
+                    Visit(
+                        lastMap = 0xD365, destinationWarpId = 0xD42F, statusFlags3 = 0xD72D, viewPointer = 0xD35F,
+                        partyCount = 0xD163, partyMons = 0xD16B, partyTrainers = 0xD273, partyNicknames = 0xD2B5,
+                        pokedexOwned = 0xD2F7, pokedexSeen = 0xD30A,
+                        mapHeaderPointers = 0x01AE, mapHeaderBanks = 0x03 * 0x4000 + (0x423D - 0x4000),
+                        pokedexOrder = 0x10 * 0x4000 + (0x5024 - 0x4000),
+                    ),
             )
         private val YELLOW =
             Layout(
@@ -441,6 +680,14 @@ class Gen1Adapter(
                         sendZeroByte = 0x2149, delayFrame = 0x1E64, delayFrames = 0x372F, bankswitch = 0x3E84,
                         syncAndExchangeNybble = 0x20DB, playDefaultMusic = 0x216B,
                         saveGameData = 0x7B91, battleOrTrade = 0x53A5, closeLink = 0x71AC,
+                    ),
+                visit =
+                    Visit(
+                        lastMap = 0xD364, destinationWarpId = 0xD42E, statusFlags3 = 0xD72C, viewPointer = 0xD35E,
+                        partyCount = 0xD162, partyMons = 0xD16A, partyTrainers = 0xD272, partyNicknames = 0xD2B4,
+                        pokedexOwned = 0xD2F6, pokedexSeen = 0xD309,
+                        mapHeaderPointers = 0x3F * 0x4000 + (0x41F2 - 0x4000), mapHeaderBanks = 0x3F * 0x4000 + (0x43E4 - 0x4000),
+                        pokedexOrder = 0x10 * 0x4000 + (0x50B1 - 0x4000),
                     ),
             )
 

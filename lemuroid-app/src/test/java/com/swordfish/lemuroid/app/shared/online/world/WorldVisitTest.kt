@@ -109,7 +109,7 @@ class WorldVisitTest {
         var checked = 0
         for ((variable, expected) in expectations) {
             val file = System.getenv(variable)?.let(::File)?.takeIf { it.exists() } ?: continue
-            val adapter = WorldAdapters.forRom("gbc", readRom(file))!!
+            val adapter = WorldAdapters.forRom("gbc", readRom(file))!! as Gen2Adapter
             val ram = GameMemory.SYSTEM_RAM_BASE - 0xC000
             val (textBuffer, scriptBuffer, save) = expected
             val warp = adapter.visitWarp("26.3", 29, 4)!!.writes
@@ -126,6 +126,7 @@ class WorldVisitTest {
     fun `no visits when the save routine isn't where it should be`() {
         val adapter = Gen2Adapter(Rom(ByteArray(0x200000), 0L), Gen2Adapter.CRYSTAL)
         assertNull(adapter.saveGame())
+        assertTrue(!adapter.canSave)
     }
 
     // Real Gold work RAM (WORLD_E2E/gold/you.wram): read the party, write it back, read the same.

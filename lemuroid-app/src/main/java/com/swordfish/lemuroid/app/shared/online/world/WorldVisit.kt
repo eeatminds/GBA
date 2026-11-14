@@ -196,7 +196,7 @@ class WorldVisit(
     private var linkBefore: List<PartyMon>? = null
 
     /** Whether this game can visit at all. */
-    val supported: Boolean get() = adapter.visitWarp("1.1", 0, 0) != null && adapter.saveGame() != null
+    val supported: Boolean get() = adapter.visitWarp("1.1", 0, 0) != null && adapter.canSave
 
     /**
      * After the game starts: a visit left over from before (the app was closed) either goes on,
@@ -309,7 +309,7 @@ class WorldVisit(
                     if (traded) {
                         adapter.writeParty(merged)?.applyTo(memory)
                         adapter.registerInPokedex(memory, visit.ledger.received.map { it.species })?.applyTo(memory)
-                        adapter.saveGame()?.applyTo(memory)
+                        adapter.saveGame(memory)?.applyTo(memory)
                     }
                 }
                 if (traded) waitForScript(memory)
