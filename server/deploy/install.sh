@@ -91,8 +91,13 @@ PLAY_STORE_URL=
 EOF
 fi
 
-# Pictures for the games page (optional): <game>.webp, .png or .jpg, e.g. crystal.png.
+# Pictures for the games page: <game>.webp, .png or .jpg, e.g. crystal.png. The games' box art is
+# fetched once; a picture put here by hand is kept (and wins).
 install -d -m 755 /etc/gba-rooms/covers
+say "Getting the game covers for the games page"
+apt-get install -y -q webp >/dev/null 2>&1 || true
+node "$APP_DIR/server/deploy/fetch-covers.js" /etc/gba-rooms/covers || echo "Note: couldn't get the covers now; the page shows emblems until the next update."
+chmod 644 /etc/gba-rooms/covers/* 2>/dev/null || true
 
 say "Starting the room server"
 cat > "/etc/systemd/system/$SERVICE.service" <<EOF

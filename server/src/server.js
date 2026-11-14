@@ -663,7 +663,9 @@ h1{font-size:22px;margin:0 0 12px}p{color:var(--muted);margin:6px 0}.game{color:
 // The games players can play together, grouped as the real games link: every game in a
 // family trades and battles with the others in it. A game is listed here only once trading
 // and battling have been tested.
-const GAME_FAMILIES = [
+// The games on the games page. `cover`: the game's box art in the libretro thumbnails library (the one
+// the app shows game covers from), as [system, name]; deploy/fetch-covers.js puts it in the covers folder.
+export const GAME_FAMILIES = [
   {
     console: 'Game Boy games',
     short: 'GB',
@@ -673,9 +675,12 @@ const GAME_FAMILIES = [
     systems: ['gb', 'gbc'],
     regions: [{ name: 'Kanto', games: ['red', 'blue', 'yellow'] }],
     games: [
-      { id: 'red', name: 'Red', match: ['red'], emblem: 'star', colors: ['#7a1414', '#e34234'], versions: 'USA / Europe' },
-      { id: 'blue', name: 'Blue', match: ['blue'], emblem: 'wave', colors: ['#173a7a', '#4a7fe0'], versions: 'USA / Europe' },
-      { id: 'yellow', name: 'Yellow', match: ['yellow'], emblem: 'spark', colors: ['#8a6d00', '#f5cf2a'], versions: 'USA / Europe' },
+      { id: 'red', name: 'Red', match: ['red'], emblem: 'star', colors: ['#7a1414', '#e34234'], versions: 'USA / Europe',
+        cover: ['Nintendo - Game Boy', 'Pokemon - Red Version (USA, Europe) (SGB Enhanced)'] },
+      { id: 'blue', name: 'Blue', match: ['blue'], emblem: 'wave', colors: ['#173a7a', '#4a7fe0'], versions: 'USA / Europe',
+        cover: ['Nintendo - Game Boy', 'Pokemon - Blue Version (USA, Europe) (SGB Enhanced)'] },
+      { id: 'yellow', name: 'Yellow', match: ['yellow'], emblem: 'spark', colors: ['#8a6d00', '#f5cf2a'], versions: 'USA / Europe',
+        cover: ['Nintendo - Game Boy', 'Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (CGB+SGB Enhanced)'] },
     ],
   },
   {
@@ -687,9 +692,12 @@ const GAME_FAMILIES = [
     systems: ['gb', 'gbc'],
     regions: [{ name: 'Johto', games: ['gold', 'silver', 'crystal'] }],
     games: [
-      { id: 'gold', name: 'Gold', match: ['gold'], emblem: 'sun', colors: ['#7a5a00', '#e0b62c'], versions: 'USA / Europe' },
-      { id: 'silver', name: 'Silver', match: ['silver'], emblem: 'moon', colors: ['#3d4652', '#b9c3cd'], versions: 'USA / Europe' },
-      { id: 'crystal', name: 'Crystal', match: ['crystal'], emblem: 'gem', colors: ['#0f4c6e', '#55c1e8'], versions: 'USA / Europe, Rev 1' },
+      { id: 'gold', name: 'Gold', match: ['gold'], emblem: 'sun', colors: ['#7a5a00', '#e0b62c'], versions: 'USA / Europe',
+        cover: ['Nintendo - Game Boy Color', 'Pokemon - Gold Version (USA, Europe) (SGB Enhanced) (GB Compatible)'] },
+      { id: 'silver', name: 'Silver', match: ['silver'], emblem: 'moon', colors: ['#3d4652', '#b9c3cd'], versions: 'USA / Europe',
+        cover: ['Nintendo - Game Boy Color', 'Pokemon - Silver Version (USA, Europe) (SGB Enhanced) (GB Compatible)'] },
+      { id: 'crystal', name: 'Crystal', match: ['crystal'], emblem: 'gem', colors: ['#0f4c6e', '#55c1e8'], versions: 'USA / Europe, Rev 1',
+        cover: ['Nintendo - Game Boy Color', 'Pokemon - Crystal Version (USA, Europe) (Rev 1)'] },
     ],
   },
   {
@@ -707,11 +715,16 @@ const GAME_FAMILIES = [
       { name: 'Hoenn', games: ['emerald'] },
     ],
     games: [
-      { id: 'firered', name: 'FireRed', match: ['firered', 'fire red'], emblem: 'flame', colors: ['#8a1c0c', '#f2703a'], versions: 'USA / Europe, Rev 1' },
-      { id: 'leafgreen', name: 'LeafGreen', match: ['leafgreen', 'leaf green'], emblem: 'leaf', colors: ['#1f5a1c', '#7ccb5b'], versions: 'USA, Rev 1' },
-      { id: 'ruby', name: 'Ruby', match: ['ruby'], emblem: 'round', colors: ['#7d0f24', '#e8475f'], versions: 'USA, Rev 1' },
-      { id: 'sapphire', name: 'Sapphire', match: ['sapphire'], emblem: 'drop', colors: ['#12306e', '#4f8ef0'], versions: 'USA / Europe, Rev 2' },
-      { id: 'emerald', name: 'Emerald', match: ['emerald'], emblem: 'cut', colors: ['#0d5a3c', '#3fca8c'], versions: 'USA / Europe' },
+      { id: 'firered', name: 'FireRed', match: ['firered', 'fire red'], emblem: 'flame', colors: ['#8a1c0c', '#f2703a'], versions: 'USA / Europe, Rev 1',
+        cover: ['Nintendo - Game Boy Advance', 'Pokemon - FireRed Version (USA, Europe) (Rev 1)'] },
+      { id: 'leafgreen', name: 'LeafGreen', match: ['leafgreen', 'leaf green'], emblem: 'leaf', colors: ['#1f5a1c', '#7ccb5b'], versions: 'USA, Rev 1',
+        cover: ['Nintendo - Game Boy Advance', 'Pokemon - LeafGreen Version (USA, Europe) (Rev 1)'] },
+      { id: 'ruby', name: 'Ruby', match: ['ruby'], emblem: 'round', colors: ['#7d0f24', '#e8475f'], versions: 'USA, Rev 1',
+        cover: ['Nintendo - Game Boy Advance', 'Pokemon - Ruby Version (USA, Europe) (Rev 2)'] },
+      { id: 'sapphire', name: 'Sapphire', match: ['sapphire'], emblem: 'drop', colors: ['#12306e', '#4f8ef0'], versions: 'USA / Europe, Rev 2',
+        cover: ['Nintendo - Game Boy Advance', 'Pokemon - Sapphire Version (USA, Europe) (Rev 2)'] },
+      { id: 'emerald', name: 'Emerald', match: ['emerald'], emblem: 'cut', colors: ['#0d5a3c', '#3fca8c'], versions: 'USA / Europe',
+        cover: ['Nintendo - Game Boy Advance', 'Pokemon - Emerald Version (USA, Europe)'] },
     ],
   },
   {
@@ -734,7 +747,16 @@ const GAME_FAMILIES = [
   },
 ];
 
-const COVER_TYPES = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg' };
+export const COVER_TYPES = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg' };
+
+// Where [game]'s box art can be downloaded from, or null when it has none there (the ROM hacks).
+export function coverSourceUrl(game) {
+  if (!game.cover) return null;
+  const [system, name] = game.cover;
+  // The library writes these characters as "_" in its file names.
+  const file = name.replace(/[&*/:`<>?\\|"]/g, '_');
+  return `https://thumbnails.libretro.com/${encodeURIComponent(system)}/Named_Boxarts/${encodeURIComponent(file)}.png`;
+}
 
 // A picture the server's owner put in the covers folder for this game, if any.
 function coverFile(config, id) {
@@ -839,7 +861,7 @@ function gamesPage(config, registry) {
   const families = GAME_FAMILIES.map((family) => {
     const tile = (game) => {
       const cover = coverFile(config, game.id);
-      const art = cover ? `<img src="/covers/${game.id}.${cover.ext}" alt="${escapeHtml(game.name)}">` : tileArt(game, family.short);
+      const art = cover ? `<img src="/covers/${game.id}.${cover.ext}" alt="${escapeHtml(game.name)}" width="256" height="256" loading="lazy">` : tileArt(game, family.short);
       const open = openRooms(registry, family, game);
       const badge = open > 0 ? `<span class="open"><i></i>${open} open</span>` : '';
       return `<li class="tile"><div class="art">${art}${badge}</div><b>${escapeHtml(game.name)}</b><small>${escapeHtml(game.versions)}</small></li>`;
@@ -908,7 +930,7 @@ ${families}
 <li>Find each other on the map: the room shows where everyone is.</li>
 <li>Walk up to your friend, press <b>A</b> and pick <b>Trade</b> or <b>Battle</b>. They press <b>A</b> to accept and it starts right there.</li>
 </ol></section>
-<p class="note">Game Boy Color and Game Boy Advance games can't trade or battle with each other, as on the real consoles. More games are added here once trading and battling them is tested.</p>
+<p class="note">Game Boy and Game Boy Color games can't trade or battle with Game Boy Advance games, as on the real consoles. More games are added here once trading and battling them is tested.</p>
 </div></body></html>`;
 }
 

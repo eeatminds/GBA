@@ -408,6 +408,30 @@ test('the games page lists the games players can trade and battle in, and the ho
   assert.ok(home.includes('href="/games"'));
 });
 
+test('every original game has box art to fetch; the ROM hacks show their emblems', async () => {
+  const { GAME_FAMILIES, coverSourceUrl } = await import('../src/server.js');
+  const games = GAME_FAMILIES.flatMap((family) => family.games);
+  const firered = coverSourceUrl(games.find((game) => game.id === 'firered'));
+  assert.equal(
+    firered,
+    'https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy%20Advance/Named_Boxarts/Pokemon%20-%20FireRed%20Version%20(USA%2C%20Europe)%20(Rev%201).png',
+  );
+  for (const game of games) {
+    if (['radicalred', 'unbound'].includes(game.id)) assert.equal(coverSourceUrl(game), null, game.id);
+    else assert.ok(coverSourceUrl(game)?.startsWith('https://thumbnails.libretro.com/'), game.id);
+  }
+  // Covers already in the folder (the owner's own too) are kept: nothing is downloaded.
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'covers-'));
+  for (const game of games) writeFileSync(join(dir, `${game.id}.jpg`), 'mine');
+  const output = execFileSync(process.execPath, [new URL('../deploy/fetch-covers.js', import.meta.url).pathname, dir]).toString();
+  assert.equal(output, '');
+  assert.equal(readFileSync(join(dir, 'crystal.jpg'), 'utf8'), 'mine');
+});
+
 test('the games page counts open rooms per game and shows a cover the owner added', async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
