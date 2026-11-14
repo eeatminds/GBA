@@ -29,6 +29,27 @@ class TrainerNamesTest {
     }
 
     @Test
+    fun `Gen 1 name from the save, only when its checksum is good`() {
+        val redHeader =
+            ByteArray(0x8000).also {
+                "POKEMON RED".toByteArray().copyInto(it, 0x134)
+                it[0x14E] = 0x91.toByte()
+                it[0x14F] = 0xE6.toByte()
+            }
+        val save = ByteArray(0x8000)
+        // "ASH", end.
+        byteArrayOf(0x80.toByte(), 0x92.toByte(), 0x87.toByte(), 0x50).copyInto(save, 0x2598)
+        save[0x3523] = ((0x80 + 0x92 + 0x87 + 0x50).inv() and 0xFF).toByte()
+        assertEquals("ASH", TrainerNames.fromSave("gb", redHeader, save))
+        save[0x3000] = 1
+        assertNull(TrainerNames.fromSave("gb", redHeader, save))
+        // A real save made by the game itself (from the two-emulator test), when given.
+        val real = System.getenv("GEN1_SAVE")?.let(::File)
+        val rom = System.getenv("GEN1_ROM")?.let(::File)
+        if (real != null && rom != null) assertEquals(System.getenv("GEN1_NAME"), TrainerNames.fromSave("gb", rom.readBytes(), real.readBytes()))
+    }
+
+    @Test
     fun `names in the running game's memory, only clean text with its end mark`() {
         fun bytes(vararg values: Int) = ByteArray(values.size) { values[it].toByte() }
         assertEquals("Kris", TrainerNames.gen2Text(bytes(0x8A, 0xB1, 0xA8, 0xB2, 0x50, 0x00)))

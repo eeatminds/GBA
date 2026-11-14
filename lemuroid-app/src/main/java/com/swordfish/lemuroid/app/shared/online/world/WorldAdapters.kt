@@ -34,7 +34,10 @@ object WorldAdapters {
                 if (rom.size < 0x150) return null
                 val title = String(rom, 0x134, 11, Charsets.US_ASCII)
                 val gameCode = String(rom, 0x13F, 4, Charsets.US_ASCII)
-                Gen2Adapter.layoutFor(title, gameCode)?.let { Gen2Adapter(Rom(rom, 0L), it) }
+                Gen2Adapter.layoutFor(title, gameCode)?.let { return Gen2Adapter(Rom(rom, 0L), it) }
+                val fullTitle = String(rom, 0x134, 16, Charsets.US_ASCII)
+                val checksum = ((rom[0x14E].toInt() and 0xFF) shl 8) or (rom[0x14F].toInt() and 0xFF)
+                Gen1Adapter.layoutFor(fullTitle, checksum)?.let { Gen1Adapter(Rom(rom, 0L), it) }
             }
             else -> null
         }

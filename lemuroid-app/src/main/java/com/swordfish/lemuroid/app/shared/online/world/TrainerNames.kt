@@ -27,9 +27,21 @@ object TrainerNames {
         if (rom.size < 0x150) return null
         val title = String(rom, 0x134, 11, Charsets.US_ASCII)
         val code = String(rom, 0x13F, 4, Charsets.US_ASCII)
+        val checksum = ((rom[0x14E].toInt() and 0xFF) shl 8) or (rom[0x14F].toInt() and 0xFF)
+        if (Gen1Adapter.layoutFor(String(rom, 0x134, 16, Charsets.US_ASCII), checksum) != null) return gen1(save)
         Gen2Adapter.layoutFor(title, code) ?: return null
         if (save.size < GEN2_NAME + GEN2_NAME_LENGTH || save[GEN2_CHECK].toInt() and 0xFF != GEN2_CHECK_VALUE) return null
         return gen2Text(save.copyOfRange(GEN2_NAME, GEN2_NAME + GEN2_NAME_LENGTH))
+    }
+
+    // Red, Blue and Yellow keep the player data in save bank 1 ($A598), checked by the byte after
+    // it: the sum of all of it, inverted.
+    private fun gen1(save: ByteArray): String? {
+        if (save.size <= GEN1_CHECKSUM) return null
+        var sum = 0
+        for (i in GEN1_NAME until GEN1_CHECKSUM) sum += save[i].toInt() and 0xFF
+        if ((sum.inv() and 0xFF) != (save[GEN1_CHECKSUM].toInt() and 0xFF)) return null
+        return gen2Text(save.copyOfRange(GEN1_NAME, GEN1_NAME + GEN2_NAME_LENGTH))
     }
 
     /** A Gold, Silver or Crystal name (letters, digits, a few marks; ends at $50), or null when it isn't one. */
@@ -102,6 +114,8 @@ object TrainerNames {
         at: Int,
     ): Long = u16(bytes, at).toLong() or (u16(bytes, at + 2).toLong() shl 16)
 
+    private const val GEN1_NAME = 0x2598
+    private const val GEN1_CHECKSUM = 0x3523
     private const val GEN2_CHECK = 0x2008
     private const val GEN2_CHECK_VALUE = 99
     private const val GEN2_NAME = 0x200B

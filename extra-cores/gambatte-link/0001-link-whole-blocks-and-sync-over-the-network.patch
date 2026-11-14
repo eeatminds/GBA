@@ -1,7 +1,7 @@
 From bdbdce473a6f9d0f1c97f3e0467fe690b00e520c Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 12:23:38 +0000
-Subject: [PATCH 1/5] Link: whole-block exchanges and sync rendezvous for Gen 2
+Subject: [PATCH 1/6] Link: whole-block exchanges and sync rendezvous for Gen 2
  Pokemon over the network
 
 ---
@@ -717,7 +717,7 @@ index ad94255..80cdbb9 100644
 From 84e4597cbd73f6e1dc1e90bcc640ae27f96248b7 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 15:54:45 +0000
-Subject: [PATCH 2/5] Link: non-blocking hooks, battle move and friend
+Subject: [PATCH 2/6] Link: non-blocking hooks, battle move and friend
  rendezvous for Gen 2 Pokemon
 
 The block, sync and battle hooks no longer stall the frame while waiting
@@ -1369,7 +1369,7 @@ index 80cdbb9..43649c3 100644
 From f60d36e419705b9e8b34688f1a423f7c2db8d0e0 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Thu, 5 Nov 2026 07:52:13 +0000
-Subject: [PATCH 3/5] Link: survive dropped connections; safe exits when the
+Subject: [PATCH 3/6] Link: survive dropped connections; safe exits when the
  partner is gone
 
 - The friend meeting sends each side's number back, so leftovers from an
@@ -2141,7 +2141,7 @@ index 43649c3..cb44231 100644
 From ec97d1243ffc204ac08cb1d50f9c80fb762a613f Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Wed, 11 Nov 2026 06:03:52 +0000
-Subject: [PATCH 4/5] Link: say in the log whether the link fixes are on for
+Subject: [PATCH 4/6] Link: say in the log whether the link fixes are on for
  the game (with the core version)
 
 ---
@@ -2181,7 +2181,7 @@ index 9647a4c..ba68005 100644
 From a6469bb99d93b160c2aef9caf67faa9542154503 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Sat, 14 Nov 2026 05:54:21 +0000
-Subject: [PATCH 5/5] Link: whole-block exchanges, friend meeting and menu swap
+Subject: [PATCH 5/6] Link: whole-block exchanges, friend meeting and menu swap
  for Red, Blue and Yellow
 
 Pokemon Red, Blue and Yellow get the same network fixes as Gold, Silver and
@@ -2494,6 +2494,207 @@ index 92adcdb..4694f84 100644
  }
  
  void GB::setLinkBattleHook(unsigned bank, unsigned short entry, unsigned short playerAction,
+-- 
+2.43.0
+
+
+From 425350016c76b4ac572c34659c6e732c94d219e6 Mon Sep 17 00:00:00 2001
+From: eeatminds <12shreyas86@gmail.com>
+Date: Sat, 14 Nov 2026 08:37:35 +0000
+Subject: [PATCH 6/6] Link: friend meeting for the app's in-place routine in
+ Red, Blue and Yellow
+
+The app can start a trade or battle right where two players stand: it
+points the current map's script at a short routine in work RAM. That
+routine's first byte is the friend meeting (the same rendezvous as at the
+receptionist), going on at the next byte when the friend is there or at
+the routine's "done" exit when not.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PZdcJ5Msn5QruFvcFc3jaN
+---
+ libgambatte/include/gambatte.h    |  3 +++
+ libgambatte/libretro/libretro.cpp | 16 +++++++++++++---
+ libgambatte/src/cpu.cpp           | 14 ++++++++++----
+ libgambatte/src/cpu.h             | 14 +++++++++++++-
+ libgambatte/src/gambatte.cpp      |  4 ++++
+ 5 files changed, 43 insertions(+), 8 deletions(-)
+
+diff --git a/libgambatte/include/gambatte.h b/libgambatte/include/gambatte.h
+index 94414fa..0ecd3b2 100644
+--- a/libgambatte/include/gambatte.h
++++ b/libgambatte/include/gambatte.h
+@@ -103,6 +103,9 @@ public:
+ 	void setLinkFriendHook(unsigned bank, unsigned short entry, unsigned short connectionStatus,
+ 	                       unsigned short scriptVar, unsigned short metPc = 0, unsigned short failPc = 0);
+ 
++	/** The link friend hook for a routine in work RAM (see CPU::setLinkFriendWramHook); entry 0 turns it off. */
++	void setLinkFriendWramHook(unsigned short entry, unsigned short metPc, unsigned short failPc);
++
+ 	/** The link menu hook (see CPU::setLinkMenuHook); entry 0 turns it off. */
+ 	void setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive);
+ 
+diff --git a/libgambatte/libretro/libretro.cpp b/libgambatte/libretro/libretro.cpp
+index 6b9459b..e200972 100644
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -2143,10 +2143,17 @@ struct link_block_game
+    unsigned short friend_met, friend_fail;
+    /* Serial_ExchangeLinkMenuSelection (home bank) and its send and receive buffers. */
+    unsigned short menu_exchange, menu_send, menu_receive;
++   /* Trading or battling where the players stand: the app's routine in work RAM meets the friend
++    * at friend_wram, then goes on at friend_wram_met, or at friend_wram_fail. */
++   unsigned short friend_wram, friend_wram_met, friend_wram_fail;
+ };
+ 
+ #define MENU_RB 0x2247, 0xCC42, 0xCC3D
+ #define MENU_Y 0x20A3, 0xCC42, 0xCC3D
++/* The app's in-place routine: part A at $CC5F (the friend meeting is its first byte), part B in the
++ * game progress flags' unused end ($D66A in Red and Blue, $D669 in Yellow; its "done" at +13). */
++#define INPLACE_RB 0xCC5F, 0xCC60, 0xD677
++#define INPLACE_Y 0xCC5F, 0xCC60, 0xD676
+ 
+ static const struct link_block_game link_block_games[] = {
+    { "PM_CRYSTAL",  "BYTE", 0x075F, 0x43F2, { 0x41C9, 0x41D8, 0x41E7, 0x41FA },
+@@ -2168,17 +2175,17 @@ static const struct link_block_game link_block_games[] = {
+      0x227F, 0xCC42, 0xCC3E, 0xCC3D, 0xCC47,
+      0x0F, 0x563B, 0x22C3, 0xCC3E,
+      0x71EB, 0xFFAA, 0,
+-     3, 0x01, 0xAA, 0x721A, 0x7287, MENU_RB },
++     3, 0x01, 0xAA, 0x721A, 0x7287, MENU_RB, INPLACE_RB },
+    { "POKEMON BLUE", NULL, 0x216F, 0, { 0x53E2, 0x53F1, 0x5400 },
+      0x227F, 0xCC42, 0xCC3E, 0xCC3D, 0xCC47,
+      0x0F, 0x563B, 0x22C3, 0xCC3E,
+      0x71EB, 0xFFAA, 0,
+-     3, 0x01, 0xAA, 0x721A, 0x7287, MENU_RB },
++     3, 0x01, 0xAA, 0x721A, 0x7287, MENU_RB, INPLACE_RB },
+    { "POKEMON YELLOW", NULL, 0x1FCB, 0, { 0x5472, 0x5481, 0x5490 },
+      0x20DB, 0xCC42, 0xCC3E, 0xCC3D, 0xCC47,
+      0x0F, 0x57AD, 0x211F, 0xCC3E,
+      0x7060, 0xFFAA, 0,
+-     3, 0x01, 0xAA, 0x708F, 0x70FC, MENU_Y },
++     3, 0x01, 0xAA, 0x708F, 0x70FC, MENU_Y, INPLACE_Y },
+ };
+ 
+ static void apply_link_block_hooks(void)
+@@ -2191,6 +2198,7 @@ static void apply_link_block_hooks(void)
+    gb.setLinkBattleHook(0, 0, 0, 0, 0);
+    gb.setLinkFriendHook(0, 0, 0, 0);
+    gb.setLinkMenuHook(0, 0, 0);
++   gb.setLinkFriendWramHook(0, 0, 0);
+    if (gb_serialMode == SERIAL_NONE || !rom || link_rom_size < 0x150)
+       return;
+ 
+@@ -2256,6 +2264,8 @@ static void apply_link_block_hooks(void)
+                game->other_action, game->battle_action);
+          if (game->menu_exchange)
+             gb.setLinkMenuHook(game->menu_exchange, game->menu_send, game->menu_receive);
++         if (game->friend_wram)
++            gb.setLinkFriendWramHook(game->friend_wram, game->friend_wram_met, game->friend_wram_fail);
+          gb.setLinkSyncHook(game->wait_link_transfer, game->player_action, game->other_action,
+                game->other_mode, game->timeout_frames);
+          gambatte_log(RETRO_LOG_INFO, "[link] link fixes on for %s (core v0.5.0-netlink%s)\n", game->title, GIT_VERSION);
+diff --git a/libgambatte/src/cpu.cpp b/libgambatte/src/cpu.cpp
+index a82e15d..8447a0d 100644
+--- a/libgambatte/src/cpu.cpp
++++ b/libgambatte/src/cpu.cpp
+@@ -66,6 +66,9 @@ CPU::CPU()
+ , linkMenuEntry_(0)
+ , linkMenuSend_(0)
+ , linkMenuReceive_(0)
++, linkFriendWramEntry_(0)
++, linkFriendWramMetPc_(0)
++, linkFriendWramFailPc_(0)
+ , linkFriendNonce_(0)
+ , linkFriendTheirs_(0)
+ , linkFriendStartedAt_(0)
+@@ -714,7 +717,7 @@ bool CPU::runLinkBattleHook(unsigned short &pc, unsigned long &cycleCounter) {
+ 	return true;
+ }
+ 
+-bool CPU::runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter) {
++bool CPU::runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter, unsigned short metPc, unsigned short failPc) {
+ #ifdef HAVE_NETWORK
+ 	if (linkFriendNonce_ == 0) {
+ 		// A new meeting: anything left from an earlier one is old news.
+@@ -769,9 +772,9 @@ bool CPU::runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter) {
+ 	        : gone ? "is gone" : "didn't come", ours, theirs);
+ 	if (met)
+ 		mem_.write(linkConnectionStatus_, ours < theirs ? 2 : 1, cycleCounter);
+-	if (linkFriendMetPc_ != 0) {
++	if (metPc != 0) {
+ 		// The wait is a loop inside the routine: go on where the game would.
+-		pc = met ? linkFriendMetPc_ : linkFriendFailPc_;
++		pc = met ? metPc : failPc;
+ 		cycleCounter += 40;
+ 		return true;
+ 	}
+@@ -823,7 +826,10 @@ void CPU::process(unsigned long const cycles) {
+ 					done = runLinkBattleHook(pc, cycleCounter);
+ 				} else if (pc == linkFriendEntry_ && linkFriendEntry_ != 0 && mem_.isRomBank(linkFriendBank_)) {
+ 					hooked = true;
+-					done = runLinkFriendHook(pc, cycleCounter);
++					done = runLinkFriendHook(pc, cycleCounter, linkFriendMetPc_, linkFriendFailPc_);
++				} else if (pc == linkFriendWramEntry_ && linkFriendWramEntry_ != 0) {
++					hooked = true;
++					done = runLinkFriendHook(pc, cycleCounter, linkFriendWramMetPc_, linkFriendWramFailPc_);
+ 				} else if (pc == linkMenuEntry_ && linkMenuEntry_ != 0) {
+ 					hooked = true;
+ 					done = runLinkMenuHook(pc, cycleCounter);
+diff --git a/libgambatte/src/cpu.h b/libgambatte/src/cpu.h
+index 9a1069a..e7b7916 100644
+--- a/libgambatte/src/cpu.h
++++ b/libgambatte/src/cpu.h
+@@ -138,6 +138,17 @@ public:
+ 	 * byte a network round trip, so the menu misses most button presses. Instead the two bytes
+ 	 * go across at once and the partner's go to [receive]; then the routine returns.
+ 	 */
++	/**
++	 * The friend meeting again, for a routine the app puts in work RAM at [entry] (Red, Blue and
++	 * Yellow trading or battling where the players stand): once met it goes on at [metPc], else at
++	 * [failPc], as for the receptionist's loop.
++	 */
++	void setLinkFriendWramHook(unsigned short entry, unsigned short metPc, unsigned short failPc) {
++		linkFriendWramEntry_ = entry;
++		linkFriendWramMetPc_ = metPc;
++		linkFriendWramFailPc_ = failPc;
++	}
++
+ 	void setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive) {
+ 		linkMenuEntry_ = entry;
+ 		linkMenuSend_ = send;
+@@ -195,6 +206,7 @@ private:
+ 	unsigned short linkFriendEntry_, linkConnectionStatus_, linkScriptVar_;
+ 	unsigned short linkFriendMetPc_, linkFriendFailPc_;
+ 	unsigned short linkMenuEntry_, linkMenuSend_, linkMenuReceive_;
++	unsigned short linkFriendWramEntry_, linkFriendWramMetPc_, linkFriendWramFailPc_;
+ 	// The friend hook's meeting: our number (0 = none going on), the partner's latest, when
+ 	// it started (ms), and whether the partner should hear from us again.
+ 	unsigned long linkFriendNonce_;
+@@ -215,7 +227,7 @@ private:
+ 	bool runLinkBlockHook(unsigned long &cycleCounter);
+ 	bool runLinkSyncHook(unsigned short &pc, unsigned long &cycleCounter);
+ 	bool runLinkBattleHook(unsigned short &pc, unsigned long &cycleCounter);
+-	bool runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter);
++	bool runLinkFriendHook(unsigned short &pc, unsigned long &cycleCounter, unsigned short metPc, unsigned short failPc);
+ 	bool runLinkMenuHook(unsigned short &pc, unsigned long &cycleCounter);
+ 	void returnFromRoutine(unsigned short &pc, unsigned long &cycleCounter);
+ 
+diff --git a/libgambatte/src/gambatte.cpp b/libgambatte/src/gambatte.cpp
+index 4694f84..e5c4c8d 100644
+--- a/libgambatte/src/gambatte.cpp
++++ b/libgambatte/src/gambatte.cpp
+@@ -101,6 +101,10 @@ void GB::setLinkFriendHook(unsigned bank, unsigned short entry, unsigned short c
+ 	p_->cpu.setLinkFriendHook(bank, entry, connectionStatus, scriptVar, metPc, failPc);
+ }
+ 
++void GB::setLinkFriendWramHook(unsigned short entry, unsigned short metPc, unsigned short failPc) {
++	p_->cpu.setLinkFriendWramHook(entry, metPc, failPc);
++}
++
+ void GB::setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive) {
+ 	p_->cpu.setLinkMenuHook(entry, send, receive);
+ }
 -- 
 2.43.0
 
