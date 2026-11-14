@@ -389,6 +389,8 @@ test('the games page lists the games players can trade and battle in, and the ho
   assert.equal(page.status, 200);
   const html = await page.text();
   for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Multiplayer']) assert.ok(html.includes(name), name);
+  // ROM hacks have their own section, each its own world.
+  for (const name of ['ROM hacks', 'Radical Red', 'Unbound', 'See each other in Radical Red', 'Each one trades and battles with players of the same hack']) assert.ok(html.includes(name), name);
   for (const name of ['FireRed', 'LeafGreen', 'Ruby', 'Sapphire', 'Emerald', 'See each other in Kanto', 'See each other in Hoenn']) {
     assert.ok(html.includes(name), name);
   }
@@ -429,6 +431,7 @@ test('the games page counts open rooms per game and shows a cover the owner adde
   );
   assert.deepEqual(tiles, {
     Gold: false, Silver: false, Crystal: true, FireRed: false, LeafGreen: true, Ruby: false, Sapphire: false, Emerald: false,
+    'Radical Red': false, Unbound: false,
   });
   guest.close();
   const cover = await fetch(`${url}/covers/crystal.png`);

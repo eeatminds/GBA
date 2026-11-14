@@ -700,6 +700,24 @@ const GAME_FAMILIES = [
       { id: 'emerald', name: 'Emerald', match: ['emerald'], emblem: 'cut', colors: ['#0d5a3c', '#3fca8c'], versions: 'USA / Europe' },
     ],
   },
+  {
+    console: 'ROM hacks',
+    short: 'GBA',
+    blurb:
+      'Fan-made games built on FireRed (Game Boy Advance). Each hack is its own world: you meet, trade and battle ' +
+      'players of the same hack and version, not players of the original games or of another hack. ' +
+      "Unbound's own Cable Club doesn't trade (the hack turned that off): trade in Multiplayer instead.",
+    systems: ['gba'],
+    together: 'Each one trades and battles with players of the same hack',
+    regions: [
+      { name: 'Radical Red', games: ['radicalred'] },
+      { name: 'Unbound', games: ['unbound'] },
+    ],
+    games: [
+      { id: 'radicalred', name: 'Radical Red', match: ['radical red', 'radicalred'], emblem: 'bolt', colors: ['#5a0d12', '#e0473f'], versions: 'GBA · Version 4.1' },
+      { id: 'unbound', name: 'Unbound', match: ['unbound'], emblem: 'compass', colors: ['#24164a', '#8a6be0'], versions: 'GBA · Version 2.1.1.1' },
+    ],
+  },
 ];
 
 const COVER_TYPES = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg' };
@@ -762,6 +780,14 @@ const EMBLEMS = {
   cut:
     '<path d="M34 26h32l10 10v32l-10 10H34L24 68V36z" fill="#e6fff3"/>' +
     '<path d="M38 36h24l6 6v20l-6 6H38l-6-6V42zM24 36l8 6M76 36l-8 6M24 68l8-6M76 68l-8-6" stroke="#3fca8c" stroke-width="2" fill="none" opacity=".75"/>',
+  // ROM hacks: a lightning bolt and a compass rose.
+  bolt:
+    '<path d="M56 18L30 56h16l-6 28l28-40H52z" fill="#fff0ee"/>' +
+    '<path d="M56 18L30 56h16l-6 28" stroke="#e0473f" stroke-width="2" fill="none" opacity=".6"/>',
+  compass:
+    '<circle cx="50" cy="52" r="24" fill="none" stroke="#f1ecff" stroke-width="3"/>' +
+    '<path d="M50 24l7 21l-7 7l-7-7zM50 80l-7-21l7-7l7 7z" fill="#f1ecff"/>' +
+    '<path d="M22 52l21-7l7 7l-7 7zM78 52l-21 7l-7-7l7-7z" fill="#f1ecff" opacity=".6"/>',
   leaf:
     '<path d="M28 74C26 44 46 26 76 24c2 30-16 50-48 50z" fill="#effbe7"/>' +
     '<path d="M28 74L66 36M44 58l-2-12M54 48l-1-10M44 58l12 1M54 48l11 1" stroke="#7ccb5b" stroke-width="2.4" stroke-linecap="round" fill="none"/>',
@@ -805,7 +831,7 @@ function gamesPage(config, registry) {
     return `<section class="family">
 <div class="side"><h2>${escapeHtml(family.console)}</h2><p>${escapeHtml(family.blurb)}</p></div>
 <div class="main">${regions}
-<p class="together">${linkIcon}<span>${count ?? `All ${family.games.length}`} trade and battle</span></p></div></section>`;
+<p class="together">${linkIcon}<span>${escapeHtml(family.together ?? `${count ?? `All ${family.games.length}`} trade and battle`)}</span></p></div></section>`;
   }).join('');
 
   return `<!doctype html>
