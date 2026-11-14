@@ -62,6 +62,14 @@ subprojects {
                     minSdkVersion(deps.android.minSdkVersion)
                     targetSdkVersion(deps.android.targetSdkVersion)
                     multiDexEnabled = true
+                    // Ship the ABIs every core and every real phone supports: arm64-v8a (64-bit)
+                    // and armeabi-v7a (32-bit). Keeping the set identical across the base and all
+                    // dynamic-feature cores is required for the app bundle (some cores, e.g.
+                    // melonDS, don't provide 32-bit x86, which would otherwise mismatch the base).
+                    ndk {
+                        abiFilters.clear()
+                        abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+                    }
                 }
                 lintOptions {
                     isAbortOnError = true
@@ -74,6 +82,12 @@ subprojects {
                     sourceCompatibility = JavaVersion.VERSION_17
                     targetCompatibility = JavaVersion.VERSION_17
                 }
+            }
+            // Keep Kotlin's JVM target aligned with Java (17) for every module, including the
+            // dynamic-feature core modules that don't set it themselves (kapt stub generation
+            // would otherwise default to 21 and fail the JVM-target consistency check).
+            tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class.java).configureEach {
+                kotlinOptions.jvmTarget = "17"
             }
         }
     }
