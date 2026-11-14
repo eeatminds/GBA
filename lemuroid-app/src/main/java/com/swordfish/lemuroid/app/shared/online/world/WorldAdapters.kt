@@ -27,7 +27,8 @@ object WorldAdapters {
                 if (rom.size < 0xC0) return null
                 val gameCode = String(rom, 0xAC, 4, Charsets.US_ASCII)
                 val version = rom[0xBC].toInt() and 0xFF
-                Gen3Adapter.layoutFor(gameCode, version)?.let { Gen3Adapter(Rom(rom, 0x08000000L), it) }
+                val image = Rom(rom, 0x08000000L)
+                Gen3Adapter.layoutFor(gameCode, version)?.let { Gen3Adapter(image, Gen3Adapter.followGameCode(image, it, gameCode, version)) }
             }
             "gb", "gbc" -> {
                 if (rom.size < 0x150) return null

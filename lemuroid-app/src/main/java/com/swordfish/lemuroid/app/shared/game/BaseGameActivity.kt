@@ -40,6 +40,7 @@ import com.swordfish.lemuroid.app.shared.online.OnlineStatusBar
 import com.swordfish.lemuroid.app.shared.online.RoomKind
 import com.swordfish.lemuroid.app.shared.online.world.GameMemory
 import com.swordfish.lemuroid.app.shared.online.world.GameViewport
+import com.swordfish.lemuroid.app.shared.online.world.LinkBattleGuard
 import com.swordfish.lemuroid.app.shared.online.world.NoWorld
 import com.swordfish.lemuroid.app.shared.online.world.TrainerNames
 import com.swordfish.lemuroid.app.shared.online.world.VisitStore
@@ -77,6 +78,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -219,6 +221,7 @@ abstract class BaseGameActivity : ImmersiveActivity() {
             }
             // The core registers its link interface while the game loads.
             session?.start()
+            if (session != null && session.hasLinks && game.systemId == "gba") startLinkBattleGuard()
             // Same world rooms also share the map, in games we know how to read.
             if (session != null && session.hasLinks && session.sameWorld) startWorld(session) else finishLeftoverVisit()
             // Auto-resume: a quiet snapshot every 30 seconds while the game is on screen.
@@ -520,6 +523,24 @@ abstract class BaseGameActivity : ImmersiveActivity() {
         }.onFailure { Timber.w(it, "Could not ask for a 60 Hz screen") }
     }
 
+    /**
+     * Link battles in FireRed/LeafGreen-based games: some ROM hacks clear the battle flags before a
+     * link battle has ended, and the two games then lose each other (see [LinkBattleGuard]).
+     */
+    private fun startLinkBattleGuard() {
+        lifecycleScope.launch {
+            val guard = gameRom()?.let { LinkBattleGuard.forRom(it) } ?: return@launch
+            var memory: GameMemory? = null
+            while (isActive) {
+                delay(LINK_GUARD_MS)
+                baseGameScreenViewModel.retroGameView.retroGameView?.queueEvent {
+                    val running = memory ?: GameMemory.ofRunningGame()?.also { memory = it } ?: return@queueEvent
+                    if (guard.check(running)) Timber.i("Link battle: the game cleared its battle flags early; put them back")
+                }
+            }
+        }
+    }
+
     /** See the other players in our game: their characters are drawn over the game picture. */
     private fun startWorld(session: OnlineSession) {
         lifecycleScope.launch {
@@ -786,6 +807,9 @@ abstract class BaseGameActivity : ImmersiveActivity() {
 
         // How often the auto-resume snapshot is saved while playing.
         private const val PERIODIC_SAVE_MS = 30_000L
+
+        // How often the link battle guard looks at the game (a battle takes about a second to end).
+        private const val LINK_GUARD_MS = 50L
 
         // How often the running game is checked for the trainer's name.
         private const val TRAINER_NAME_CHECK_MS = 3_000L

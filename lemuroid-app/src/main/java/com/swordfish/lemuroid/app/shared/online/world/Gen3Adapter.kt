@@ -1,6 +1,7 @@
 package com.swordfish.lemuroid.app.shared.online.world
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.CRC32
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -43,6 +44,8 @@ class Gen3Adapter(
         // of the town map's sections.
         val mapHeader: Long,
         val mapGroups: Long,
+        // ROM hacks may scramble the map list: each group's pointer is stored XOR this key (0: plain).
+        val mapGroupsKey: Long = 0,
         val mapNames: MapNames,
         // Trading and battling where the players stand (see Gen3InPlace), where it's been tried.
         val inPlace: InPlace? = null,
@@ -222,7 +225,8 @@ class Gen3Adapter(
         group: Int,
         number: Int,
     ): Long? {
-        val maps = rom.u32(layout.mapGroups + group * 4L) ?: return null
+        if (layout.mapGroups == 0L) return null
+        val maps = (rom.u32(layout.mapGroups + group * 4L) ?: return null) xor layout.mapGroupsKey
         return rom.u32(maps + number * 4L)
     }
 
@@ -647,6 +651,157 @@ class Gen3Adapter(
         val SAPPHIRE_11 = ruby(0x080543c8, 0x0836dc00, 0x08373724, 0x08308530, 0x083e743c, rubyLink(0x08054374, 0x08055378, true, 0x081a44ae))
 
         /** The layout for a GBA ROM, from its header's game code and version, or null. */
+        /**
+         * [layout] with the sprite tables the game's own code uses. ROM hacks built on FireRed and
+         * LeafGreen (on the Complete Fire Red Upgrade, like Radical Red) move them to hold more
+         * characters: GetObjectEventGraphicsInfo then jumps to the hack's own version, whose table
+         * of characters is taken here, and the palettes come from wherever the game's palette
+         * lookup reads them. For the original games this finds the very same tables.
+         */
+        fun followGameCode(
+            rom: Rom,
+            layout: Layout,
+            gameCode: String,
+            version: Int,
+        ): Layout {
+            if (gameCode != "BPRE" && gameCode != "BPGE") return layout
+            val (graphicsInfo, findPalette) =
+                when (version) {
+                    0 -> 0x0805f2c8L to 0x0805f5a0L
+                    1 -> 0x0805f2dcL to 0x0805f5b4L
+                    else -> return layout
+                }
+            val mapLookup = if (version == 0) 0x08055238L else 0x0805524cL
+            var result = layout
+            hookTarget(rom, mapLookup)?.let { target ->
+                // A hack's own map lookup (Unbound's: the group table, and a key the group pointers
+                // are stored XOR). Without both, place names are left out rather than wrong.
+                val table = romLiterals(rom, target, 0x10).firstOrNull()
+                val key = plainLiterals(rom, target, 0x10).firstOrNull() ?: 0L
+                result =
+                    if (table != null && usesXor(rom, target, 0x10) == (key != 0L)) {
+                        result.copy(mapGroups = table, mapGroupsKey = key)
+                    } else {
+                        result.copy(mapGroups = 0)
+                    }
+            }
+            hookedGraphicsTable(rom, graphicsInfo)?.let { (table, count) ->
+                result = result.copy(graphicsInfoPointers = table, graphicsInfoCount = count)
+            }
+            firstRomLiteral(rom, findPalette, 0x20)?.let { palettes ->
+                if (palettes != layout.spritePalettes) result = result.copy(spritePalettes = palettes, spritePaletteCount = 0x100)
+            }
+            if (hookTarget(rom, graphicsInfo) != null || hookTarget(rom, mapLookup) != null) {
+                // A ROM hack: its own world (its maps and Pokemon aren't the original game's; only
+                // players of the very same hack meet), and our scripts at the very end of work
+                // RAM, which hacks leave free (Unbound keeps its own data just before it).
+                val crc = CRC32().apply { update(rom.bytes) }.value
+                result =
+                    result.copy(
+                        world = "frlg-hack-%08x".format(crc),
+                        inPlace = result.inPlace?.copy(scriptBuffer = HACK_SCRIPT_BUFFER),
+                    )
+            }
+            return result
+        }
+
+        private const val HACK_SCRIPT_BUFFER = 0x0203ff00L
+
+        // "ldr rN, [pc, #0]; bx rN": the start of a function replaced by a hack's own.
+        private fun hookTarget(
+            rom: Rom,
+            function: Long,
+        ): Long? {
+            val load = rom.u16(function) ?: return null
+            val jump = rom.u16(function + 2) ?: return null
+            val register = (load shr 8) and 7
+            if (load and 0xF8FF != 0x4800 || jump != 0x4700 or (register shl 3)) return null
+            return rom.u32(function + 4)?.and(1L.inv())?.takeIf { isRom(it) }
+        }
+
+        // The character table a hooked GetObjectEventGraphicsInfo uses for ordinary characters
+        // (the player among them), and how many entries it has.
+        private fun hookedGraphicsTable(
+            rom: Rom,
+            function: Long,
+        ): Pair<Long, Int>? {
+            val target = hookTarget(rom, function) ?: return null
+            for (literal in romLiterals(rom, target, 0x80)) {
+                var count = 0
+                while (count < 0x100) {
+                    val info = rom.u32(literal + count * 4L) ?: break
+                    if (!isRom(info) || !looksLikeGraphicsInfo(rom, info)) break
+                    count++
+                }
+                if (count >= 8) return literal to count
+            }
+            return null
+        }
+
+        // A character's graphics: no tiles of its own (0xFFFF), a sensible size, frames in ROM.
+        private fun looksLikeGraphicsInfo(
+            rom: Rom,
+            info: Long,
+        ): Boolean {
+            val width = rom.s16(info + INFO_WIDTH) ?: return false
+            val height = rom.s16(info + INFO_HEIGHT) ?: return false
+            val images = rom.u32(info + INFO_IMAGES) ?: return false
+            return rom.u16(info) == 0xFFFF && width in 8..64 && height in 8..64 && isRom(images)
+        }
+
+        private fun firstRomLiteral(
+            rom: Rom,
+            function: Long,
+            length: Int,
+        ): Long? = romLiterals(rom, function, length).firstOrNull()
+
+        // The ROM addresses that "ldr rX, [pc, #n]" instructions in [length] bytes from [function] load.
+        private fun romLiterals(
+            rom: Rom,
+            function: Long,
+            length: Int,
+        ): List<Long> {
+            val out = mutableListOf<Long>()
+            var at = function
+            while (at < function + length) {
+                val instruction = rom.u16(at) ?: break
+                if (instruction shr 11 == 0b01001) {
+                    val pool = ((at + 4) and 3L.inv()) + (instruction and 0xFF) * 4L
+                    rom.u32(pool)?.takeIf { isRom(it) }?.let { out += it }
+                }
+                at += 2
+            }
+            return out
+        }
+
+        private fun isRom(address: Long): Boolean = address in 0x08000000L until 0x0A000000L
+
+        // The other (non-ROM) values "ldr rX, [pc, #n]" instructions load: numbers, keys.
+        private fun plainLiterals(
+            rom: Rom,
+            function: Long,
+            length: Int,
+        ): List<Long> {
+            val out = mutableListOf<Long>()
+            var at = function
+            while (at < function + length) {
+                val instruction = rom.u16(at) ?: break
+                if (instruction shr 11 == 0b01001) {
+                    val pool = ((at + 4) and 3L.inv()) + (instruction and 0xFF) * 4L
+                    rom.u32(pool)?.takeIf { !isRom(it) && it != 0L }?.let { out += it }
+                }
+                at += 2
+            }
+            return out
+        }
+
+        // Whether an "eors" instruction is among the [length] bytes from [function].
+        private fun usesXor(
+            rom: Rom,
+            function: Long,
+            length: Int,
+        ): Boolean = (0 until length step 2).any { (rom.u16(function + it) ?: 0) and 0xFFC0 == 0x4040 }
+
         fun layoutFor(
             gameCode: String,
             version: Int,

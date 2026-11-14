@@ -187,6 +187,8 @@ class Gen3InPlace(
                 putInt(CONTEXT_CMD_TABLE, link.scriptCmdTable.toInt())
                 putInt(CONTEXT_CMD_TABLE + 4, link.scriptCmdTableEnd.toInt())
             }.array()
+        // The script must stay inside work RAM (hacks put it in its last 256 bytes).
+        require(link.scriptBuffer + script.size <= EWRAM_END) { "script of ${script.size} bytes doesn't fit" }
         memory.write(link.scriptBuffer, script)
         memory.write(link.scriptContext, context)
         memory.write(layout.fieldControlsLocked, byteArrayOf(1))
@@ -296,6 +298,8 @@ class Gen3InPlace(
     )
 
     companion object {
+        private const val EWRAM_END = 0x02040000L
+
         private const val THUMB = 1L
 
         // The game's script commands (the same numbers in all five games).
