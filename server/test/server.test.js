@@ -389,6 +389,7 @@ test('the games page lists the games players can trade and battle in, and the ho
   assert.equal(page.status, 200);
   const html = await page.text();
   for (const name of ['Gold', 'Silver', 'Crystal', 'trade and battle', 'See each other in Johto', 'Multiplayer']) assert.ok(html.includes(name), name);
+  for (const name of ['Game Boy games', 'Red', 'Blue', 'Yellow']) assert.ok(html.includes(name), name);
   // ROM hacks have their own section, each its own world.
   for (const name of ['ROM hacks', 'Radical Red', 'Unbound', 'See each other in Radical Red', 'Each one trades and battles with players of the same hack']) assert.ok(html.includes(name), name);
   for (const name of ['FireRed', 'LeafGreen', 'Ruby', 'Sapphire', 'Emerald', 'See each other in Kanto', 'See each other in Hoenn']) {
@@ -396,8 +397,11 @@ test('the games page lists the games players can trade and battle in, and the ho
   }
   assert.ok(html.includes('All three trade and battle'));
   assert.ok(html.includes('All five trade and battle'));
-  // Hoenn twice: Ruby and Sapphire share their map, Emerald players have their own.
+  // Hoenn twice: Ruby and Sapphire share their map, Emerald players have their own. Kanto twice:
+  // Red, Blue and Yellow, and FireRed and LeafGreen.
   assert.equal(html.match(/See each other in Hoenn/g).length, 2);
+  assert.equal(html.match(/See each other in Kanto/g).length, 2);
+  assert.equal(html.match(/All three trade and battle/g).length, 2);
   assert.ok(!/randomi[sz]er/i.test(html));
   assert.ok(!html.includes('<script'));
   const home = await (await fetch(`http://${base}/`)).text();
@@ -430,6 +434,7 @@ test('the games page counts open rooms per game and shows a cover the owner adde
     html.split('<li class="tile">').slice(1).map((tile) => [/<b>([^<]+)<\/b>/.exec(tile)[1], tile.includes('1 open')]),
   );
   assert.deepEqual(tiles, {
+    Red: false, Blue: false, Yellow: false,
     Gold: false, Silver: false, Crystal: true, FireRed: false, LeafGreen: true, Ruby: false, Sapphire: false, Emerald: false,
     'Radical Red': false, Unbound: false,
   });

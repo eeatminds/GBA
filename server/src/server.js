@@ -665,6 +665,20 @@ h1{font-size:22px;margin:0 0 12px}p{color:var(--muted);margin:6px 0}.game{color:
 // and battling have been tested.
 const GAME_FAMILIES = [
   {
+    console: 'Game Boy games',
+    short: 'GB',
+    blurb:
+      'Red, Blue and Yellow players share a room and can all trade and battle each other, ' +
+      'just as over a real link cable. On the map you see everyone in Kanto.',
+    systems: ['gb', 'gbc'],
+    regions: [{ name: 'Kanto', games: ['red', 'blue', 'yellow'] }],
+    games: [
+      { id: 'red', name: 'Red', match: ['red'], emblem: 'star', colors: ['#7a1414', '#e34234'], versions: 'USA / Europe' },
+      { id: 'blue', name: 'Blue', match: ['blue'], emblem: 'wave', colors: ['#173a7a', '#4a7fe0'], versions: 'USA / Europe' },
+      { id: 'yellow', name: 'Yellow', match: ['yellow'], emblem: 'spark', colors: ['#8a6d00', '#f5cf2a'], versions: 'USA / Europe' },
+    ],
+  },
+  {
     console: 'Game Boy Color games',
     short: 'GBC',
     blurb:
@@ -780,6 +794,16 @@ const EMBLEMS = {
   cut:
     '<path d="M34 26h32l10 10v32l-10 10H34L24 68V36z" fill="#e6fff3"/>' +
     '<path d="M38 36h24l6 6v20l-6 6H38l-6-6V42zM24 36l8 6M76 36l-8 6M24 68l8-6M76 68l-8-6" stroke="#3fca8c" stroke-width="2" fill="none" opacity=".75"/>',
+  // Game Boy: a star, waves and a sparkle.
+  star:
+    '<path d="M50 22l8.2 17.6l19.3 2.3l-14.2 13.2l3.7 19.1L50 64.8l-17 9.4l3.7-19.1L22.5 41.9l19.3-2.3z" fill="#fff0ee"/>' +
+    '<circle cx="50" cy="50" r="6" fill="#e34234" opacity=".55"/>',
+  wave:
+    '<path d="M22 38c7-8 14-8 21 0s14 8 21 0s10-7 14-3M22 52c7-8 14-8 21 0s14 8 21 0s10-7 14-3M22 66c7-8 14-8 21 0s14 8 21 0s10-7 14-3" ' +
+    'stroke="#eef4ff" stroke-width="5" stroke-linecap="round" fill="none"/>',
+  spark:
+    '<path d="M48 22c3 18 11 26 28 30c-17 4-25 12-28 30c-3-18-11-26-28-30c17-4 25-12 28-30z" fill="#fffbe6"/>' +
+    '<path d="M74 20c1 5 3 7 8 8c-5 1-7 3-8 8c-1-5-3-7-8-8c5-1 7-3 8-8z" fill="#fffbe6" opacity=".8"/>',
   // ROM hacks: a lightning bolt and a compass rose.
   bolt:
     '<path d="M56 18L30 56h16l-6 28l28-40H52z" fill="#fff0ee"/>' +
