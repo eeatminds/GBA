@@ -549,6 +549,11 @@ function handleHttp(req, res, registry, config) {
     return;
   }
 
+  if (req.method === 'GET' && (path === '/privacy' || path === '/privacy/')) {
+    sendHtml(res, 200, privacyPage(config));
+    return;
+  }
+
   if (req.method === 'GET' && (path === '/games' || path === '/games/')) {
     sendHtml(res, 200, gamesPage(config, registry), "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'");
     return;
@@ -851,6 +856,42 @@ function tileArt(game, short) {
 
 function listNames(names) {
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+}
+
+// The app's privacy policy (linked from the Play Store listing).
+function privacyPage(config) {
+  const appName = 'Our GBA Online Emulator';
+  const section = (title, body) => `<h2>${title}</h2>${body}`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy - ${appName}</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f5f2;--fg:#1d1c1a;--muted:#6b6862;--accent:#3b5bdb}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#f2f1ee;--muted:#a3a09a;--accent:#91a7ff}}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+.wrap{max-width:760px;margin:0 auto;padding:40px 16px 56px}
+h1{font-size:clamp(26px,5vw,36px);margin:16px 0 4px}h2{font-size:19px;margin:28px 0 6px}
+p,li{color:var(--fg)}.muted{color:var(--muted)}a{color:var(--accent)}ul{padding-left:20px}
+</style></head><body><div class="wrap">
+<a href="/">&larr; ${escapeHtml(config.appName)}</a>
+<h1>Privacy Policy for ${appName}</h1>
+<p class="muted">Last updated: 17 November 2026</p>
+<p>${appName} (&ldquo;the app&rdquo;) is an emulator for games you own. It is developed by Shreyas (EEAT Minds, <a href="https://www.eeatminds.in/">https://www.eeatminds.in/</a>). This policy explains what data the app handles.</p>
+${section('1. Data that stays on your device', '<p>Your games, save files, save states and settings are stored on your device only. The app does not include any games and never uploads your games or save files.</p>')}
+${section('2. Online rooms', `<p>When you use the Online tab, the app connects to our room server at https://gba.eeatminds.in. The server receives:</p><ul>
+<li>the display name you enter (or the trainer name from your game),</li>
+<li>the name of the game you host, the room settings and the room code,</li>
+<li>the link-cable, position or controller data exchanged during play,</li>
+<li>your IP address, which every internet connection reveals.</li></ul>
+<p>Room data is kept only in memory while the room is open and is deleted when the room closes. It is used only to run the room. It is not sold or shared with third parties, and it is not used for advertising.</p>`)}
+${section('3. Connection reports', '<p>If a trade or battle fails to start, the app sends a short technical report to the room server so the problem can be fixed. It contains the room code, your display name, the app version, your phone model and Android version, the title of the game and the connection steps. Reports are kept for a short time and then deleted. They never contain your games or save files.</p>')}
+${section('4. Cloud save backup (optional)', '<p>If you turn on save backup, the app stores your saves in a folder you choose or in a private app folder in your own Google Drive. We cannot see it.</p>')}
+${section('5. Microphone', '<p>Some games use the console&rsquo;s microphone. If you allow it, the microphone is used only inside the running game on your device. Sound is never recorded, stored or sent anywhere.</p>')}
+${section('6. No ads, no tracking, no accounts', '<p>The app has no ads, no analytics or advertising trackers, and no user accounts. All connections to the room server are encrypted (HTTPS/WSS).</p>')}
+${section('7. Children', '<p>The app is not directed at children under 13.</p>')}
+${section('8. Deleting your data', '<p>Room data is deleted automatically when a room closes. To ask about any data, contact us at the address below.</p>')}
+${section('9. Contact', '<p><a href="mailto:eeatminds.in@gmail.com">eeatminds.in@gmail.com</a></p>')}
+</div></body></html>`;
 }
 
 function gamesPage(config, registry) {

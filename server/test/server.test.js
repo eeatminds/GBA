@@ -471,3 +471,10 @@ test('the games page counts open rooms per game and shows a cover the owner adde
   host.close();
   await own.close();
 });
+
+test('the privacy policy page is served', async () => {
+  const page = await fetch(`http://${base}/privacy`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  for (const text of ['Privacy Policy for Our GBA Online Emulator', 'eeatminds.in@gmail.com', 'Microphone', 'Connection reports']) assert.ok(html.includes(text), text);
+});
