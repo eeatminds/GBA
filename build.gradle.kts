@@ -83,6 +83,14 @@ subprojects {
                     targetCompatibility = JavaVersion.VERSION_17
                 }
             }
+            // The Game Boy core downloaded on demand in Play builds is our own (gambatte with a
+            // network friendly link cable, see extra-cores/gambatte-link), as in builds that
+            // bundle the cores; the stock one has none of the link fixes.
+            if (name == "lemuroid_core_gambatte") {
+                extensions.configure(BaseExtension::class.java) {
+                    sourceSets.getByName("main").jniLibs.setSrcDirs(listOf(rootProject.file("extra-cores/gambatte-link/jniLibs")))
+                }
+            }
             // Keep Kotlin's JVM target aligned with Java (17) for every module, including the
             // dynamic-feature core modules that don't set it themselves (kapt stub generation
             // would otherwise default to 21 and fail the JVM-target consistency check).

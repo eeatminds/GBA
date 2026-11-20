@@ -414,11 +414,11 @@ test('every original game has box art to fetch; the ROM hacks show their emblems
   const firered = coverSourceUrl(games.find((game) => game.id === 'firered'));
   assert.equal(
     firered,
-    'https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy%20Advance/Named_Boxarts/Pokemon%20-%20FireRed%20Version%20(USA%2C%20Europe)%20(Rev%201).png',
+    'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Game_Boy_Advance/master/Named_Boxarts/Pokemon%20-%20FireRed%20Version%20(USA%2C%20Europe)%20(Rev%201).png',
   );
   for (const game of games) {
     if (['radicalred', 'unbound'].includes(game.id)) assert.equal(coverSourceUrl(game), null, game.id);
-    else assert.ok(coverSourceUrl(game)?.startsWith('https://thumbnails.libretro.com/'), game.id);
+    else assert.ok(coverSourceUrl(game)?.startsWith('https://raw.githubusercontent.com/libretro-thumbnails/'), game.id);
   }
   // Covers already in the folder (the owner's own too) are kept: nothing is downloaded.
   const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');

@@ -754,13 +754,14 @@ export const GAME_FAMILIES = [
 
 export const COVER_TYPES = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg' };
 
-// Where [game]'s box art can be downloaded from, or null when it has none there (the ROM hacks).
+// Where [game]'s box art can be downloaded from (the mirror keeps some covers as links: see fetch-covers.js), or null when it has none there (the ROM hacks).
 export function coverSourceUrl(game) {
   if (!game.cover) return null;
   const [system, name] = game.cover;
   // The library writes these characters as "_" in its file names.
   const file = name.replace(/[&*/:`<>?\\|"]/g, '_');
-  return `https://thumbnails.libretro.com/${encodeURIComponent(system)}/Named_Boxarts/${encodeURIComponent(file)}.png`;
+  // The libretro thumbnails library's GitHub mirror (the server's own folders stopped answering).
+  return `https://raw.githubusercontent.com/libretro-thumbnails/${encodeURIComponent(system.replace(/ /g, '_'))}/master/Named_Boxarts/${encodeURIComponent(file)}.png`;
 }
 
 // A picture the server's owner put in the covers folder for this game, if any.

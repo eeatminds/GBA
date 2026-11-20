@@ -58,7 +58,7 @@ class ShortcutsGenerator(
                         val inputStream = appContext.contentResolver.openInputStream(uri)
                         BitmapFactory.decodeStream(inputStream).cropToSquare()
                     } else {
-                        val response = thumbnailsApi.downloadThumbnail(game.coverFrontUrl!!)
+                        val response = thumbnailsApi.downloadThumbnail(game.displayCoverUrl()!!)
                         BitmapFactory.decodeStream(response.body()).cropToSquare()
                     }
                 }

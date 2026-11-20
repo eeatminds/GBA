@@ -54,9 +54,25 @@ data class Game(
 ) : Serializable {
 
     fun displayName(): String = customName ?: title
-    fun displayCoverUrl(): String? = customCoverUri ?: coverFrontUrl
+    fun displayCoverUrl(): String? = customCoverUri ?: coverFrontUrl?.let(::mirroredCoverUrl)
 
     companion object {
+        private const val LIBRETRO_THUMBNAILS = "thumbnails.libretro.com/"
+
+        /**
+         * Covers from the libretro thumbnails server, read from its GitHub mirror instead (same
+         * pictures; the server's folders stopped answering). Games already in the library keep
+         * their saved address, so this is done when showing the cover.
+         */
+        fun mirroredCoverUrl(url: String): String {
+            val path = url.substringAfter(LIBRETRO_THUMBNAILS, "").takeIf { it.isNotEmpty() } ?: return url
+            val parts = path.split('/', limit = 3)
+            if (parts.size != 3) return url
+            val (system, type, file) = parts
+            val encodedFile = java.net.URLEncoder.encode(file, "UTF-8").replace("+", "%20")
+            return "https://raw.githubusercontent.com/libretro-thumbnails/${system.replace(' ', '_')}/master/$type/$encodedFile"
+        }
+
         val DIFF_CALLBACK =
             object : DiffUtil.ItemCallback<Game>() {
                 override fun areItemsTheSame(

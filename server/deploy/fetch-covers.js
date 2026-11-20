@@ -2,7 +2,7 @@
 //
 //   node deploy/fetch-covers.js /etc/gba-rooms/covers
 //
-// From the libretro thumbnails library (the one the app shows game covers from). Each game is
+// From the libretro thumbnails library's GitHub mirror (the one the app shows game covers from). Each game is
 // fetched once: a picture already in the folder (one the owner put there too) is kept. Shrunk to
 // a small WebP picture when cwebp is installed (the install script installs it), so the page stays
 // light on phones; otherwise kept as the PNG.
@@ -30,9 +30,21 @@ for (const game of GAME_FAMILIES.flatMap((family) => family.games)) {
   if (!url || Object.keys(COVER_TYPES).some((ext) => fs.existsSync(path.join(dir, `${game.id}.${ext}`)))) continue;
   const download = path.join(dir, `.${game.id}.download.png`);
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const png = Buffer.from(await response.arrayBuffer());
+    // The mirror keeps some covers as links: a short text naming the file in the same folder.
+    let png = null;
+    let address = url;
+    for (let hop = 0; hop < 3 && png === null; hop++) {
+      const response = await fetch(address, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = Buffer.from(await response.arrayBuffer());
+      const text = body.length < 512 ? body.toString('utf8').trim() : '';
+      if (text.endsWith('.png') && !text.includes('/') && !text.includes('\n')) {
+        address = address.slice(0, address.lastIndexOf('/') + 1) + encodeURIComponent(text);
+      } else {
+        png = body;
+      }
+    }
+    if (png === null) throw new Error('too many links');
     if (png.subarray(1, 4).toString('latin1') !== 'PNG') throw new Error('not a PNG picture');
     fs.writeFileSync(download, png);
     if (shrink) {
