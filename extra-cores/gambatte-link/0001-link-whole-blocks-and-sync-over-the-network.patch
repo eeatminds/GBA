@@ -1,7 +1,7 @@
 From bdbdce473a6f9d0f1c97f3e0467fe690b00e520c Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 12:23:38 +0000
-Subject: [PATCH 1/6] Link: whole-block exchanges and sync rendezvous for Gen 2
+Subject: [PATCH 1/7] Link: whole-block exchanges and sync rendezvous for Gen 2
  Pokemon over the network
 
 ---
@@ -717,7 +717,7 @@ index ad94255..80cdbb9 100644
 From 84e4597cbd73f6e1dc1e90bcc640ae27f96248b7 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Tue, 3 Nov 2026 15:54:45 +0000
-Subject: [PATCH 2/6] Link: non-blocking hooks, battle move and friend
+Subject: [PATCH 2/7] Link: non-blocking hooks, battle move and friend
  rendezvous for Gen 2 Pokemon
 
 The block, sync and battle hooks no longer stall the frame while waiting
@@ -1369,7 +1369,7 @@ index 80cdbb9..43649c3 100644
 From f60d36e419705b9e8b34688f1a423f7c2db8d0e0 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Thu, 5 Nov 2026 07:52:13 +0000
-Subject: [PATCH 3/6] Link: survive dropped connections; safe exits when the
+Subject: [PATCH 3/7] Link: survive dropped connections; safe exits when the
  partner is gone
 
 - The friend meeting sends each side's number back, so leftovers from an
@@ -2141,7 +2141,7 @@ index 43649c3..cb44231 100644
 From ec97d1243ffc204ac08cb1d50f9c80fb762a613f Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Wed, 11 Nov 2026 06:03:52 +0000
-Subject: [PATCH 4/6] Link: say in the log whether the link fixes are on for
+Subject: [PATCH 4/7] Link: say in the log whether the link fixes are on for
  the game (with the core version)
 
 ---
@@ -2181,7 +2181,7 @@ index 9647a4c..ba68005 100644
 From a6469bb99d93b160c2aef9caf67faa9542154503 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Sat, 14 Nov 2026 05:54:21 +0000
-Subject: [PATCH 5/6] Link: whole-block exchanges, friend meeting and menu swap
+Subject: [PATCH 5/7] Link: whole-block exchanges, friend meeting and menu swap
  for Red, Blue and Yellow
 
 Pokemon Red, Blue and Yellow get the same network fixes as Gold, Silver and
@@ -2501,7 +2501,7 @@ index 92adcdb..4694f84 100644
 From 425350016c76b4ac572c34659c6e732c94d219e6 Mon Sep 17 00:00:00 2001
 From: eeatminds <12shreyas86@gmail.com>
 Date: Sat, 14 Nov 2026 08:37:35 +0000
-Subject: [PATCH 6/6] Link: friend meeting for the app's in-place routine in
+Subject: [PATCH 6/7] Link: friend meeting for the app's in-place routine in
  Red, Blue and Yellow
 
 The app can start a trade or battle right where two players stand: it
@@ -2695,6 +2695,33 @@ index 4694f84..e5c4c8d 100644
  void GB::setLinkMenuHook(unsigned short entry, unsigned short send, unsigned short receive) {
  	p_->cpu.setLinkMenuHook(entry, send, receive);
  }
+-- 
+2.43.0
+
+
+From 5ec496fa5acf3ee80bfe5e540aa0fc0ee7c64763 Mon Sep 17 00:00:00 2001
+From: eeatminds <12shreyas86@gmail.com>
+Date: Fri, 20 Nov 2026 06:53:30 +0000
+Subject: [PATCH 7/7] Android: 16 KB page alignment (for phones with 16 KB
+ memory pages)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PZdcJ5Msn5QruFvcFc3jaN
+---
+ libgambatte/libretro/jni/Android.mk | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libgambatte/libretro/jni/Android.mk b/libgambatte/libretro/jni/Android.mk
+index fa935a6..71d9c27 100644
+--- a/libgambatte/libretro/jni/Android.mk
++++ b/libgambatte/libretro/jni/Android.mk
+@@ -24,5 +24,5 @@ LOCAL_MODULE    := retro
+ LOCAL_SRC_FILES := $(SOURCES_CXX) $(SOURCES_C)
+ LOCAL_CXXFLAGS  := $(COREFLAGS) $(INCFLAGS)
+ LOCAL_CFLAGS    := $(INCFLAGS)
+-LOCAL_LDFLAGS   := -Wl,-version-script=$(LIBRETRO_DIR)/link.T
++LOCAL_LDFLAGS   := -Wl,-version-script=$(LIBRETRO_DIR)/link.T -Wl,-z,max-page-size=16384
+ include $(BUILD_SHARED_LIBRARY)
 -- 
 2.43.0
 
