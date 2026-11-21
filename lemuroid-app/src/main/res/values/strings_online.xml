@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_online">Online</string>
+    <string name="title_multiplayer">Multiplayer</string>
+
+    <!-- The two ways to play with friends, chosen at the top of the Online tab. -->
+    <string name="mode_choose">How do you want to play?</string>
+    <string name="mode_online_title">Online</string>
+    <string name="mode_online_subtitle">Trade &amp; battle at the Pok Center</string>
+    <string name="mode_multiplayer_title">Multiplayer</string>
+    <string name="mode_multiplayer_subtitle">Join your friend\'s world</string>
+
+    <string name="world_intro_title">Multiplayer: join your friend\'s world</string>
+    <string name="world_intro_message">You enter the host\'s world and see each other walking on the map. Walk up to a player and press A to trade or battle right there: no Pok Center needed.</string>
+    <string name="world_intro_point_1">Everyone plays their own copy of the game, from their own ROM.</string>
+    <string name="world_intro_point_2">Close the game to go back to your own world. What you trade comes with you.</string>
+    <string name="world_host_description">Your friends need their own copy of the same game, or its pair version. Up to 8 players.</string>
+    <string name="world_no_games">Add your own copy of a supported game to your library first.</string>
+
+    <string name="online_intro_title">Online: trade &amp; battle at the Pok Center</string>
+    <string name="online_intro_message">Just like the original games with a link cable: everyone stays in their own world. Walk into a Pok Center and talk to the link desk to trade or battle.</string>
+    <string name="online_intro_point_1">Works with Game Boy, Game Boy Color and Game Boy Advance games. Each player uses their own copy of the game.</string>
+    <string name="online_intro_point_2">Also play other games together, as if you were on the same console.</string>
+
+    <string name="online_server_missing_title">Online server not set up</string>
+    <string name="online_server_missing_message">Add the address of your room server to start playing online.</string>
+    <string name="online_server_set">Set server address</string>
+    <string name="online_server_label">Server: %1$s</string>
+    <string name="online_server_change">Change</string>
+    <string name="online_server_dialog_title">Room server</string>
+    <string name="online_server_dialog_hint">https://rooms.example.com</string>
+    <string name="online_server_reset">Use default</string>
+
+    <string name="online_name_label">Your name</string>
+    <string name="online_name_placeholder">Shown to other players</string>
+
+    <string name="online_host">Host a room</string>
+    <string name="online_join_code">Join with code</string>
+
+    <string name="online_public_rooms">Public rooms</string>
+    <string name="online_refresh">Refresh</string>
+    <string name="online_no_rooms">No public rooms right now. Host one and share the code with friends.</string>
+    <string name="online_rooms_error">Could not reach the server. Check your connection and try again.</string>
+    <string name="online_room_players">%1$d/%2$d</string>
+    <string name="online_room_host">Host: %1$s</string>
+    <string name="online_join">Join</string>
+    <string name="online_report">Report</string>
+    <string name="online_more">More</string>
+
+    <string name="online_host_dialog_title">Host a room</string>
+    <string name="online_pick_game">Your game</string>
+    <string name="online_no_gba_games">Add Game Boy Advance games to your library first.</string>
+    <string name="online_link_type">Link type</string>
+    <string name="online_public_room">Public room</string>
+    <string name="online_public_room_description">Anyone can see and join it. Turn off to share the code only with friends.</string>
+    <string name="online_start">Start</string>
+    <string name="online_cancel">Cancel</string>
+
+    <string name="online_join_dialog_title">Join a room</string>
+    <string name="online_join_code_label">Room code</string>
+    <string name="online_join_code_invalid">Room codes have 6 letters and numbers.</string>
+    <string name="online_room_not_found">Room not found. Check the code and try again.</string>
+    <string name="online_room_full">This room is full.</string>
+    <string name="online_join_room_title">Room %1$s</string>
+    <string name="online_join_room_details">%1$s · %2$s · %3$d/%4$d players</string>
+    <string name="online_join_pick_game">Pick your copy of the game. For trades between different games, everyone needs a game that supports this link type.</string>
+
+    <string name="online_report_title">Report this room</string>
+    <string name="online_report_hint">What is wrong with it?</string>
+    <string name="online_report_send">Send report</string>
+    <string name="online_report_sent">Thanks. The report was sent.</string>
+    <string name="online_report_failed">Could not send the report. Try again later.</string>
+
+    <string name="online_another_game_running">Close the game that is running first.</string>
+    <string name="online_preparing">Getting the online core ready…</string>
+
+    <string name="online_mode_link_cable">Link cable</string>
+    <string name="online_mode_link_cable_description">Trade and battle at the link desk, as with a real link cable. Up to 2 players at a time.</string>
+    <string name="online_mode_wireless">Wireless adapter</string>
+    <string name="online_mode_wireless_description">The games\' wireless link room. Up to 5 players.</string>
+    <string name="online_mode_auto">Automatic</string>
+    <string name="online_mode_auto_description">Let the emulator pick. Use only when everyone plays the same game.</string>
+    <string name="online_mode_advance_wars">Advance Wars</string>
+    <string name="online_mode_advance_wars_2">Advance Wars 2</string>
+    <string name="online_mode_advance_wars_description">Multiplayer battles for up to 4 players.</string>
+    <string name="online_mode_game_boy">Link cable (Game Boy)</string>
+    <string name="online_mode_game_boy_description">Game Boy and Game Boy Color games link 2 at a time, like a real cable. Newer Game Boy Color games can also trade with older Game Boy ones where the games allow it.</string>
+    <string name="online_no_link_games">Add Game Boy, Game Boy Color or Game Boy Advance games to your library first.</string>
+    <string name="online_no_gb_games">Add Game Boy or Game Boy Color games to your library first.</string>
+
+    <!-- Players in a room, and link cables between them -->
+    <string name="online_status_players">Players</string>
+    <string name="online_status_linked_with">Linked with %1$s</string>
+    <string name="online_status_tap_to_link">Not linked yet · Tap here and pick who to link with</string>
+    <string name="online_status_linked_world">Linked with %1$s · Walk up to them and press A</string>
+    <string name="online_status_linked_pokemon">Linked with %1$s · Now go to the link desk in a Pok Center</string>
+    <string name="online_status_partner_away">%1$s lost connection · Waiting for them to come back</string>
+    <string name="online_status_reconnecting">Connection dropped · Reconnecting, keep the game open</string>
+    <string name="online_status_alone">Waiting for a friend · Tap here to invite</string>
+    <string name="online_room_sheet_title">Room %1$s</string>
+    <string name="online_room_sheet_players">%1$d/%2$d players</string>
+    <string name="online_steps_title">How to trade and battle</string>
+    <string name="online_step_invite">Invite a friend: tap Invite and send them the code.</string>
+    <string name="online_step_link">Link up. With 2 players this happens by itself; with more, tap Link next to a player.</string>
+    <string name="online_step_go_pokemon">Both players: go to the link desk in any Pok Center and talk to the receptionist. The game asks you to save first.</string>
+    <string name="online_step_meet">Meet on the map: the list below shows where everyone is.</string>
+    <string name="online_step_talk">Walk up to them and press A, then pick Trade or Battle.</string>
+    <string name="online_step_go_other">Both players: open the link or multiplayer option in your game.</string>
+    <string name="online_step_play_pokemon">Pick Trade or Battle and have fun.</string>
+    <string name="online_player_away">Lost connection, coming back…</string>
+    <string name="online_player_you">%1$s (you)</string>
+    <string name="online_player_linked_with_you">Linked with you</string>
+    <string name="online_player_linked">Linked with someone else</string>
+    <string name="online_player_not_linked">Not linked</string>
+    <string name="online_link">Link</string>
+    <string name="online_link_asked">Asked</string>
+    <string name="online_unlink">Unplug link cable</string>
+    <string name="online_invite">Invite</string>
+    <string name="online_link_request_title">%1$s wants to link</string>
+    <string name="online_link_request_message">Accept to join your games as if by a link cable, so you can trade and battle.</string>
+    <string name="online_link_accept">Accept</string>
+    <string name="online_link_decline">Not now</string>
+    <string name="online_link_declined">%1$s said not now.</string>
+
+    <!-- In-game room status -->
+    <string name="online_status_waiting_game">Starting game…</string>
+    <string name="online_status_connecting">Connecting to room…</string>
+    <string name="online_status_room">Room %1$s · %2$d/%3$d</string>
+    <string name="online_status_room_short">%1$s · %2$d/%3$d</string>
+    <string name="online_share_text">Join my %1$s room. Code: %2$s\n%3$s</string>
+    <string name="online_share_title">Share room</string>
+    <string name="online_error_not_supported">This core does not support online play.</string>
+    <string name="online_error_connection_failed">Could not connect to the room server.</string>
+    <string name="online_error_connection_lost">Lost connection to the room.</string>
+    <string name="online_error_room_not_found">Room not found.</string>
+    <string name="online_error_room_full">This room is full.</string>
+    <string name="online_error_version">The host uses a different app version. Everyone needs the latest update.</string>
+    <string name="online_error_host_left">The host closed the room.</string>
+    <string name="online_error_room_closed">The room has closed.</string>
+    <string name="online_error_removed">You were removed from the room.</string>
+    <string name="online_error_server">The room server had a problem.</string>
+    <string name="online_status_left">You left the room.</string>
+    <string name="online_room_type">Room type</string>
+    <string name="online_kind_netplay">Play together</string>
+    <string name="online_kind_netplay_description">Multiplayer on one game, like sharing a console: NES, SNES, Sega, PC Engine, Atari, N64, PlayStation and arcade.</string>
+    <string name="online_kind_link">Trade &amp; battle</string>
+    <string name="online_kind_link_description">Up to 8 players link their own Game Boy, Game Boy Color or Game Boy Advance games, as with link cables.</string>
+    <string name="online_no_netplay_games">Add NES, SNES, Sega, N64, PlayStation or arcade games to your library first.</string>
+    <string name="online_no_matching_games">You need a %1$s game for this room.</string>
+    <string name="online_join_pick_game_netplay">Pick your copy of the same game. Everyone needs the same version and region of the game.</string>
+    <string name="online_input_delay">Input delay</string>
+    <string name="online_delay_low">Low: players close to each other</string>
+    <string name="online_delay_normal">Normal</string>
+    <string name="online_delay_high">High: slow or far connections</string>
+    <string name="online_error_core_missing">This room needs an emulator core that is not available in this app.</string>
+    <string name="online_status_waiting_host">Loading the host\'s game…</string>
+    <string name="online_status_waiting_sync">Waiting for other players…</string>
+
+    <!-- While a room starts -->
+    <string name="online_loading_creating">Creating your room</string>
+    <string name="online_loading_joining">Joining room %1$s</string>
+    <string name="online_loading_step_game">Starting the game</string>
+    <string name="online_loading_step_room">Connecting to the room</string>
+    <string name="online_loading_wait">Please wait. Don\'t press back or close the game.</string>
+
+    <!-- Short notices in the game -->
+    <string name="online_notice_joined">%1$s joined the room.</string>
+    <string name="online_notice_joined_linked">%1$s joined. You\'re linked!</string>
+    <string name="online_notice_joined_linked_pokemon">%1$s joined. You\'re linked! Both go to the link desk in any Pok Center to trade or battle.</string>
+    <string name="online_notice_left">%1$s left the room.</string>
+    <string name="online_notice_away">%1$s lost connection. Their place is kept for 3 minutes.</string>
+    <string name="online_notice_back">%1$s is back.</string>
+    <string name="online_notice_reconnected">Reconnected to the room.</string>
+
+    <!-- Talking to another player in the game -->
+    <string name="talk_ask">%1$s is here! What would you like to do?</string>
+    <string name="talk_trade">TRADE</string>
+    <string name="talk_battle">BATTLE</string>
+    <string name="talk_cancel">CANCEL</string>
+    <string name="talk_yes">ACCEPT</string>
+    <string name="talk_no">DECLINE</string>
+    <string name="talk_ok">OK</string>
+    <string name="talk_server_outdated">To talk to other players, the room server needs its latest update.</string>
+    <string name="talk_connecting">Linking up with %1$s for a %2$s… Please wait.</string>
+    <string name="talk_link_failed">Couldn\'t link up with %1$s. Make sure you\'re both still in the room, then try again.</string>
+    <string name="talk_kind_trade">trade</string>
+    <string name="talk_kind_battle">battle</string>
+    <string name="talk_waiting">Asking %1$s to %2$s…</string>
+    <string name="talk_invited">%1$s would like to %2$s with you!</string>
+    <string name="talk_declined">%1$s can\'t right now.</string>
+    <string name="talk_no_answer">%1$s didn\'t answer.</string>
+    <string name="talk_go_trade">%1$s said yes! You\'re linked. Both of you: go to the link desk in a Pok Center and talk to the trade receptionist.</string>
+    <string name="talk_go_battle">%1$s said yes! You\'re linked. Both of you: go to the link desk in a Pok Center and talk to the battle receptionist.</string>
+    <string name="talk_go_other">%1$s said yes! You\'re linked. Both of you: open the link or multiplayer option in your game.</string>
+
+    <!-- Where players are (Players panel) -->
+    <string name="online_world_hint">On the map you see players of the same game on your map or the one next to it. Walk up to someone and press A to trade or battle.</string>
+    <string name="online_place_you">%1$s · %2$s</string>
+    <string name="online_place_here">Here with you · %1$s</string>
+    <string name="online_place_nearby">Just next door · %1$s</string>
+    <string name="online_place_elsewhere">In %1$s</string>
+    <string name="online_place_somewhere">On another map</string>
+    <string name="online_place_busy">In a menu or a battle</string>
+    <string name="online_place_other_game">Plays %1$s · not on your map (trading and battles still work)</string>
+    <string name="online_place_other_game_unknown">Plays another game · not on your map</string>
+    <string name="online_place_not_shown">Their game can\'t be shown on maps</string>
+    <string name="online_place_unknown">Location not known yet</string>
+    <string name="online_place_this_map">this map</string>
+    <string name="online_player_fallback">Player %1$d</string>
+    <string name="online_game_not_shown">This game can\'t be shown on maps</string>
+
+    <!-- Going back to a room -->
+    <string name="online_recent_room_title">Back to room %1$s</string>
+    <string name="online_recent_room_message">Rooms stay open while anyone is in them, and for 5 minutes after the last player leaves.</string>
+    <string name="online_recent_room_rejoin">Rejoin</string>
+
+    <!-- Joining the host's world (Same World rooms). -->
+    <string name="visit_joined">You\'re in %1$s\'s world. Close the game when you\'re done to go back home: what you trade comes with you.</string>
+    <string name="visit_other_game">%1$s plays %2$s, a different game, so you stay in your own world. Trading and battles still work.</string>
+    <string name="visit_other_game_unknown">%1$s plays a different game, so you stay in your own world. Trading and battles still work.</string>
+    <string name="visit_home_traded">You\'re back home with what you traded. Your game was saved.</string>
+    <string name="visit_home">You\'re back home, just as you left.</string>
+    <string name="visit_home_kept_all">You\'re back home. Your party couldn\'t hold the trades, so everything from the visit was kept.</string>
+    <string name="visit_panel">You\'re visiting %1$s\'s world. Close the game to go back home: only what you trade comes with you.</string>
+</resources>
