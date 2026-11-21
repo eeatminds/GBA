@@ -62,7 +62,8 @@ class CoresSelection(
     private fun getSelectedCoreConfigForSystem(system: GameSystem): Flow<SystemCoreConfig> {
         return getSelectedCoreNameForSystem(system)
             .map { coreName ->
-                system.systemCoreConfigs.first { it.coreID.coreName == coreName }
+                // A core no longer offered for this system (e.g. mGBA for GBA): its default.
+                system.systemCoreConfigs.firstOrNull { it.coreID.coreName == coreName } ?: system.systemCoreConfigs.first()
             }
     }
 

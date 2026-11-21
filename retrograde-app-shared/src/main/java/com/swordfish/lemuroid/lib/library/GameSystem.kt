@@ -571,70 +571,9 @@ data class GameSystem(
                     R.string.game_system_title_gba,
                     R.string.game_system_abbr_gba,
                     listOf(
-                        SystemCoreConfig(
-                            CoreID.MGBA,
-                            exposedSettings =
-                                listOf(
-                                    ExposedSetting(
-                                        "mgba_solar_sensor_level",
-                                        R.string.setting_mgba_solar_sensor_level,
-                                    ),
-                                    ExposedSetting(
-                                        "mgba_interframe_blending",
-                                        R.string.setting_mgba_interframe_blending,
-                                        arrayListOf(
-                                            ExposedSetting.Value(
-                                                "OFF",
-                                                R.string.value_mgba_interframe_blending_off,
-                                            ),
-                                            ExposedSetting.Value(
-                                                "mix",
-                                                R.string.value_mgba_interframe_blending_mix,
-                                            ),
-                                            ExposedSetting.Value(
-                                                "lcd_ghosting",
-                                                R.string.value_mgba_interframe_blending_lcd_ghosting,
-                                            ),
-                                            ExposedSetting.Value(
-                                                "lcd_ghosting_fast",
-                                                R.string.value_mgba_interframe_blending_lcd_ghosting_fast,
-                                            ),
-                                        ),
-                                    ),
-                                    ExposedSetting(
-                                        "mgba_frameskip",
-                                        R.string.setting_mgba_frameskip,
-                                        arrayListOf(
-                                            ExposedSetting.Value(
-                                                "disabled",
-                                                R.string.value_mgba_frameskip_disabled,
-                                            ),
-                                            ExposedSetting.Value("auto", R.string.value_mgba_frameskip_auto),
-                                        ),
-                                    ),
-                                    ExposedSetting(
-                                        "mgba_color_correction",
-                                        R.string.setting_mgba_color_correction,
-                                        arrayListOf(
-                                            ExposedSetting.Value(
-                                                "OFF",
-                                                R.string.value_mgba_color_correction_off,
-                                            ),
-                                            ExposedSetting.Value(
-                                                "GBA",
-                                                R.string.value_mgba_color_correction_gba,
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            rumbleSupported = true,
-                            controllerConfigs =
-                                hashMapOf(
-                                    0 to arrayListOf(ControllerConfigs.GBA),
-                                ),
-                        ),
-                        // gpSP supports link cable and wireless adapter play over the internet.
-                        // Online rooms always use it, whatever core is picked for offline play.
+                        // gpSP supports link cable and wireless adapter play over the internet, and
+                        // is the only GBA core, so normal play and online rooms share save states
+                        // and auto-resume (they belong to one core).
                         SystemCoreConfig(
                             CoreID.GPSP,
                             rumbleSupported = true,
